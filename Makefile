@@ -32,7 +32,6 @@ OBJ = $(BUILD_DIR)/main.o \
 	  $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
-	  $(BUILD_DIR)/decode_gpu.o \
 	  $(BUILD_DIR)/crf_model.o \
 	  $(BUILD_DIR)/toml.o \
 
