@@ -13,4 +13,6 @@ int main(int argc, char* argv[]) {
 
     std::vector<DecodedChunk> chunk_results = {};
     decode_cpu(target_threads, scores, chunk_results, num_chunks, &config, &options, runner_idx);
+
+    return 0;
 }
