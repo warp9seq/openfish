@@ -9,10 +9,8 @@ int main(int argc, char* argv[]) {
     
     const int target_threads = 40;
     const DecoderOptions options = DecoderOptions();
-    const int runner_idx = 0;
-
     std::vector<DecodedChunk> chunk_results = {};
-    decode_cpu(target_threads, scores, chunk_results, num_chunks, &config, &options, runner_idx);
+    decode_cpu(target_threads, scores, chunk_results, num_chunks, &config, &options);
 
     return 0;
 }
