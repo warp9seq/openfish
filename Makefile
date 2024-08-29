@@ -2,8 +2,7 @@ CC       = cc
 CXX		 = c++
 
 LIBTORCH_DIR ?= thirdparty/torch/libtorch
-CPPFLAGS += -I slow5lib/include/ \
-			-I src/ \
+CPPFLAGS +=	-I src/ \
 			-I $(LIBTORCH_DIR)/include/torch/csrc/api/include \
 			-I $(LIBTORCH_DIR)/include -I thirdparty/ \
 			-I thirdparty/tomlc99/
@@ -66,7 +65,6 @@ CPPFLAGS += -DREMOVE_FIXED_BEAM_STAYS=1
 
 .PHONY: clean distclean test
 
-# slorado
 $(BINARY): $(OBJ)
 	$(CXX) $(CFLAGS) $(OBJ) $(LDFLAGS) -o $@
 
@@ -79,7 +77,6 @@ $(BUILD_DIR)/misc.o: src/misc.cpp src/misc.h
 $(BUILD_DIR)/error.o: src/error.cpp src/error.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
-# dorado
 $(BUILD_DIR)/signal_prep.o: src/signal_prep.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
@@ -92,7 +89,7 @@ $(BUILD_DIR)/decode_gpu.o: src/decode_gpu.cpp
 $(BUILD_DIR)/crf_model.o: src/crf_model.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
-#toml
+# toml
 $(BUILD_DIR)/toml.o: thirdparty/tomlc99/toml.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -c -o $@
 
