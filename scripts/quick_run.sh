@@ -1,7 +1,5 @@
 #!/bin/bash
 
-make clean && make -j cuda=1
-
 die() {
 	echo "$1" >&2
 	echo

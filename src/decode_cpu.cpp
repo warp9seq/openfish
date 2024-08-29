@@ -210,7 +210,7 @@ void* pthread_single_beam_search(void* voidargs) {
     pthread_exit(0);
 }
 
-void decode_cpu(const int target_threads, const torch::Tensor& scores, std::vector<DecodedChunk>& chunk_results, const int num_chunks, const CRFModelConfig* config, const DecoderOptions* options, const int runner_idx) {
+void decode_cpu(const int target_threads, const torch::Tensor& scores, std::vector<DecodedChunk>& chunk_results, const int num_chunks, const CRFModelConfig* config, const DecoderOptions* options) {
     // init score tensors
     auto scores_TNC = scores;
 
