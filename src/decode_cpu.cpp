@@ -214,7 +214,8 @@ void decode_cpu(const int target_threads, const torch::Tensor& scores, std::vect
     // init score tensors
     auto scores_TNC = scores;
 
-    scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
+    // expect input already transformed
+    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
     
     const int T = scores_TNC.size(0);
     const int N = scores_TNC.size(1);
@@ -263,14 +264,20 @@ void decode_cpu(const int target_threads, const torch::Tensor& scores, std::vect
         NEG_CHK(ret);
     }
 
-    // beam search
-    for (t = 0; t < num_threads; t++) {
-        ret = pthread_create(&tids[t], NULL, pthread_single_beam_search, (void*)(&pt_args[t]));
-        NEG_CHK(ret);
-    }
+    // write tensors
+    torch::save(scores_TNC, "scores_TNC.pt");
+    torch::save(bwd_NTC, "bwd_NTC.pt");
+    torch::save(fwd_NTC, "fwd_NTC.pt");
+    torch::save(post_NTC, "post_NTC.pt");
 
-    for (t = 0; t < num_threads; t++) {
-        ret = pthread_join(tids[t], NULL);
-        NEG_CHK(ret);
-    }
+    // beam search
+    // for (t = 0; t < num_threads; t++) {
+    //     ret = pthread_create(&tids[t], NULL, pthread_single_beam_search, (void*)(&pt_args[t]));
+    //     NEG_CHK(ret);
+    // }
+
+    // for (t = 0; t < num_threads; t++) {
+    //     ret = pthread_join(tids[t], NULL);
+    //     NEG_CHK(ret);
+    // }
 }

@@ -1,2 +1,6 @@
 openfish
 thirdparty/torch
+*.pt
+models
+build/*
+.vscode/
