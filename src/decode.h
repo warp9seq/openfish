@@ -1,11 +1,10 @@
 #pragma once
-#include <torch/torch.h>
 
 #include <string>
 #include <vector>
 
-#define DTYPE_CPU torch::kF32
-#define DTYPE_GPU torch::kF16
+#define DTYPE_CPU float
+#define DTYPE_GPU float
 
 struct DecodedChunk {
     std::string sequence;
