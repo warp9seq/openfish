@@ -1,8 +1,14 @@
 #pragma once
 
 #include "decode.h"
-#include "crf_model.h"
 
-#include <torch/torch.h>
-
-void decode_gpu(const int target_threads, const torch::Tensor& scores, std::vector<DecodedChunk>& chunk_results, const int num_chunks, const CRFModelConfig* config, const DecoderOptions* options);
+void decode_gpu(
+    const int T,
+    const int N,
+    const int C,
+    const int target_threads,
+    float *scores_TNC,
+    std::vector<DecodedChunk>& chunk_results,
+    const int state_len,
+    const DecoderOptions* options
+);

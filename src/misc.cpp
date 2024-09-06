@@ -14,8 +14,6 @@
 
 #include "misc.h"
 
-#include "torch/torch.h"
-
 /*
 
 realtime, cputime, peakrss and mm_parse_num
@@ -132,7 +130,7 @@ std::vector<std::string> parse_cuda_device_string(std::string device_arg) {
     std::vector<std::string> devices;
     
     if (device_arg == "cuda:all" || device_arg == "cuda:auto") {
-        for (size_t i = 0; i < torch::cuda::device_count(); i++) {
+        for (size_t i = 0; i < 4; i++) { // todo: should check actual nubmer of devices
             devices.push_back("cuda:" + std::to_string(i));
         }
         return devices;
