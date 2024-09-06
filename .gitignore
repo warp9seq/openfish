@@ -1,6 +1,7 @@
 openfish
 thirdparty/torch
 *.pt
+*.blob
 models
 build/*
 .vscode/
