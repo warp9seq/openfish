@@ -256,4 +256,8 @@ void decode_cpu(
     fp = fopen("post_NTC.blob", "w");
     fwrite(post_NTC, sizeof(float), N * (T + 1) * m_states, fp);
     fclose(fp);
+
+    free(bwd_NTC);
+    free(fwd_NTC);
+    free(post_NTC);
 }
