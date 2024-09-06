@@ -19,11 +19,14 @@ int main(int argc, char* argv[]) {
         ERROR("%s", "error reading score file");
         exit(EXIT_FAILURE);
     }
+    fclose(fp);
     
     const int target_threads = 40;
     const DecoderOptions options = DecoderOptions();
     std::vector<DecodedChunk> chunk_results = {};
     decode_cpu(T, N, C, target_threads, scores, chunk_results, state_len, &options);
+
+    free(scores);
 
     return 0;
 }
