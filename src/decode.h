@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <cstdint>
 
 #define DTYPE_CPU float
 #define DTYPE_GPU float
