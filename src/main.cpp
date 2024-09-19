@@ -1,4 +1,5 @@
 #include "decode_cpu.h"
+#include "decode_gpu.h"
 #include "error.h"
 
 #include <math.h>
@@ -24,7 +25,7 @@ int main(int argc, char* argv[]) {
     const int target_threads = 40;
     const DecoderOptions options = DecoderOptions();
     std::vector<DecodedChunk> chunk_results = {};
-    decode_cpu(T, N, C, target_threads, scores, chunk_results, state_len, &options);
+    decode_gpu(T, N, C, target_threads, scores, chunk_results, state_len, &options);
 
     free(scores);
 
