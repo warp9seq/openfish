@@ -1,8 +1,7 @@
 CC       = cc
 CXX		 = c++
 
-CPPFLAGS +=	-I src/ \
-			-I thirdparty/tomlc99/
+CPPFLAGS +=	-I src/
 CFLAGS	+= 	-g -Wall -O2
 CXXFLAGS   += -g -Wall -O2  -std=c++14
 LDFLAGS  += $(LIBS) -lz -lm -lpthread -lstdc++fs
@@ -47,8 +46,6 @@ endif
 # 	LDFLAGS += -lrt -ldl
 # endif
 # endif
-
-CPPFLAGS += -DREMOVE_FIXED_BEAM_STAYS=1
 
 .PHONY: clean distclean test
 
