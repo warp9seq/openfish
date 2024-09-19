@@ -5,7 +5,7 @@
 #include <math.h>
 #include <vector>
 
-void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
+static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
     const uint64_t kNumBases = 4;
     const uint64_t kNumTransitions = kNumBases + 1;
     const float kFixedStayScore = 2.0f;
@@ -48,7 +48,7 @@ void backward_scan(const float *scores_in, float *out, const uint64_t chunk, con
     }
 }
 
-void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
+static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     constexpr uint64_t kNumBases = 4;
     constexpr uint64_t kNumTransitions = kNumBases + 1;
@@ -118,7 +118,7 @@ void forward_scan(const float *scores_in, const float *bwd, float *out, const ui
     }
 }
 
-void softmax(const float *fwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t num_states) {
+static void softmax(const float *fwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     for (uint64_t ts = 0; ts < T; ++ts) {
         const uint64_t ts_idx = (chunk * T + ts) * num_states;

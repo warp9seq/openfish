@@ -6,6 +6,10 @@ die() {
 	exit 1
 }
 
+if [ "$#" -ne 1 ]; then
+    die "usage: ./quick_run.sh <model>"
+fi
+
 MODEL=$1
 
 STATE_LEN=3
