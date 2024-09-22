@@ -5,3 +5,4 @@ thirdparty/torch
 models
 build/*
 .vscode/
+log.txt
