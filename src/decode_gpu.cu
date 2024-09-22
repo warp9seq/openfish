@@ -14,50 +14,50 @@ __global__ void bwd_scan(
 	const int num_states,
 	const int num_states_per_thread
 ) {
-	int chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-	int thread_idx = threadIdx.x + (threadIdx.y * blockDim.x);
-	int state_begin = thread_idx * num_states_per_thread;
-	int state_end = state_begin + num_states_per_thread;
+	uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	uint64_t thread_idx = threadIdx.x + (threadIdx.y * blockDim.x);
+	uint64_t state_begin = thread_idx * num_states_per_thread;
+	uint64_t state_end = state_begin + num_states_per_thread;
 
 	if (chunk >= N || state_begin >= num_states) {
 		return;
 	}
 
-	const int kNumBases = 4;
-    const int kNumTransitions = kNumBases + 1;
+	const uint64_t kNumBases = 4;
+    const uint64_t kNumTransitions = kNumBases + 1;
     const float kFixedStayScore = 2.0f;
 
-    const int ts_states = num_states * kNumBases;
+    const uint64_t ts_states = num_states * kNumBases;
 
     const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
-    for (int state = 0; state < num_states; ++state) {
+    for (uint64_t state = 0; state < num_states; ++state) {
         alpha_init[state] = 0.0f;
     }
 
-    for (int ts = 0; ts < T; ++ts) {
+    for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
         const float* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
-        for (int state = state_begin; state < state_end; ++state) {
-            const int stay_state_idx = state;
-            const int step_state_idx_a = (state * kNumBases) % num_states;
-            const int step_trans_idx_a = step_state_idx_a * kNumBases +
+        for (uint64_t state = state_begin; state < state_end; ++state) {
+            const uint64_t stay_state_idx = state;
+            const uint64_t step_state_idx_a = (state * kNumBases) % num_states;
+            const uint64_t step_trans_idx_a = step_state_idx_a * kNumBases +
                 ((state * kNumBases) / num_states);
 
             float vals[kNumTransitions];
             vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
             float max_val = vals[0];
-            for (int base = 0; base < kNumBases; ++base) {
+            for (uint64_t base = 0; base < kNumBases; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
                     ts_in[step_trans_idx_a + base * kNumBases];
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
-            for (int i = 0; i < kNumTransitions; ++i) {
+            for (uint64_t i = 0; i < kNumTransitions; ++i) {
                 sum += exp(vals[i] - max_val);
             }
             ts_alpha_out[state] = max_val + log(sum);
@@ -258,7 +258,7 @@ void decode_gpu(
     float elapsedtimekernel;
 	t0 = (float)clock()/CLOCKS_PER_SEC;
 
-	bwd_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, T, 1, num_states, states_per_thread);
+	bwd_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
 	cudaDeviceSynchronize();
     checkCudaError();
 
