@@ -1,5 +1,5 @@
 #include "decode_cpu.h"
-#include "decode_gpu.h"
+#include "decode_gpu.cuh"
 #include "error.h"
 
 #include <math.h>

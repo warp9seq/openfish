@@ -1,5 +1,5 @@
-CC       = cc
-CXX		 = c++
+CC       = gcc
+CXX		 = g++
 
 CPPFLAGS +=	-I src/
 CFLAGS	+= 	-g -Wall -O2
@@ -19,8 +19,6 @@ OBJ = $(BUILD_DIR)/main.o \
 	  $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
-	  $(BUILD_DIR)/decode_gpu.o \
-
 
 # add more objects here if needed
 
@@ -34,11 +32,15 @@ ifdef asan
 endif
 
 # make accel=1 enables the acceelerator (CUDA,OpenCL,FPGA etc if implemented)
-# ifdef cuda
-#     CPPFLAGS += -DUSE_GPU=1
-# 	OBJ += $(BUILD_DIR)/decode_gpu.o
-# 	LIBS += -Wl,--as-needed -lpthread -Wl,--no-as-needed,"$(LIBTORCH_DIR)/lib/libtorch_cuda.so" -Wl,--as-needed,"$(LIBTORCH_DIR)/lib/libc10_cuda.so"
-# 	LDFLAGS += -lrt -ldl
+ifdef cuda
+	CUDA_ROOT = /usr/local/cuda
+    CUDA_LIB ?= $(CUDA_ROOT)/lib64
+    CUDA_OBJ = $(BUILD_DIR)/decode_gpu.o
+    NVCC ?= nvcc
+    CUDA_CFLAGS += -g  -O2 -std=c++11 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
+    CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
+    OBJ += $(BUILD_DIR)/cuda_code.o $(CUDA_OBJ)
+    CPPFLAGS += -DHAVE_CUDA=1
 # else
 # ifdef rocm
 # 	CPPFLAGS += -DUSE_GPU=1
@@ -46,12 +48,12 @@ endif
 # 	LIBS += -Wl,--as-needed -lpthread -Wl,--no-as-needed,"$(LIBTORCH_DIR)/lib/libtorch_hip.so" -Wl,--as-needed,"$(LIBTORCH_DIR)/lib/libc10_hip.so"
 # 	LDFLAGS += -lrt -ldl
 # endif
-# endif
+endif
 
 .PHONY: clean distclean test
 
 $(BINARY): $(OBJ)
-	$(CXX) $(CFLAGS) $(OBJ) $(LDFLAGS) -o $@
+	$(CXX) $(CFLAGS) $(OBJ) $(LDFLAGS) $(CUDA_LDFLAGS) -o $@
 
 $(BUILD_DIR)/main.o: src/main.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
@@ -68,8 +70,12 @@ $(BUILD_DIR)/signal_prep.o: src/signal_prep.cpp
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
-$(BUILD_DIR)/decode_gpu.o: src/decode_gpu.cpp
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
+# cuda
+$(BUILD_DIR)/cuda_code.o: $(CUDA_OBJ)
+	$(NVCC) $(CUDA_CFLAGS) -dlink $^ -o $@
+
+$(BUILD_DIR)/decode_gpu.o: src/decode_gpu.cu src/decode_gpu.cuh src/error.cuh
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*.o
