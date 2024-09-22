@@ -58,9 +58,9 @@ __global__ void bwd_scan(
             }
             float sum = 0.0f;
             for (uint64_t i = 0; i < kNumTransitions; ++i) {
-                sum += exp(vals[i] - max_val);
+                sum += expf(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + log(sum);
+            ts_alpha_out[state] = max_val + logf(sum);
         }
     }
 }
