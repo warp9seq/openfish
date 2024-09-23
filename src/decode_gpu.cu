@@ -8,16 +8,12 @@
 #include <float.h>
 
 // https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
-__device__ static float atomicMax(float* address, float val)
-{
-    int* address_as_i = (int*) address;
-    int old = *address_as_i, assumed;
-    do {
-        assumed = old;
-        old = ::atomicCAS(address_as_i, assumed,
-            __float_as_int(::fmaxf(val, __int_as_float(assumed))));
-    } while (assumed != old);
-    return __int_as_float(old);
+__device__ __forceinline__ static float atomicMaxFloat (float * addr, float value) {
+    float old;
+    old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
+         __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
+
+    return old;
 }
 
 __global__ void bwd_scan(
@@ -170,7 +166,7 @@ __global__ void fwd_post_scan(
             const DTYPE_GPU val = fwd_val + bwd[ts_idx + state];
 
             fwd_vals[state] = val;
-            atomicMax(&max_val, val);
+            atomicMaxFloat(&max_val, val);
         }
         exp_sum = 0.0;
         __syncthreads();
