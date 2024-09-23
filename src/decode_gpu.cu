@@ -72,9 +72,9 @@ __global__ void bwd_scan(
             }
             DTYPE_GPU sum = 0.0f;
             for (uint64_t i = 0; i < kNumTransitions; ++i) {
-                sum += exp(vals[i] - max_val);
+                sum += __expf(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + log(sum);
+            ts_alpha_out[state] = max_val + __logf(sum);
         }
     }
 }
@@ -160,7 +160,7 @@ __global__ void fwd_post_scan(
             for (uint64_t i = 0; i < kNumTransitions; ++i) {
                 fwd_sum += exp(vals[i] - fwd_max_val);
             }
-            ts_alpha_out[state] = fwd_max_val + log(fwd_sum);
+            ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
 
             // Load the forward guide value calculated in the last time step for use
             // in this time step's posterior probability calculation.
@@ -177,7 +177,7 @@ __global__ void fwd_post_scan(
 
         // enter exp vals
         for (uint64_t state = state_begin; state < state_end; ++state) {
-            DTYPE_GPU exp_val = exp(fwd_vals[state] - max_val);
+            DTYPE_GPU exp_val = __expf(fwd_vals[state] - max_val);
             exp_vals[state] = exp_val;
             atomicAdd(&exp_sum, exp_val);
         }
@@ -244,7 +244,8 @@ void decode_gpu(
 	checkCudaError();
 
 #ifdef BENCH
-    const int n_bench = 100;
+    const int n_bench = 140;
+    fprintf(stderr, "simulating %d batches...\n", n_bench);
 #endif
 
     // bwd scan
