@@ -65,7 +65,24 @@ __global__ void bwd_scan(
     }
 }
 
-static void forward_scan(const DTYPE_GPU *scores_in, const DTYPE_GPU *bwd, DTYPE_GPU *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
+__global__ void fwd_post_scan(
+    const DTYPE_GPU *scores_in,
+    const DTYPE_GPU *bwd,
+    DTYPE_GPU *out,
+    const uint64_t _T,
+    const uint64_t N,
+    const uint64_t num_states,
+    const int num_states_per_thread
+) {
+    uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	uint64_t thread_idx = threadIdx.x + (threadIdx.y * blockDim.x);
+	uint64_t state_begin = thread_idx * num_states_per_thread;
+	uint64_t state_end = state_begin + num_states_per_thread;
+
+	if (chunk >= N || state_begin >= num_states) {
+		return;
+	}
+
     const uint64_t T = _T+1; 
     constexpr uint64_t kNumBases = 4;
     constexpr uint64_t kNumTransitions = kNumBases + 1;
@@ -74,18 +91,22 @@ static void forward_scan(const DTYPE_GPU *scores_in, const DTYPE_GPU *bwd, DTYPE
     const uint64_t kMsb = num_states / kNumBases;
     const uint64_t ts_states = num_states * kNumBases;
 
+    constexpr uint64_t max_threads_per_block = 1024;
+    __shared__ DTYPE_GPU fwd_vals[max_threads_per_block];
+    __shared__ DTYPE_GPU exp_vals[max_threads_per_block];
+
     // This batch element's scores.
     const DTYPE_GPU* const chunk_scores = scores_in + chunk * ts_states;
 
     // Alternating forward guide buffers used for successive time steps.
     constexpr uint64_t kMaxStates = 1024;
-    DTYPE_GPU ts_fwd[2][kMaxStates]; // threadgroup
+    __shared__ DTYPE_GPU ts_fwd[2][kMaxStates]; // threadgroup
 
     // The forward guide input for the first step is 0.
-    for (uint64_t state = 0; state < num_states; ++state) {
+    for (uint64_t state = state_begin; state < state_end; ++state) {
         ts_fwd[0][state] = 0.0f;
     }
-    // threadgroup_barrier(mem_flags::mem_threadgroup); // ------------------------------------------------------------------
+    __syncthreads();
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         // We read forward guide values written to TG memory in the previous step as
@@ -103,7 +124,7 @@ static void forward_scan(const DTYPE_GPU *scores_in, const DTYPE_GPU *bwd, DTYPE
         // Calculate the next time step's forward guide from this time step's scores
         // and forward guide.  It's written to threadgroup memory for use in the
         // next iteration.
-        for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
+        for (uint64_t state = state_begin; state < state_end; ++state) {
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / kNumBases;
             const uint64_t step_trans_idx_a = state * kNumBases;
@@ -130,36 +151,37 @@ static void forward_scan(const DTYPE_GPU *scores_in, const DTYPE_GPU *bwd, DTYPE
 
             // Calculate fwd/bwd guide product in log space.
             const DTYPE_GPU val = fwd_val + bwd[ts_idx + state];
-            out[ts_idx + state] = val;
+
+            fwd_vals[state] = val;
         }
-    }
-}
+        __syncthreads();
 
-static void softmax(const DTYPE_GPU *fwd, DTYPE_GPU *out, const uint64_t chunk, const uint64_t _T, const uint64_t num_states) {
-    const uint64_t T = _T+1; 
-    for (uint64_t ts = 0; ts < T; ++ts) {
-        const uint64_t ts_idx = (chunk * T + ts) * num_states;
+        // find max fwd val in this timestep
+        float max_val = fwd_vals[0];
+        for (uint64_t state = 1; state < num_states; ++state) {
+            if (fwd_vals[state] > max_val) {
+                max_val = fwd_vals[state];
+            }
+        }
+        __syncthreads();
 
-        DTYPE_GPU max_val = fwd[ts_idx];
+        // enter exp vals
+        for (uint64_t state = state_begin; state < state_end; ++state) {
+            exp_vals[state] = exp(fwd_vals[state] - max_val);
+        }
+        __syncthreads();
+
+        // get max exp val
+        DTYPE_GPU exp_sum = 0.0;
         for (uint64_t state = 0; state < num_states; ++state) {
-            max_val = max_val > fwd[ts_idx + state] ? max_val : fwd[ts_idx + state];
+            exp_sum += exp_vals[state];
         }
-
-        DTYPE_GPU exp_sum = 0;
-        DTYPE_GPU exp_vals[num_states];
-        for (uint64_t state = 0; state < num_states; ++state) {
-            const DTYPE_GPU val = fwd[ts_idx + state];
-            const DTYPE_GPU exp_val = exp(val - max_val);
-            exp_vals[state] = exp_val;
-            exp_sum += exp_val;
+        
+        // calculate posterior probability
+        for (uint64_t state = state_begin; state < state_end; ++state) {
+            out[ts_idx + state] = exp_vals[state] / exp_sum;
         }
-
-        for (uint64_t state = 0; state < num_states; ++state) {
-            const DTYPE_GPU exp_val = exp_vals[state];
-
-            // Write out the posterior probability 
-            out[ts_idx + state] = (DTYPE_GPU)(exp_val / exp_sum);
-        }
+        __syncthreads();
     }
 }
 
@@ -188,12 +210,10 @@ void decode_gpu(
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
     DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
-    DTYPE_GPU *fwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
     DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
 
     DTYPE_GPU *scores_TNC_cuda;
     DTYPE_GPU *bwd_NTC_cuda;
-    DTYPE_GPU *fwd_NTC_cuda;
     DTYPE_GPU *post_NTC_cuda;
 
     // copy score tensor over
@@ -203,15 +223,12 @@ void decode_gpu(
 	checkCudaError();
 
     // init scan tensors
-    // cudaMalloc((void **)&fwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
-	// checkCudaError();
-    // cudaMalloc((void **)&post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
-	// checkCudaError();
-
-    // bwd scan
     cudaMalloc((void **)&bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
-    // start timing
+    cudaMalloc((void **)&post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
+	checkCudaError();
+
+    // bwd scan
 	t0 = (float)clock()/CLOCKS_PER_SEC;
 	bwd_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
     cudaDeviceSynchronize();
@@ -220,10 +237,22 @@ void decode_gpu(
 	t1 = (float)clock()/CLOCKS_PER_SEC;
     elapsed = t1 - t0;
     fprintf(stderr, "bwd scan completed in %f secs\n", elapsed);
-	// copy results
-	cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+    
+    // fwd + post scan
+	t0 = (float)clock()/CLOCKS_PER_SEC;
+	fwd_post_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, post_NTC_cuda, T, N, num_states, states_per_thread);
+    cudaDeviceSynchronize();
     checkCudaError();
-    cudaFree(bwd_NTC_cuda);
+	// end timing
+	t1 = (float)clock()/CLOCKS_PER_SEC;
+    elapsed = t1 - t0;
+    fprintf(stderr, "fwd scan completed in %f secs\n", elapsed);
+
+	// copy results
+    cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(post_NTC, post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
     // write tensors
     FILE *fp;
@@ -235,20 +264,15 @@ void decode_gpu(
     fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
     fclose(fp);
 
-    // fp = fopen("fwd_NTC.blob", "w");
-    // fwrite(fwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
-    // fclose(fp);
-
-    // fp = fopen("post_NTC.blob", "w");
-    // fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
-    // fclose(fp);
+    fp = fopen("post_NTC.blob", "w");
+    fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fclose(fp);
 
     // cleanup
     free(bwd_NTC);
-    // free(fwd_NTC);
-    // free(post_NTC);
+    free(post_NTC);
     
     cudaFree(scores_TNC_cuda);
-    // cudaFree(fwd_NTC_cuda);
-    // cudaFree(post_NTC_cuda);
+    cudaFree(bwd_NTC_cuda);
+    cudaFree(post_NTC_cuda);
 }
