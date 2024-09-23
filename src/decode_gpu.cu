@@ -65,49 +65,6 @@ __global__ void bwd_scan(
     }
 }
 
-// static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
-//     const uint64_t kNumBases = 4;
-//     const uint64_t kNumTransitions = kNumBases + 1;
-//     const float kFixedStayScore = 2.0f;
-
-//     const uint64_t ts_states = num_states * kNumBases;
-
-//     const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
-//     float* const chunk_out = out + chunk * (T+1) * num_states;
-//     float* const alpha_init = chunk_out + num_states * T;
-//     for (uint64_t state = 0; state < num_states; ++state) { // (for GPU impl) its 1 thread per state, but below we iterate through all the states on 1 thread
-//         alpha_init[state] = 0.0f;
-//     }
-
-//     for (uint64_t ts = 0; ts < T; ++ts) {
-//         // threadgroup_barrier(mem_flags::medevice); // synchronize all threads before next time step (for GPU impl)
-//         const float* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
-//         float* const ts_alpha_in = alpha_init - num_states * ts;
-//         float* const ts_alpha_out = ts_alpha_in - num_states;
-
-//         for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
-//             const uint64_t stay_state_idx = state;
-//             const uint64_t step_state_idx_a = (state * kNumBases) % num_states;
-//             const uint64_t step_trans_idx_a = step_state_idx_a * kNumBases +
-//                 ((state * kNumBases) / num_states);
-
-//             float vals[kNumTransitions];
-//             vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-//             float max_val = vals[0];
-//             for (uint64_t base = 0; base < kNumBases; ++base) {
-//                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-//                     ts_in[step_trans_idx_a + base * kNumBases];
-//                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
-//             }
-//             float sum = 0.0f;
-//             for (uint64_t i = 0; i < kNumTransitions; ++i) {
-//                 sum += exp(vals[i] - max_val);
-//             }
-//             ts_alpha_out[state] = max_val + log(sum);
-//         }
-//     }
-// }
-
 static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     constexpr uint64_t kNumBases = 4;
