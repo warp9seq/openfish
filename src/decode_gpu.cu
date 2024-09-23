@@ -7,8 +7,8 @@
 #include <vector>
 
 __global__ void bwd_scan(
-	const float *scores_in,
-	float *out,
+	const DTYPE_GPU *scores_in,
+	DTYPE_GPU *out,
 	const int T,
 	const int N,
 	const int num_states,
@@ -25,22 +25,22 @@ __global__ void bwd_scan(
 
 	const uint64_t kNumBases = 4;
     const uint64_t kNumTransitions = kNumBases + 1;
-    const float kFixedStayScore = 2.0f;
+    const DTYPE_GPU kFixedStayScore = 2.0f;
 
     const uint64_t ts_states = num_states * kNumBases;
 
-    const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
-    float* const chunk_out = out + chunk * (T+1) * num_states;
-    float* const alpha_init = chunk_out + num_states * T;
-    for (uint64_t state = 0; state < num_states; ++state) {
+    const DTYPE_GPU* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
+    DTYPE_GPU* const chunk_out = out + chunk * (T+1) * num_states;
+    DTYPE_GPU* const alpha_init = chunk_out + num_states * T;
+    for (uint64_t state = state_begin; state < state_end; ++state) {
         alpha_init[state] = 0.0f;
     }
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
-        const float* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
-        float* const ts_alpha_in = alpha_init - num_states * ts;
-        float* const ts_alpha_out = ts_alpha_in - num_states;
+        const DTYPE_GPU* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
+        DTYPE_GPU* const ts_alpha_in = alpha_init - num_states * ts;
+        DTYPE_GPU* const ts_alpha_out = ts_alpha_in - num_states;
 
         for (uint64_t state = state_begin; state < state_end; ++state) {
             const uint64_t stay_state_idx = state;
@@ -48,19 +48,19 @@ __global__ void bwd_scan(
             const uint64_t step_trans_idx_a = step_state_idx_a * kNumBases +
                 ((state * kNumBases) / num_states);
 
-            float vals[kNumTransitions];
+            DTYPE_GPU vals[kNumTransitions];
             vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-            float max_val = vals[0];
+            DTYPE_GPU max_val = vals[0];
             for (uint64_t base = 0; base < kNumBases; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
                     ts_in[step_trans_idx_a + base * kNumBases];
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
-            float sum = 0.0f;
+            DTYPE_GPU sum = 0.0f;
             for (uint64_t i = 0; i < kNumTransitions; ++i) {
-                sum += expf(vals[i] - max_val);
+                sum += exp(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + logf(sum);
+            ts_alpha_out[state] = max_val + log(sum);
         }
     }
 }
@@ -218,35 +218,37 @@ void decode_gpu(
 ) {
     float t0, t1;
     // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
+    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
     
     const int n_base = 4;
     const int num_states = std::pow(n_base, state_len);
     const int states_per_thread = std::max(1, num_states / 1024);
+    const uint64_t num_scan_elem = N * (T + 1) * num_states;
     fprintf(stderr, "num_states: %d\n", num_states);
     fprintf(stderr, "states per thread: %d\n", states_per_thread);
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
-    float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
-    // float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
-    // float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
+    DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    DTYPE_GPU *fwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
 
-    float *scores_TNC_cuda;
-    float *bwd_NTC_cuda;
-    // float *fwd_NTC_cuda;
-    // float *post_NTC_cuda;
+    DTYPE_GPU *scores_TNC_cuda;
+    DTYPE_GPU *bwd_NTC_cuda;
+    DTYPE_GPU *fwd_NTC_cuda;
+    DTYPE_GPU *post_NTC_cuda;
     // init scan tensors
-	cudaMalloc((void **)&bwd_NTC_cuda, sizeof(DTYPE_CPU) * N * (T + 1) * num_states);
+	cudaMalloc((void **)&bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
-    cudaMemcpy(bwd_NTC_cuda, bwd_NTC, sizeof(DTYPE_CPU) * N * (T + 1) * num_states, cudaMemcpyHostToDevice);
+    cudaMalloc((void **)&fwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
+	checkCudaError();
+    cudaMalloc((void **)&post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
 
 	// copy score tensor over
-    cudaMalloc((void **)&scores_TNC_cuda, sizeof(DTYPE_CPU) * T * N * C);
+    cudaMalloc((void **)&scores_TNC_cuda, sizeof(DTYPE_GPU) * T * N * C);
 	checkCudaError();
-	cudaMemcpy(scores_TNC_cuda, scores_TNC, sizeof(DTYPE_CPU) * T * N * C, cudaMemcpyHostToDevice);
-    cudaDeviceSynchronize();
+	cudaMemcpy(scores_TNC_cuda, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
 	checkCudaError();
 
     fprintf(stderr, "copied scores over to cuda device\n");
@@ -259,7 +261,6 @@ void decode_gpu(
 	t0 = (float)clock()/CLOCKS_PER_SEC;
 
 	bwd_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
-	cudaDeviceSynchronize();
     checkCudaError();
 
 	// end measuring time for cuda kernel
@@ -270,8 +271,7 @@ void decode_gpu(
 
 	// copy the answer back from cuda ro ram
 	// start measuring time
-	cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_CPU) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
+	cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     fprintf(stderr, "%s\n", "copied bwd over to host");
@@ -279,27 +279,28 @@ void decode_gpu(
     // write tensors
     FILE *fp;
     fp = fopen("scores_TNC.blob", "w");
-    fwrite(scores_TNC, sizeof(float), T * N * C, fp);
+    fwrite(scores_TNC, sizeof(DTYPE_GPU), T * N * C, fp);
     fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(DTYPE_CPU), N * (T + 1) * num_states, fp);
+    fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
     fclose(fp);
 
-    // fp = fopen("fwd_NTC.blob", "w");
-    // fwrite(fwd_NTC, sizeof(float), N * (T + 1) * m_states, fp);
-    // fclose(fp);
+    fp = fopen("fwd_NTC.blob", "w");
+    fwrite(fwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fclose(fp);
 
-    // fp = fopen("post_NTC.blob", "w");
-    // fwrite(post_NTC, sizeof(float), N * (T + 1) * m_states, fp);
-    // fclose(fp);
+    fp = fopen("post_NTC.blob", "w");
+    fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fclose(fp);
 
+    // cleanup
     free(bwd_NTC);
-    // free(fwd_NTC);
-    // free(post_NTC);
+    free(fwd_NTC);
+    free(post_NTC);
     
     cudaFree(scores_TNC_cuda);
     cudaFree(bwd_NTC_cuda);
-    // cudaFree(fwd_NTC_cuda);
-    // cudaFree(post_NTC_cuda);
+    cudaFree(fwd_NTC_cuda);
+    cudaFree(post_NTC_cuda);
 }
