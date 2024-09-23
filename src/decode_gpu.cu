@@ -202,17 +202,16 @@ void decode_gpu(
     const int state_len,
     const DecoderOptions* options
 ) {
-    int target_grid_width = (int)ceil(sqrt((double)N));
     int block_width = 32;
-    int grid_width = 2;
-    while (grid_width < target_grid_width) {
-        grid_width *= 2;
+    int grid_len = 2;
+    while (grid_len < N) {
+        grid_len *= 2;
     }
-    fprintf(stderr, "chosen grid_width: %d for batch size %d\n", grid_width, N);
+    fprintf(stderr, "chosen grid_len: %d for batch size %d\n", grid_len, N);
 
     float t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
-	dim3 grid_size(grid_width, grid_width, 1);
+	dim3 grid_size(grid_len, 1, 1);
 
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
@@ -244,14 +243,17 @@ void decode_gpu(
 	checkCudaError();
 
 #ifdef BENCH
-    const int n_bench = 140;
-    fprintf(stderr, "simulating %d batches...\n", n_bench);
+    int n_batch = 140; // simulate 20k reads
+    if (num_states == 64) n_batch = 140; // fast
+    else if (num_states == 256) n_batch = 345; // hac
+    else if (num_states == 1024) n_batch = 685; // sup
+    fprintf(stderr, "simulating %d batches...\n", n_batch);
 #endif
 
     // bwd scan
 	t0 = (float)clock()/CLOCKS_PER_SEC;
 #ifdef BENCH
-    for (int i = 0; i < n_bench; ++i)
+    for (int i = 0; i < n_batch; ++i)
 #endif
     {
         bwd_scan<<<grid_size,block_size>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
@@ -266,7 +268,7 @@ void decode_gpu(
     // fwd + post scan
 	t0 = (float)clock()/CLOCKS_PER_SEC;
 #ifdef BENCH
-    for (int i = 0; i < n_bench; ++i)
+    for (int i = 0; i < n_batch; ++i)
 #endif
     {
         fwd_post_scan<<<grid_size,block_size>>>(scores_TNC_cuda, bwd_NTC_cuda, post_NTC_cuda, T, N, num_states, states_per_thread);
