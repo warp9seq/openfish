@@ -19,6 +19,7 @@ OBJ = $(BUILD_DIR)/main.o \
 	  $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
+	  $(BUILD_DIR)/openfish.o \
 
 # add more objects here if needed
 
@@ -68,6 +69,9 @@ $(BUILD_DIR)/signal_prep.o: src/signal_prep.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
+
+$(BUILD_DIR)/openfish.o: src/openfish.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
 # cuda
