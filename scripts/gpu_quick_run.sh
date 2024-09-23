@@ -43,3 +43,8 @@ echo "comparing post tensors..."
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN || die "failed diff"
 
 # echo "tests passed for ${MODEL}"
+
+# num batches for each model: 20k reads
+# fast - 140
+# hac - 345
+# sup - 685
