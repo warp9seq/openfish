@@ -197,11 +197,21 @@ void decode_gpu(
     const int state_len,
     const DecoderOptions* options
 ) {
-    int block_width = 32;
+    const int n_base = 4;
+    const int num_states = std::pow(n_base, state_len);
+
+    // calculate grid / block dims
+    const int target_block_width = (int)ceil(sqrt((float)num_states));
+    int block_width = 2;
     int grid_len = 2;
+    while (block_width < target_block_width) {
+        block_width *= 2;
+    }
     while (grid_len < N) {
         grid_len *= 2;
     }
+
+    fprintf(stderr, "chosen block_dims: %d x %d for num_states %d\n", block_width, block_width, num_states);
     fprintf(stderr, "chosen grid_len: %d for batch size %d\n", grid_len, N);
 
     float t0, t1, elapsed;
@@ -211,9 +221,8 @@ void decode_gpu(
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
     
-    const int n_base = 4;
-    const int num_states = std::pow(n_base, state_len);
-    const int states_per_thread = std::max(1, num_states / 1024);
+    
+    const int states_per_thread = std::max(1, num_states / (block_width * block_width));
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
