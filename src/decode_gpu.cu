@@ -5,6 +5,20 @@
 
 #include <math.h>
 #include <vector>
+#include <float.h>
+
+// https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
+__device__ static float atomicMax(float* address, float val)
+{
+    int* address_as_i = (int*) address;
+    int old = *address_as_i, assumed;
+    do {
+        assumed = old;
+        old = ::atomicCAS(address_as_i, assumed,
+            __float_as_int(::fmaxf(val, __int_as_float(assumed))));
+    } while (assumed != old);
+    return __int_as_float(old);
+}
 
 __global__ void bwd_scan(
 	const DTYPE_GPU *scores_in,
@@ -94,6 +108,9 @@ __global__ void fwd_post_scan(
     constexpr uint64_t max_threads_per_block = 1024;
     __shared__ DTYPE_GPU fwd_vals[max_threads_per_block];
     __shared__ DTYPE_GPU exp_vals[max_threads_per_block];
+    __shared__ DTYPE_GPU exp_sum;
+    __shared__ DTYPE_GPU max_val;
+    max_val = FLT_MIN;
 
     // This batch element's scores.
     const DTYPE_GPU* const chunk_scores = scores_in + chunk * ts_states;
@@ -153,34 +170,24 @@ __global__ void fwd_post_scan(
             const DTYPE_GPU val = fwd_val + bwd[ts_idx + state];
 
             fwd_vals[state] = val;
+            atomicMax(&max_val, val);
         }
-        __syncthreads();
-
-        // find max fwd val in this timestep
-        float max_val = fwd_vals[0];
-        for (uint64_t state = 1; state < num_states; ++state) {
-            if (fwd_vals[state] > max_val) {
-                max_val = fwd_vals[state];
-            }
-        }
+        exp_sum = 0.0;
         __syncthreads();
 
         // enter exp vals
         for (uint64_t state = state_begin; state < state_end; ++state) {
-            exp_vals[state] = exp(fwd_vals[state] - max_val);
+            DTYPE_GPU exp_val = exp(fwd_vals[state] - max_val);
+            exp_vals[state] = exp_val;
+            atomicAdd(&exp_sum, exp_val);
         }
         __syncthreads();
 
-        // get max exp val
-        DTYPE_GPU exp_sum = 0.0;
-        for (uint64_t state = 0; state < num_states; ++state) {
-            exp_sum += exp_vals[state];
-        }
-        
         // calculate posterior probability
         for (uint64_t state = state_begin; state < state_end; ++state) {
             out[ts_idx + state] = exp_vals[state] / exp_sum;
         }
+        max_val = FLT_MIN;
         __syncthreads();
     }
 }
