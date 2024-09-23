@@ -33,11 +33,11 @@ __global__ void bwd_scan(
 		return;
 	}
 
-	const uint64_t kNumBases = 4;
-    const uint64_t kNumTransitions = kNumBases + 1;
-    const DTYPE_GPU kFixedStayScore = 2.0f;
+	const uint64_t k_num_bases = 4;
+    const uint64_t k_num_transitions = k_num_bases + 1;
+    const DTYPE_GPU k_fixed_stay_score = 2.0f;
 
-    const uint64_t ts_states = num_states * kNumBases;
+    const uint64_t ts_states = num_states * k_num_bases;
 
     const DTYPE_GPU* const chunk_in = scores_in + chunk * ts_states; // should be half DTYPE_GPU (for GPU impl)
     DTYPE_GPU* const chunk_out = out + chunk * (T+1) * num_states;
@@ -54,20 +54,20 @@ __global__ void bwd_scan(
 
         for (uint64_t state = state_begin; state < state_end; ++state) {
             const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = (state * kNumBases) % num_states;
-            const uint64_t step_trans_idx_a = step_state_idx_a * kNumBases +
-                ((state * kNumBases) / num_states);
+            const uint64_t step_state_idx_a = (state * k_num_bases) % num_states;
+            const uint64_t step_trans_idx_a = step_state_idx_a * k_num_bases +
+                ((state * k_num_bases) / num_states);
 
-            DTYPE_GPU vals[kNumTransitions];
-            vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
+            DTYPE_GPU vals[k_num_transitions];
+            vals[0] = ts_alpha_in[stay_state_idx] + k_fixed_stay_score;
             DTYPE_GPU max_val = vals[0];
-            for (uint64_t base = 0; base < kNumBases; ++base) {
+            for (uint64_t base = 0; base < k_num_bases; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-                    ts_in[step_trans_idx_a + base * kNumBases];
+                    ts_in[step_trans_idx_a + base * k_num_bases];
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             DTYPE_GPU sum = 0.0f;
-            for (uint64_t i = 0; i < kNumTransitions; ++i) {
+            for (uint64_t i = 0; i < k_num_transitions; ++i) {
                 sum += __expf(vals[i] - max_val);
             }
             ts_alpha_out[state] = max_val + __logf(sum);
@@ -94,16 +94,16 @@ __global__ void fwd_post_scan(
 	}
 
     const uint64_t T = _T+1; 
-    constexpr uint64_t kNumBases = 4;
-    constexpr uint64_t kNumTransitions = kNumBases + 1;
-    constexpr DTYPE_GPU kFixedStayScore = 2.0f;
+    constexpr uint64_t k_num_bases = 4;
+    constexpr uint64_t k_num_transitions = k_num_bases + 1;
+    constexpr DTYPE_GPU k_fixed_stay_score = 2.0f;
     
-    const uint64_t kMsb = num_states / kNumBases;
-    const uint64_t ts_states = num_states * kNumBases;
+    const uint64_t kMsb = num_states / k_num_bases;
+    const uint64_t ts_states = num_states * k_num_bases;
 
-    constexpr uint64_t max_threads_per_block = 1024;
-    __shared__ DTYPE_GPU fwd_vals[max_threads_per_block];
-    __shared__ DTYPE_GPU exp_vals[max_threads_per_block];
+    constexpr uint64_t k_max_states = 1024;
+    __shared__ DTYPE_GPU fwd_vals[k_max_states];
+    __shared__ DTYPE_GPU exp_vals[k_max_states];
     __shared__ DTYPE_GPU exp_sum;
     __shared__ DTYPE_GPU max_val;
     max_val = FLT_MIN;
@@ -112,8 +112,7 @@ __global__ void fwd_post_scan(
     const DTYPE_GPU* const chunk_scores = scores_in + chunk * ts_states;
 
     // Alternating forward guide buffers used for successive time steps.
-    constexpr uint64_t kMaxStates = 1024;
-    __shared__ DTYPE_GPU ts_fwd[2][kMaxStates]; // threadgroup
+    __shared__ DTYPE_GPU ts_fwd[2][k_max_states]; // threadgroup
 
     // The forward guide input for the first step is 0.
     for (uint64_t state = state_begin; state < state_end; ++state) {
@@ -139,11 +138,11 @@ __global__ void fwd_post_scan(
         // next iteration.
         for (uint64_t state = state_begin; state < state_end; ++state) {
             const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / kNumBases;
-            const uint64_t step_trans_idx_a = state * kNumBases;
-            DTYPE_GPU vals[kNumTransitions];
-            DTYPE_GPU fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-            for (uint64_t base = 0; base < kNumBases; ++base) {
+            const uint64_t step_state_idx_a = state / k_num_bases;
+            const uint64_t step_trans_idx_a = state * k_num_bases;
+            DTYPE_GPU vals[k_num_transitions];
+            DTYPE_GPU fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + k_fixed_stay_score;
+            for (uint64_t base = 0; base < k_num_bases; ++base) {
                 // todo: this is a bandaid for indexing past the actual T dimension of scores
                 // need to verify with actual MetalTxCaller impl output,
                 // otherwise output remains exactly the same for this impl whether it indexes past or not
@@ -153,7 +152,7 @@ __global__ void fwd_post_scan(
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             DTYPE_GPU fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < kNumTransitions; ++i) {
+            for (uint64_t i = 0; i < k_num_transitions; ++i) {
                 fwd_sum += exp(vals[i] - fwd_max_val);
             }
             ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
