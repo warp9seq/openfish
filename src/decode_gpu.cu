@@ -195,9 +195,17 @@ void decode_gpu(
     const int state_len,
     const DecoderOptions* options
 ) {
+    int target_grid_width = (int)ceil(sqrt((double)N));
+    int block_width = 32;
+    int grid_width = 2;
+    while (grid_width < target_grid_width) {
+        grid_width *= 2;
+    }
+    fprintf(stderr, "chosen grid_width: %d for batch size %d\n", grid_width, N);
+
     float t0, t1, elapsed;
-    dim3 threads_per_block(32, 32, 1);
-	dim3 num_blocks(N, 1, 1);
+    dim3 block_size(block_width, block_width, 1);
+	dim3 grid_size(grid_width, grid_width, 1);
 
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
@@ -228,11 +236,20 @@ void decode_gpu(
     cudaMalloc((void **)&post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
 
+#ifdef BENCH
+    const int n_bench = 100;
+#endif
+
     // bwd scan
 	t0 = (float)clock()/CLOCKS_PER_SEC;
-	bwd_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
-    cudaDeviceSynchronize();
-    checkCudaError();
+#ifdef BENCH
+    for (int i = 0; i < n_bench; ++i)
+#endif
+    {
+        bwd_scan<<<grid_size,block_size>>>(scores_TNC_cuda, bwd_NTC_cuda, T, N, num_states, states_per_thread);
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
 	// end timing
 	t1 = (float)clock()/CLOCKS_PER_SEC;
     elapsed = t1 - t0;
@@ -240,9 +257,14 @@ void decode_gpu(
     
     // fwd + post scan
 	t0 = (float)clock()/CLOCKS_PER_SEC;
-	fwd_post_scan<<<num_blocks,threads_per_block>>>(scores_TNC_cuda, bwd_NTC_cuda, post_NTC_cuda, T, N, num_states, states_per_thread);
-    cudaDeviceSynchronize();
-    checkCudaError();
+#ifdef BENCH
+    for (int i = 0; i < n_bench; ++i)
+#endif
+    {
+        fwd_post_scan<<<grid_size,block_size>>>(scores_TNC_cuda, bwd_NTC_cuda, post_NTC_cuda, T, N, num_states, states_per_thread);
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
 	// end timing
 	t1 = (float)clock()/CLOCKS_PER_SEC;
     elapsed = t1 - t0;
