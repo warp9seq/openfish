@@ -11,6 +11,7 @@ int main(int argc, char* argv[]) {
     
     size_t scores_len = T * N * C;
     float *scores = (float *)calloc(scores_len, sizeof(DTYPE_CPU));
+    MALLOC_CHK(scores);
 
     FILE *fp = fopen(argv[1], "rb");
 

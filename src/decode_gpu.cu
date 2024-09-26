@@ -214,7 +214,7 @@ void decode_gpu(
     fprintf(stderr, "chosen block_dims: %d x %d for num_states %d\n", block_width, block_width, num_states);
     fprintf(stderr, "chosen grid_len: %d for batch size %d\n", grid_len, N);
 
-    float t0, t1, elapsed;
+    double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
@@ -228,7 +228,9 @@ void decode_gpu(
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
     DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    MALLOC_CHK(bwd_NTC);
     DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    MALLOC_CHK(post_NTC);
 
     DTYPE_GPU *scores_TNC_cuda;
     DTYPE_GPU *bwd_NTC_cuda;
@@ -255,7 +257,7 @@ void decode_gpu(
 #endif
 
     // bwd scan
-	t0 = (float)clock()/CLOCKS_PER_SEC;
+	t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
 #endif
@@ -265,12 +267,12 @@ void decode_gpu(
         checkCudaError();
     }
 	// end timing
-	t1 = (float)clock()/CLOCKS_PER_SEC;
+	t1 = realtime();
     elapsed = t1 - t0;
     fprintf(stderr, "bwd scan completed in %f secs\n", elapsed);
     
     // fwd + post scan
-	t0 = (float)clock()/CLOCKS_PER_SEC;
+	t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
 #endif
@@ -280,7 +282,7 @@ void decode_gpu(
         checkCudaError();
     }
 	// end timing
-	t1 = (float)clock()/CLOCKS_PER_SEC;
+	t1 = realtime();
     elapsed = t1 - t0;
     fprintf(stderr, "fwd scan completed in %f secs\n", elapsed);
 
