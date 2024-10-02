@@ -54,7 +54,7 @@ __device__ static __forceinline__ float kth_largestf(float *nums, int k, int n) 
 __device__ static __forceinline__ float log_sum_exp(float x, float y) {
     float abs_diff = fabsf(x - y);
     float m = x > y ? x : y;
-    return m + ((abs_diff < 17.0f) ? (__logf( 1.0 + __expf(-abs_diff))) : 0.0f);
+    return m + ((abs_diff < 17.0f) ? (__logf(1.0 + __expf(-abs_diff))) : 0.0f);
 }
 
 __global__ void generate_sequence_cuda(
@@ -130,6 +130,8 @@ __global__ void generate_sequence_cuda(
         if (qscore < 1.0f) qscore = 1.0f;
         qstring[i] = char(33.5f + qscore);
     }
+    sequence[seq_len] = '\0';
+    qstring[seq_len] = '\0';
 }
 
 // Incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
