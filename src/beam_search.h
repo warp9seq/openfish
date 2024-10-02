@@ -33,7 +33,6 @@ void beam_search(
     const float *const posts,
     const int num_state_bits,
     const size_t num_ts,
-    const size_t max_beam_width,
     const float beam_cut,
     const float fixed_stay_score,
     state_t *states,

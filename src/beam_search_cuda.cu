@@ -167,7 +167,7 @@ __global__ void beam_search_cuda(
 	}
 
     const size_t num_states = 1ull << num_state_bits;
-    const size_t scores_block_stride = T * N;
+    const size_t scores_block_stride = N * C;
 
     const float *scores_TNC = _scores_TNC + chunk * (num_states * NUM_BASES);
     const float *bwd_NTC = _bwd_NTC + chunk * num_states * (T + 1);
@@ -310,11 +310,9 @@ __global__ void beam_search_cuda(
 
                 // Go through all the possible step extensions that match this destination base with the stay and compare
                 // their hashes, merging if we find any.
-                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width;
-                     prev_elem_comp_idx++) {
+                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
-                    if (current_beam_front[stay_elem_idx].hash ==
-                        current_beam_front[step_elem_idx].hash) {
+                    if (current_beam_front[stay_elem_idx].hash == current_beam_front[step_elem_idx].hash) {
                         if (current_scores[stay_elem_idx] > current_scores[step_elem_idx]) {
                             // Fold the step into the stay
                             const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
@@ -341,27 +339,30 @@ __global__ void beam_search_cuda(
 
         // Starting point for finding the cutoff score is the beam cut score
         float beam_cutoff_score = max_score - log_beam_cut;
+        auto get_elem_count = [new_elem_count, &beam_cutoff_score, &current_scores]() {
+            // Count the elements which meet the beam cutoff.
+            size_t elem_count = 0;
+            const float *score_ptr = current_scores;
+            for (int i = int(new_elem_count); i; --i) {
+                if (*score_ptr >= beam_cutoff_score) {
+                    ++elem_count;
+                }
+                ++score_ptr;
+            }
+            return elem_count;
+        };
 
         // Count the elements which meet the min score
-        size_t elem_count = 0;
-        float *score_ptr;
-
-        score_ptr = current_scores;
-        for (int i = int(new_elem_count); i; --i) {
-            if (*score_ptr >= beam_cutoff_score) ++elem_count;
-            ++score_ptr;
-        }
+        size_t elem_count = get_elem_count();
 
         if (elem_count > MAX_BEAM_WIDTH) {
             // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            size_t min_beam_width =
-                    (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
+            size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
             float low_score = beam_cutoff_score;
             float hi_score = max_score;
             int num_guesses = 1;
             constexpr int MAX_GUESSES = 10;
-            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) &&
-                   num_guesses < MAX_GUESSES) {
+            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                 if (elem_count > MAX_BEAM_WIDTH) {
                     // Make a higher guess
                     low_score = beam_cutoff_score;
@@ -371,12 +372,7 @@ __global__ void beam_search_cuda(
                     hi_score = beam_cutoff_score;
                     beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
                 }
-                elem_count = 0;
-                score_ptr = current_scores;
-                for (int i = int(new_elem_count); i; --i) {
-                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                    ++score_ptr;
-                }
+                elem_count = get_elem_count();
                 ++num_guesses;
             }
             // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
@@ -388,13 +384,7 @@ __global__ void beam_search_cuda(
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
                 beam_cutoff_score = hi_score;
-
-                elem_count = 0;
-                score_ptr = current_scores;
-                for (int i = int(new_elem_count); i; --i) {
-                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                    ++score_ptr;
-                }
+                elem_count = get_elem_count();
             }
 
             // Clamp the element count to the max beam width in case of failure 2 from above.

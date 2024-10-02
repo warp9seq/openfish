@@ -190,8 +190,7 @@ void* pthread_single_scan_score(void* voidargs) {
 void *pthread_single_beam_search(void *voidargs) {
     decode_thread_arg_t *args = (decode_thread_arg_t *)voidargs;
     const DecoderOptions *options = args->options;
-
-    const int max_beam_width = 32;
+    
     const int num_states = std::pow(NUM_BASES, args->state_len);
     const int num_state_bits = static_cast<int>(log2(num_states));
     const int T = args->T;
@@ -214,9 +213,9 @@ void *pthread_single_beam_search(void *voidargs) {
         auto total_probs = args->total_probs + c * T;
         auto sequence = args->sequence + c * T;
         auto qstring = args->qstring + c * T;
-        auto beam_vector = args->beam_vector + c * max_beam_width * (T+1);
+        auto beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
 
-        beam_search(scores, N * C, bwd, post, num_state_bits, T, max_beam_width, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        beam_search(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < T; ++i) {
@@ -250,7 +249,7 @@ void decode_cpu(
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
     
-    const int max_beam_width = 32;
+    const int MAX_BEAM_WIDTH = 32;
     const int num_states = std::pow(NUM_BASES, state_len);
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
@@ -260,7 +259,7 @@ void decode_cpu(
     float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
 
     // we are only callocing here so we can compare tensors later
-    beam_element_t *beam_vector = (beam_element_t *)calloc(N * max_beam_width * (T + 1), sizeof(beam_element_t));
+    beam_element_t *beam_vector = (beam_element_t *)calloc(N * MAX_BEAM_WIDTH * (T + 1), sizeof(beam_element_t));
     MALLOC_CHK(beam_vector);
 
     state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
