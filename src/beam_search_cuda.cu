@@ -191,11 +191,11 @@ __global__ void beam_search_cuda(
     // Each existing element can be extended by one of NUM_BASES, or be a stay.
     constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
 
-    beam_front_element_t current_beam_front[max_beam_candidates];
-    beam_front_element_t prev_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t current_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t prev_beam_front[max_beam_candidates];
 
-    float current_scores[max_beam_candidates];
-    float prev_scores[max_beam_candidates];
+    __shared__ float current_scores[max_beam_candidates];
+    __shared__ float prev_scores[max_beam_candidates];
 
     // Find the score an initial element needs in order to make it into the beam
     float beam_init_threshold = -FLT_MAX;
@@ -343,21 +343,16 @@ __global__ void beam_search_cuda(
 
         // Starting point for finding the cutoff score is the beam cut score
         float beam_cutoff_score = max_score - log_beam_cut;
-        auto get_elem_count = [new_elem_count, &beam_cutoff_score, &current_scores]() {
-            // Count the elements which meet the beam cutoff.
-            size_t elem_count = 0;
-            const float *score_ptr = current_scores;
-            for (int i = int(new_elem_count); i; --i) {
-                if (*score_ptr >= beam_cutoff_score) {
-                    ++elem_count;
-                }
-                ++score_ptr;
-            }
-            return elem_count;
-        };
+        size_t elem_count;
+        float *score_ptr;
 
         // Count the elements which meet the min score
-        size_t elem_count = get_elem_count();
+        elem_count = 0;
+        score_ptr = current_scores;
+        for (int i = int(new_elem_count); i; --i) {
+            if (*score_ptr >= beam_cutoff_score) ++elem_count;
+            ++score_ptr;
+        }
 
         if (elem_count > MAX_BEAM_WIDTH) {
             // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
@@ -376,7 +371,13 @@ __global__ void beam_search_cuda(
                     hi_score = beam_cutoff_score;
                     beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
                 }
-                elem_count = get_elem_count();
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = int(new_elem_count); i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
+
                 ++num_guesses;
             }
             // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
@@ -388,7 +389,12 @@ __global__ void beam_search_cuda(
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
                 beam_cutoff_score = hi_score;
-                elem_count = get_elem_count();
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = int(new_elem_count); i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
             }
 
             // Clamp the element count to the max beam width in case of failure 2 from above.
