@@ -185,7 +185,7 @@ __global__ void beam_search_cuda(
 
     // Some values we need
     constexpr uint32_t CRC_SEED = 0x12345678u;
-    const float log_beam_cut = (beam_cut > 0.0f) ? logf(beam_cut) : FLT_MAX;
+    const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
     // Create the previous and current beam fronts
     // Each existing element can be extended by one of NUM_BASES, or be a stay.
