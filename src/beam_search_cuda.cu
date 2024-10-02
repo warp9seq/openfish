@@ -58,18 +58,32 @@ __device__ static __forceinline__ float log_sum_exp(float x, float y) {
 }
 
 __global__ void generate_sequence_cuda(
-    const uint8_t *moves,
-    const int32_t *states,
-    const float *qual_data,
+    const uint8_t *_moves,
+    const state_t *_states,
+    const float *_qual_data,
+    float *_base_probs,
+    float *_total_probs,
+    char *_sequence,
+    char *_qstring,
     const float shift,
     const float scale,
-    const size_t num_ts,
     const size_t seq_len,
-    float *base_probs,
-    float *total_probs,
-    char *sequence,
-    char *qstring
+    const size_t T,
+    const size_t N
 ) {
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    if (chunk >= N) {
+		return;
+	}
+
+    const uint8_t *moves = _moves + chunk * T;
+    const state_t *states = _states + chunk * T;
+    const float *qual_data = _qual_data + chunk * (T * NUM_BASES);
+    float *base_probs = _base_probs + chunk * T;
+    float *total_probs = _total_probs + chunk * T;
+    char *sequence = _sequence + chunk * T;
+    char *qstring = _qstring + chunk * T;
+
     size_t seq_pos = 0;
 
     const char alphabet[4] = {'A', 'C', 'G', 'T'};
@@ -79,7 +93,7 @@ __global__ void generate_sequence_cuda(
         total_probs[i] = 0;
     }
 
-    for (size_t blk = 0; blk < num_ts; ++blk) {
+    for (size_t blk = 0; blk < T; ++blk) {
         int state = states[blk];
         int move = int(moves[blk]);
         int base = state & 3;
@@ -131,23 +145,39 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 }
 
 __global__ void beam_search_cuda(
-    const float *const scores,
-    size_t scores_block_stride,
-    const float *const back_guide,
-    const float *const posts,
+    const float *const _scores_TNC,
+    const float *const _bwd_NTC,
+    const float *const _post_NTC,
+    state_t *_states,
+    uint8_t *_moves,
+    float *_qual_data,
+    beam_element_t *_beam_vector,
     const int num_state_bits,
-    const size_t num_ts,
     const float beam_cut,
     const float fixed_stay_score,
-    int32_t *states,
-    uint8_t *moves,
-    float *qual_data,
-    float score_scale,
-    float posts_scale,
-    beam_element_t *beam_vector
+    const float score_scale,
+    const float posts_scale,
+    const uint64_t T,
+    const uint64_t N,
+    const uint64_t C
 ) {
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    if (chunk >= N) {
+		return;
+	}
+
     const size_t num_states = 1ull << num_state_bits;
-    const auto states_mask = static_cast<state_t>(num_states - 1);
+    const size_t scores_block_stride = T * N;
+
+    const float *scores_TNC = _scores_TNC + chunk * (num_states * NUM_BASES);
+    const float *bwd_NTC = _bwd_NTC + chunk * num_states * (T + 1);
+    const float *post_NTC = _post_NTC + chunk * num_states * (T + 1);
+    state_t *states = _states + chunk * T;
+    uint8_t *moves = _moves + chunk * T;
+    float *qual_data = _qual_data + chunk * (T * NUM_BASES);
+    beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (T + 1);
+
+    const state_t states_mask = static_cast<state_t>(num_states - 1);
 
     // Some values we need
     constexpr uint32_t CRC_SEED = 0x12345678u;
@@ -170,7 +200,7 @@ __global__ void beam_search_cuda(
         constexpr size_t max_states = 1024;
         float sorted_back_guides[max_states];
         for (size_t i = 0; i < num_states; ++i) {
-            sorted_back_guides[i] = back_guide[i];
+            sorted_back_guides[i] = bwd_NTC[i];
         }
 
         beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
@@ -178,7 +208,7 @@ __global__ void beam_search_cuda(
 
     // Initialise the beam
     for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
-        if (back_guide[state] >= beam_init_threshold) {
+        if (bwd_NTC[state] >= beam_init_threshold) {
             // Note that this first element has a prev_element_index of 0
             prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
                                              static_cast<state_t>(state), 0, false};
@@ -204,13 +234,9 @@ __global__ void beam_search_cuda(
     bool step_hash_present[4096];  // Default constructor zeros content.
 
     // Iterate through blocks, extending beam
-    for (size_t block_idx = 0; block_idx < num_ts; ++block_idx) {
-        const float *const block_scores = scores + (block_idx * scores_block_stride);
-        // Retrieves the given score as a float, multiplied by score_scale.
-        const auto fetch_block_score = [block_scores, score_scale](size_t idx) {
-            return static_cast<float>(block_scores[idx]) * score_scale;
-        };
-        const float *const block_back_scores = back_guide + ((block_idx + 1) << num_state_bits);
+    for (size_t block_idx = 0; block_idx < T; ++block_idx) {
+        const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         /*  kmer transitions order:
          *  N^K , N array
@@ -238,19 +264,21 @@ __global__ void beam_search_cuda(
         // As we do so, update the maximum score.
         size_t new_elem_count = 0;
         for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
-            const auto& previous_element = prev_beam_front[prev_elem_idx];
+            const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
 
             // Expand all the possible steps
             for (int new_base = 0; new_base < NUM_BASES; new_base++) {
                 state_t new_state =
-                        (state_t((previous_element.state << NUM_BASE_BITS) & states_mask) |
+                        (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) |
                          state_t(new_base));
-                const auto move_idx = static_cast<state_t>(
+                const state_t move_idx = static_cast<state_t>(
                         (new_state << NUM_BASE_BITS) +
-                        (((previous_element.state << NUM_BASE_BITS) >> num_state_bits)));
-                float new_score = prev_scores[prev_elem_idx] + fetch_block_score(move_idx) +
+                        (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
+
+                float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
+                float new_score = prev_scores[prev_elem_idx] + block_score +
                                   static_cast<float>(block_back_scores[new_state]);
-                uint32_t new_hash = crc32c(previous_element.hash, new_base, NUM_BASE_BITS);
+                uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
 
                 step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
 
@@ -264,21 +292,21 @@ __global__ void beam_search_cuda(
         }
 
         for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
-            const auto& previous_element = prev_beam_front[prev_elem_idx];
+            const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
             // Add the possible stay.
             const float stay_score = prev_scores[prev_elem_idx] + fixed_stay_score +
-                                     static_cast<float>(block_back_scores[previous_element.state]);
-            current_beam_front[new_elem_count] = {previous_element.hash, previous_element.state,
+                                     static_cast<float>(block_back_scores[previous_element->state]);
+            current_beam_front[new_elem_count] = {previous_element->hash, previous_element->state,
                                                   (uint8_t)prev_elem_idx, true};
             current_scores[new_elem_count] = stay_score;
             max_score = max_score > stay_score ? max_score : stay_score;
 
             // Determine whether the path including this stay duplicates another sequence ending in
             // a step.
-            if (step_hash_present[previous_element.hash & HASH_PRESENT_MASK]) {
+            if (step_hash_present[previous_element->hash & HASH_PRESENT_MASK]) {
                 size_t stay_elem_idx = (current_beam_width << NUM_BASE_BITS) + prev_elem_idx;
                 // latest base is in smallest bits
-                int stay_latest_base = int(previous_element.state & 3);
+                int stay_latest_base = int(previous_element->state & 3);
 
                 // Go through all the possible step extensions that match this destination base with the stay and compare
                 // their hashes, merging if we find any.
@@ -314,21 +342,15 @@ __global__ void beam_search_cuda(
         // Starting point for finding the cutoff score is the beam cut score
         float beam_cutoff_score = max_score - log_beam_cut;
 
-        auto get_elem_count = [new_elem_count, &beam_cutoff_score, &current_scores]() {
-            // Count the elements which meet the beam cutoff.
-            size_t elem_count = 0;
-            const float *score_ptr = current_scores;
-            for (int i = int(new_elem_count); i; --i) {
-                if (*score_ptr >= beam_cutoff_score) {
-                    ++elem_count;
-                }
-                ++score_ptr;
-            }
-            return elem_count;
-        };
-
         // Count the elements which meet the min score
-        size_t elem_count = get_elem_count();
+        size_t elem_count = 0;
+        float *score_ptr;
+
+        score_ptr = current_scores;
+        for (int i = int(new_elem_count); i; --i) {
+            if (*score_ptr >= beam_cutoff_score) ++elem_count;
+            ++score_ptr;
+        }
 
         if (elem_count > MAX_BEAM_WIDTH) {
             // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
@@ -349,7 +371,12 @@ __global__ void beam_search_cuda(
                     hi_score = beam_cutoff_score;
                     beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
                 }
-                elem_count = get_elem_count();
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = int(new_elem_count); i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
                 ++num_guesses;
             }
             // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
@@ -361,7 +388,13 @@ __global__ void beam_search_cuda(
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
                 beam_cutoff_score = hi_score;
-                elem_count = get_elem_count();
+
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = int(new_elem_count); i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
             }
 
             // Clamp the element count to the max beam width in case of failure 2 from above.
@@ -383,7 +416,7 @@ __global__ void beam_search_cuda(
 
         // At the last timestep, we need to ensure the best path corresponds to element 0.
         // The other elements don't matter.
-        if (block_idx == num_ts - 1) {
+        if (block_idx == T - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
             for (size_t i = 0; i < elem_count; i++) {
@@ -392,11 +425,11 @@ __global__ void beam_search_cuda(
                     best_score_index = i;
                 }
             }
-            auto temp0 = prev_beam_front[0];
+            beam_front_element_t temp0 = prev_beam_front[0];
             prev_beam_front[0] = prev_beam_front[best_score_index];
             prev_beam_front[best_score_index] = temp0;
 
-            auto temp1 = prev_scores[0];
+            float temp1 = prev_scores[0];
             prev_scores[0] = prev_scores[best_score_index];
             prev_scores[best_score_index] = temp1;
         }
@@ -417,7 +450,7 @@ __global__ void beam_search_cuda(
 
     // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
     uint8_t element_index = 0;
-    for (size_t beam_idx = num_ts; beam_idx != 0; --beam_idx) {
+    for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
         size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
         states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
         moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
@@ -432,14 +465,14 @@ __global__ void beam_search_cuda(
     hp_states[2] = hp_states[1] * 2;     // calculate hp G from hp C (10b per base)
 
     // Compute per-base qual data
-    for (size_t block_idx = 0; block_idx < num_ts; block_idx++) {
+    for (size_t block_idx = 0; block_idx < T; block_idx++) {
         int state = states[block_idx];
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];
 
         // Compute a probability for this block, based on the path kmer. See the following explanation:
         // https://git.oxfordnanolabs.local/machine-learning/notebooks/-/blob/master/bonito-basecaller-qscores.ipynb
-        const float *timestep_posts = posts + ((block_idx + 1) * num_states);
+        const float *timestep_posts = post_NTC + ((block_idx + 1) * num_states);
 
         // For states which are homopolymers, we don't want to count the states more than once
         bool is_hp = state == hp_states[0] || state == hp_states[1] || state == hp_states[2] ||

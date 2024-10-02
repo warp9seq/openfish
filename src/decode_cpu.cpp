@@ -160,7 +160,7 @@ typedef struct {
     int32_t T;
     int32_t N;
     int32_t C;
-    int32_t *states;
+    state_t *states;
     uint8_t *moves;
     float *qual_data;
     float *base_probs;
@@ -263,7 +263,7 @@ void decode_cpu(
     beam_element_t *beam_vector = (beam_element_t *)calloc(N * max_beam_width * (T + 1), sizeof(beam_element_t));
     MALLOC_CHK(beam_vector);
 
-    int32_t *states = (int32_t *)calloc(N * T, sizeof(int32_t));
+    state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
     MALLOC_CHK(states);
     
     uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
