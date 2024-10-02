@@ -216,11 +216,12 @@ void decode_cuda(
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
+    dim3 block_size_beam(1, 1, 1);
+    // dim3 block_size_gen_seq(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
-    
     
     const int states_per_thread = std::max(1, num_states / (block_width * block_width));
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
@@ -229,6 +230,7 @@ void decode_cuda(
 
     DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
     MALLOC_CHK(bwd_NTC);
+
     DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
     MALLOC_CHK(post_NTC);
 
@@ -239,6 +241,7 @@ void decode_cuda(
     // copy score tensor over
     cudaMalloc((void **)&scores_TNC_cuda, sizeof(DTYPE_GPU) * T * N * C);
 	checkCudaError();
+
 	cudaMemcpy(scores_TNC_cuda, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
 	checkCudaError();
 
@@ -286,17 +289,124 @@ void decode_cuda(
     elapsed = t1 - t0;
     fprintf(stderr, "fwd scan completed in %f secs\n", elapsed);
 
-	// copy results
+    // beam search
+
+    // results
+    uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    MALLOC_CHK(moves);
+
+    char *sequence = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(sequence);
+
+    char *qstring = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(qstring);
+
+    // intermediate results
+    uint8_t *moves_cuda;
+    char *sequence_cuda;
+    char *qstring_cuda;
+
+    cudaMalloc((void **)&moves_cuda, sizeof(uint8_t) * N * T);
+    checkCudaError();
+    cudaMemset(moves_cuda, 0, sizeof(uint8_t) * N * T);
+	checkCudaError();
+
+    cudaMalloc((void **)&sequence_cuda, sizeof(char) * N * T);
+    checkCudaError();
+    cudaMemset(sequence_cuda, 0, sizeof(char) * N * T);
+	checkCudaError();
+
+    cudaMalloc((void **)&qstring_cuda, sizeof(char) * N * T);
+    checkCudaError();
+    cudaMemset(qstring_cuda, 0, sizeof(char) * N * T);
+	checkCudaError();
+    
+    // intermediate
+    beam_element_t *beam_vector_cuda;
+    state_t *states_cuda;
+    float *qual_data_cuda;
+    float *base_probs_cuda;
+    float *total_probs_cuda;
+
+    cudaMalloc((void **)&beam_vector_cuda, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+    checkCudaError();
+    cudaMemset(beam_vector_cuda, 0, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+	checkCudaError();
+
+    cudaMalloc((void **)&states_cuda, sizeof(state_t) * N * T);
+    checkCudaError();
+    cudaMemset(states_cuda, 0, sizeof(state_t) * N * T);
+	checkCudaError();
+
+    cudaMalloc((void **)&qual_data_cuda, sizeof(float) * N * T * NUM_BASES);
+    checkCudaError();
+    cudaMemset(qual_data_cuda, 0, sizeof(float) * N * T * NUM_BASES);
+	checkCudaError();
+
+    cudaMalloc((void **)&base_probs_cuda, sizeof(float) * N * T);
+    checkCudaError();
+    cudaMemset(base_probs_cuda, 0, sizeof(float) * N * T);
+	checkCudaError();
+
+    cudaMalloc((void **)&total_probs_cuda, sizeof(float) * N * T);
+    checkCudaError();
+    cudaMemset(total_probs_cuda, 0, sizeof(float) * N * T);
+	checkCudaError();
+
+    const int num_state_bits = static_cast<int>(log2(num_states));
+    const float fixed_stay_score = options->blank_score;
+    const float q_scale = options->q_scale;
+    const float q_shift = options->q_shift;
+    const float beam_cut = options->beam_cut;
+
+    fprintf(stderr, "starting beam search...\n");
+
+    t0 = realtime();
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        beam_search_cuda<<<grid_size,block_size_beam>>>(
+            scores_TNC_cuda,
+            bwd_NTC_cuda,
+            post_NTC_cuda,
+            states_cuda,
+            moves_cuda,
+            qual_data_cuda,
+            beam_vector_cuda,
+            num_state_bits,
+            beam_cut,
+            fixed_stay_score,
+            q_scale,
+            q_shift,
+            T,
+            N,
+            C
+        );
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
+	// end timing
+	t1 = realtime();
+    elapsed = t1 - t0;
+    fprintf(stderr, "beam search completed in %f secs\n", elapsed);
+
+	// copy scan results
     cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 	cudaMemcpy(post_NTC, post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    // write tensors
+    // copy beam_search results
+    cudaMemcpy(moves, moves_cuda, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(sequence, sequence_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+    cudaMemcpy(qstring, qstring_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    // write results
     FILE *fp;
-    fp = fopen("scores_TNC.blob", "w");
-    fwrite(scores_TNC, sizeof(DTYPE_GPU), T * N * C, fp);
-    fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
     fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
@@ -306,11 +416,37 @@ void decode_cuda(
     fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
     fclose(fp);
 
+    fp = fopen("moves.blob", "w");
+    fwrite(moves, sizeof(uint8_t), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("sequence.blob", "w");
+    fwrite(sequence, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("qstring.blob", "w");
+    fwrite(qstring, sizeof(char), N * T, fp);
+    fclose(fp);
+
     // cleanup
     free(bwd_NTC);
     free(post_NTC);
+
+    free(moves);
+    free(sequence);
+    free(qstring);
     
     cudaFree(scores_TNC_cuda);
     cudaFree(bwd_NTC_cuda);
     cudaFree(post_NTC_cuda);
+
+    cudaFree(moves_cuda);
+    cudaFree(sequence_cuda);
+    cudaFree(qstring_cuda);
+
+    cudaFree(beam_vector_cuda);
+    cudaFree(states_cuda);
+    cudaFree(qual_data_cuda);
+    cudaFree(base_probs_cuda);
+    cudaFree(total_probs_cuda);
 }
