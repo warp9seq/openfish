@@ -22,9 +22,23 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
     
-    const int target_threads = 40;
-    const DecoderOptions options = DecoderOptions();
+    
+    DecoderOptions options = DecoderOptions();
+
+    // config mods from 4.2.0 models
+    if (state_len == 3) { // fast
+        options.q_scale = 0.97;
+        options.q_shift = -1.8;
+    } else if (state_len == 4) { // hac
+        options.q_scale = 0.95;
+        options.q_shift = -0.2;
+    } else if (state_len == 5) { // sup
+        options.q_scale = 0.95;
+        options.q_shift = 0.5;
+    }
+    
     std::vector<DecodedChunk> chunk_results(N);
+    const int target_threads = 40;
     decode(T, N, C, target_threads, scores, chunk_results, state_len, &options);
 
     free(scores);
