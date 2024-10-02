@@ -37,6 +37,9 @@ diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_fwd_NTC.blob fwd_NTC.blob || die "faile
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob || die "failed diff"
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_moves.blob moves.blob || die "failed diff"
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_sequence.blob sequence.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob || die "failed diff"
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qstring.blob qstring.blob || die "failed diff"
 
 echo "tests passed for ${MODEL}"

@@ -263,7 +263,7 @@ void decode_cpu(
     float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
 
     // we are only callocing here so we can compare tensors later
-    beam_element_t *beam_vector = (beam_element_t*)calloc(N * max_beam_width * (T + 1), sizeof(beam_element_t));
+    beam_element_t *beam_vector = (beam_element_t *)calloc(N * max_beam_width * (T + 1), sizeof(beam_element_t));
     MALLOC_CHK(beam_vector);
 
     int32_t *states = (int32_t *)calloc(N * T, sizeof(int32_t));
@@ -324,7 +324,7 @@ void decode_cpu(
 
     // score tensors
     for (t = 0; t < num_threads; t++) {
-        ret = pthread_create(&tids[t], NULL, pthread_single_scan_score, (void*)(&pt_args[t]));
+        ret = pthread_create(&tids[t], NULL, pthread_single_scan_score, (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
@@ -363,16 +363,28 @@ void decode_cpu(
     fclose(fp);
 
     // write beam results
+    fp = fopen("qual_data.blob", "w");
+    fwrite(qual_data, sizeof(float), N * T * n_base, fp);
+    fclose(fp);
+
+    fp = fopen("base_probs.blob", "w");
+    fwrite(base_probs, sizeof(float), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("total_probs.blob", "w");
+    fwrite(total_probs, sizeof(float), N * T, fp);
+    fclose(fp);
+
     fp = fopen("moves.blob", "w");
     fwrite(moves, sizeof(uint8_t), N * T, fp);
     fclose(fp);
 
-    fp = fopen("sequence.blob", "w");
-    fwrite(sequence, sizeof(char), N * T, fp);
-    fclose(fp);
-
     fp = fopen("qstring.blob", "w");
     fwrite(qstring, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("sequence.blob", "w");
+    fwrite(sequence, sizeof(char), N * T, fp);
     fclose(fp);
 
     // cleanup
