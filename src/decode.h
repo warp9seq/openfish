@@ -7,6 +7,10 @@
 #define DTYPE_CPU float
 #define DTYPE_GPU float
 
+constexpr int NUM_BASE_BITS = 2;
+constexpr int NUM_BASES = 1 << NUM_BASE_BITS;
+constexpr size_t MAX_BEAM_WIDTH = 32;
+
 struct DecodedChunk {
     std::string sequence;
     std::string qstring;

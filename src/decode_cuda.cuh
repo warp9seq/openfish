@@ -2,7 +2,7 @@
 
 #include "decode.h"
 
-void decode_gpu(
+void decode_cuda(
     const int T,
     const int N,
     const int C,

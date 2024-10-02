@@ -1,4 +1,4 @@
-#include "beam_search.h"
+#include "beam_search_cuda.cuh"
 #include "decode.h"
 
 #include "error.h"
@@ -8,20 +8,20 @@
 
 // This is the data we need to retain for only the previous timestep (block) in the beam
 //  (and what we construct for the new timestep)
-typedef struct beam_front_element {
+typedef struct {
     uint32_t hash;
     state_t state;
     uint8_t prev_element_index;
     bool stay;
 } beam_front_element_t;
 
-static void swapf(float *a, float *b) {
+__device__ static __forceinline__ void swapf(float *a, float *b) {
     float temp = *a;
     *a = *b;
     *b = temp;
 }
 
-static int partitionf(float *nums, int left, int right) {
+__device__ static __forceinline__ int partitionf(float *nums, int left, int right) {
 	float pivot = nums[left];
     int l = left+1;
     int r = right;
@@ -38,7 +38,7 @@ static int partitionf(float *nums, int left, int right) {
 	return r;
 }
 
-static float kth_largestf(float *nums, int k, int n) {
+__device__ static __forceinline__ float kth_largestf(float *nums, int k, int n) {
 	int left = 0;
     int right = n-1;
     int idx = 0;
@@ -51,13 +51,13 @@ static float kth_largestf(float *nums, int k, int n) {
 	return nums[idx];
 }
 
-static float log_sum_exp(float x, float y) {
-    float abs_diff = fabs(x - y);
+__device__ static __forceinline__ float log_sum_exp(float x, float y) {
+    float abs_diff = fabsf(x - y);
     float m = x > y ? x : y;
-    return m + ((abs_diff < 17.0f) ? (log( 1.0 + exp(-abs_diff))) : 0.0f);
+    return m + ((abs_diff < 17.0f) ? (__logf( 1.0 + __expf(-abs_diff))) : 0.0f);
 }
 
-void generate_sequence(
+__global__ void generate_sequence_cuda(
     const uint8_t *moves,
     const int32_t *states,
     const float *qual_data,
@@ -116,7 +116,7 @@ void generate_sequence(
 
 // Incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
 // (not the same polynomial as CRC32 as used in zip/ethernet).
-static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
+__device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     // Note that this is the reversed polynomial.
     constexpr uint32_t POLYNOMIAL = 0x82f63b78u;
     for (int i = 0; i < num_new_bits; ++i) {
@@ -130,14 +130,13 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     return crc;
 }
 
-void beam_search(
+__global__ void beam_search_cuda(
     const float *const scores,
     size_t scores_block_stride,
     const float *const back_guide,
     const float *const posts,
     const int num_state_bits,
     const size_t num_ts,
-    const size_t max_beam_width,
     const float beam_cut,
     const float fixed_stay_score,
     int32_t *states,
@@ -156,7 +155,7 @@ void beam_search(
 
     // Create the previous and current beam fronts
     // Each existing element can be extended by one of NUM_BASES, or be a stay.
-    const size_t max_beam_candidates = (NUM_BASES + 1) * max_beam_width;
+    constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
 
     beam_front_element_t current_beam_front[max_beam_candidates];
     beam_front_element_t prev_beam_front[max_beam_candidates];
@@ -166,19 +165,19 @@ void beam_search(
 
     // Find the score an initial element needs in order to make it into the beam
     float beam_init_threshold = -FLT_MAX;
-    if (max_beam_width < num_states) {
-        // Copy the first set of back guides and sort to extract max_beam_width highest elements
-        size_t max_states = 1024;
+    if (MAX_BEAM_WIDTH < num_states) {
+        // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
+        constexpr size_t max_states = 1024;
         float sorted_back_guides[max_states];
         for (size_t i = 0; i < num_states; ++i) {
             sorted_back_guides[i] = back_guide[i];
         }
 
-        beam_init_threshold = kth_largestf(sorted_back_guides, max_beam_width-1, num_states);
+        beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
     }
 
     // Initialise the beam
-    for (size_t state = 0, beam_element = 0; state < num_states && beam_element < max_beam_width; state++) {
+    for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
         if (back_guide[state] >= beam_init_threshold) {
             // Note that this first element has a prev_element_index of 0
             prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
@@ -189,7 +188,7 @@ void beam_search(
     }
 
     // Copy this initial beam front into the beam persistent state
-    size_t current_beam_width = max_beam_width < num_states ? max_beam_width : num_states;
+    size_t current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
     for (size_t element_idx = 0; element_idx < current_beam_width; ++element_idx) {
         beam_vector[element_idx].state = prev_beam_front[element_idx].state;
         beam_vector[element_idx].prev_element_index =
@@ -331,17 +330,17 @@ void beam_search(
         // Count the elements which meet the min score
         size_t elem_count = get_elem_count();
 
-        if (elem_count > max_beam_width) {
+        if (elem_count > MAX_BEAM_WIDTH) {
             // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
             size_t min_beam_width =
-                    (max_beam_width * 8) / 10;  // 80% of beam width is the minimum we accept.
+                    (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
             float low_score = beam_cutoff_score;
             float hi_score = max_score;
             int num_guesses = 1;
             constexpr int MAX_GUESSES = 10;
-            while ((elem_count > max_beam_width || elem_count < min_beam_width) &&
+            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) &&
                    num_guesses < MAX_GUESSES) {
-                if (elem_count > max_beam_width) {
+                if (elem_count > MAX_BEAM_WIDTH) {
                     // Make a higher guess
                     low_score = beam_cutoff_score;
                     beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;  // binary search.
@@ -357,7 +356,7 @@ void beam_search(
             // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it.)
             //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
             // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
-            //  - in this case we should just take max_beam_width of the top-scoring elements
+            //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
             // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score.
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
@@ -366,13 +365,13 @@ void beam_search(
             }
 
             // Clamp the element count to the max beam width in case of failure 2 from above.
-            elem_count = elem_count < max_beam_width ? elem_count : max_beam_width;
+            elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
         }
 
         size_t write_idx = 0;
         for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
             if (current_scores[read_idx] >= beam_cutoff_score) {
-                if (write_idx < max_beam_width) {
+                if (write_idx < MAX_BEAM_WIDTH) {
                     prev_beam_front[write_idx] = current_beam_front[read_idx];
                     prev_scores[write_idx] = current_scores[read_idx];
                     ++write_idx;
@@ -402,7 +401,7 @@ void beam_search(
             prev_scores[best_score_index] = temp1;
         }
 
-        size_t beam_offset = (block_idx + 1) * max_beam_width;
+        size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
         for (size_t i = 0; i < elem_count; ++i) {
             // Remove backwards contribution from score
             prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
@@ -419,7 +418,7 @@ void beam_search(
     // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
     uint8_t element_index = 0;
     for (size_t beam_idx = num_ts; beam_idx != 0; --beam_idx) {
-        size_t beam_addr = beam_idx * max_beam_width + element_index;
+        size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
         states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
         moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
         element_index = beam_vector[beam_addr].prev_element_index;

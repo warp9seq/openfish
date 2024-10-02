@@ -37,7 +37,8 @@ endif
 ifdef cuda
 	CUDA_ROOT = /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
-    CUDA_OBJ = $(BUILD_DIR)/decode_gpu.o
+    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o
+    CUDA_OBJ += $(BUILD_DIR)/beam_search_cuda.o
     NVCC ?= nvcc
     CUDA_CFLAGS += -g -O2 -std=c++11 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
@@ -46,7 +47,7 @@ ifdef cuda
 # else
 # ifdef rocm
 # 	CPPFLAGS += -DUSE_GPU=1
-# 	OBJ += $(BUILD_DIR)/decode_gpu.o
+# 	OBJ += $(BUILD_DIR)/decode_cuda.o
 # 	LIBS += -Wl,--as-needed -lpthread -Wl,--no-as-needed,"$(LIBTORCH_DIR)/lib/libtorch_hip.so" -Wl,--as-needed,"$(LIBTORCH_DIR)/lib/libc10_hip.so"
 # 	LDFLAGS += -lrt -ldl
 # endif
@@ -86,7 +87,10 @@ $(BUILD_DIR)/openfish.o: src/openfish.cpp
 $(BUILD_DIR)/cuda_code.o: $(CUDA_OBJ)
 	$(NVCC) $(CUDA_CFLAGS) -dlink $^ -o $@
 
-$(BUILD_DIR)/decode_gpu.o: src/decode_gpu.cu src/decode_gpu.cuh src/error.cuh
+$(BUILD_DIR)/decode_cuda.o: src/decode_cuda.cu
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+
+$(BUILD_DIR)/beam_search_cuda.o: src/beam_search_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 clean:

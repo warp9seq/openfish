@@ -173,16 +173,15 @@ typedef struct {
 void* pthread_single_scan_score(void* voidargs) {
     decode_thread_arg_t* args = (decode_thread_arg_t*)voidargs;
 
-    const int n_base = 4;
-    const int m_states = std::pow(n_base, args->state_len);
+    const int num_states = std::pow(NUM_BASES, args->state_len);
 
     const int T = args->T;
     const int N = args->N;
 
     for (int c = args->start; c < args->end; c++) {
-        backward_scan(args->scores_TNC, args->bwd_NTC, c, T, N, m_states);
-        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, T, N, m_states);
-        softmax(args->fwd_NTC, args->post_NTC, c, T, m_states);
+        backward_scan(args->scores_TNC, args->bwd_NTC, c, T, N, num_states);
+        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, T, N, num_states);
+        softmax(args->fwd_NTC, args->post_NTC, c, T, num_states);
     }
 
     pthread_exit(0);
@@ -193,8 +192,7 @@ void *pthread_single_beam_search(void *voidargs) {
     const DecoderOptions *options = args->options;
 
     const int max_beam_width = 32;
-    const int n_base = 4;
-    const int num_states = std::pow(n_base, args->state_len);
+    const int num_states = std::pow(NUM_BASES, args->state_len);
     const int num_state_bits = static_cast<int>(log2(num_states));
     const int T = args->T;
     const int N = args->N;
@@ -206,12 +204,12 @@ void *pthread_single_beam_search(void *voidargs) {
     const float beam_cut = options->beam_cut;
 
     for (int c = args->start; c < args->end; c++) {
-        auto scores = args->scores_TNC + c * (num_states * n_base);
+        auto scores = args->scores_TNC + c * (num_states * NUM_BASES);
         auto bwd = args->bwd_NTC + c * num_states * (T+1);
         auto post = args->post_NTC + c * num_states * (T+1);
         auto states = args->states + c * T;
         auto moves = args->moves + c * T;
-        auto qual_data = args->qual_data + c * (T * n_base);
+        auto qual_data = args->qual_data + c * (T * NUM_BASES);
         auto base_probs = args->base_probs + c * T;
         auto total_probs = args->total_probs + c * T;
         auto sequence = args->sequence + c * T;
@@ -253,8 +251,7 @@ void decode_cpu(
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
     
     const int max_beam_width = 32;
-    const int n_base = 4;
-    const int num_states = std::pow(n_base, state_len);
+    const int num_states = std::pow(NUM_BASES, state_len);
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
@@ -272,7 +269,7 @@ void decode_cpu(
     uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
     MALLOC_CHK(moves);
 
-    float *qual_data = (float *)calloc(N * T * n_base, sizeof(float));
+    float *qual_data = (float *)calloc(N * T * NUM_BASES, sizeof(float));
     MALLOC_CHK(qual_data);
 
     float *base_probs = (float *)calloc(N * T, sizeof(float));
@@ -364,7 +361,7 @@ void decode_cpu(
 
     // write beam results
     fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * n_base, fp);
+    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
     fclose(fp);
 
     fp = fopen("base_probs.blob", "w");
