@@ -1,4 +1,5 @@
 #include "decode_cpu.h"
+#include "beam_search.h"
 #include "error.h"
 #include "misc.h"
 
@@ -50,19 +51,19 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
 
 static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
-    constexpr uint64_t k_num_bases = 4;
-    constexpr uint64_t k_num_transitions = k_num_bases + 1;
-    constexpr float k_fixed_stay_score = 2.0f;
+    constexpr uint64_t kNumBases = 4;
+    constexpr uint64_t kNumTransitions = kNumBases + 1;
+    constexpr float kFixedStayScore = 2.0f;
     
-    const uint64_t kMsb = num_states / k_num_bases;
-    const uint64_t ts_states = num_states * k_num_bases;
+    const uint64_t kMsb = num_states / kNumBases;
+    const uint64_t ts_states = num_states * kNumBases;
 
     // This batch element's scores.
-    const float* const chunk_scores = scores_in + chunk * ts_states;
+    const float *const chunk_scores = scores_in + chunk * ts_states;
 
     // Alternating forward guide buffers used for successive time steps.
-    constexpr uint64_t k_max_states = 1024;
-    float ts_fwd[2][k_max_states]; // threadgroup
+    constexpr uint64_t kMaxStates = 1024;
+    float ts_fwd[2][kMaxStates]; // threadgroup
 
     // The forward guide input for the first step is 0.
     for (uint64_t state = 0; state < num_states; ++state) {
@@ -77,22 +78,22 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
         // This time step's scores.
-        const float* const ts_scores = chunk_scores + N * ts_states * ts;
+        const float *const ts_scores = chunk_scores + N * ts_states * ts;
 
         // Alternating TG buffer twiddling.
-        const float* const ts_alpha_in = ts_fwd[ts & 1];
-        float* const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
+        const float *const ts_alpha_in = ts_fwd[ts & 1];
+        float *const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
         // Calculate the next time step's forward guide from this time step's scores
         // and forward guide.  It's written to threadgroup memory for use in the
         // next iteration.
         for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
             const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / k_num_bases;
-            const uint64_t step_trans_idx_a = state * k_num_bases;
-            float vals[k_num_transitions];
-            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + k_fixed_stay_score;
-            for (uint64_t base = 0; base < k_num_bases; ++base) {
+            const uint64_t step_state_idx_a = state / kNumBases;
+            const uint64_t step_trans_idx_a = state * kNumBases;
+            float vals[kNumTransitions];
+            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
+            for (uint64_t base = 0; base < kNumBases; ++base) {
                 // todo: this is a bandaid for indexing past the actual T dimension of scores
                 // need to verify with actual MetalTxCaller impl output,
                 // otherwise output remains exactly the same for this impl whether it indexes past or not
@@ -102,7 +103,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             float fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < k_num_transitions; ++i) {
+            for (uint64_t i = 0; i < kNumTransitions; ++i) {
                 fwd_sum += exp(vals[i] - fwd_max_val);
             }
             ts_alpha_out[state] = fwd_max_val + log(fwd_sum);
@@ -159,6 +160,14 @@ typedef struct {
     int32_t T;
     int32_t N;
     int32_t C;
+    int32_t *states;
+    uint8_t *moves;
+    float *qual_data;
+    float *base_probs;
+    float *total_probs;
+    char *sequence;
+    char *qstring;
+    beam_element_t *beam_vector;
 } decode_thread_arg_t;
 
 void* pthread_single_scan_score(void* voidargs) {
@@ -179,6 +188,57 @@ void* pthread_single_scan_score(void* voidargs) {
     pthread_exit(0);
 }
 
+void *pthread_single_beam_search(void *voidargs) {
+    decode_thread_arg_t *args = (decode_thread_arg_t *)voidargs;
+    const DecoderOptions *options = args->options;
+
+    const int max_beam_width = 32;
+    const int n_base = 4;
+    const int num_states = std::pow(n_base, args->state_len);
+    const int num_state_bits = static_cast<int>(log2(num_states));
+    const int T = args->T;
+    const int N = args->N;
+    const int C = args->C;
+
+    const float fixed_stay_score = options->blank_score;
+    const float q_scale = options->q_scale;
+    const float q_shift = options->q_shift;
+    const float beam_cut = options->beam_cut;
+
+    for (int c = args->start; c < args->end; c++) {
+        auto scores = args->scores_TNC + c * (num_states * n_base);
+        auto bwd = args->bwd_NTC + c * num_states * (T+1);
+        auto post = args->post_NTC + c * num_states * (T+1);
+        auto states = args->states + c * T;
+        auto moves = args->moves + c * T;
+        auto qual_data = args->qual_data + c * (T * n_base);
+        auto base_probs = args->base_probs + c * T;
+        auto total_probs = args->total_probs + c * T;
+        auto sequence = args->sequence + c * T;
+        auto qstring = args->qstring + c * T;
+        auto beam_vector = args->beam_vector + c * max_beam_width * (T+1);
+
+        beam_search(scores, N * C, bwd, post, num_state_bits, T, max_beam_width, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+
+        size_t seq_len = 0;
+        for (int i = 0; i < T; ++i) {
+            seq_len += moves[i];
+        }
+
+        generate_sequence(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);
+        
+        sequence[seq_len] = '\0';
+        qstring[seq_len] = '\0';
+        (*args->chunk_results)[c] = {
+            std::string(sequence),
+            std::string(qstring),
+            std::vector<uint8_t>(moves, moves + T),
+        };
+    }
+
+    pthread_exit(0);
+}
+
 void decode_cpu(
     const int T,
     const int N,
@@ -187,19 +247,45 @@ void decode_cpu(
     float *scores_TNC,
     std::vector<DecodedChunk>& chunk_results,
     const int state_len,
-    const DecoderOptions* options
+    const DecoderOptions *options
 ) {
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
     
+    const int max_beam_width = 32;
     const int n_base = 4;
-    const int m_states = std::pow(n_base, state_len);
+    const int num_states = std::pow(n_base, state_len);
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
-    float *bwd_NTC = (float *)calloc(N * (T + 1) * m_states, sizeof(DTYPE_CPU));
-    float *fwd_NTC = (float *)calloc(N * (T + 1) * m_states, sizeof(DTYPE_CPU));
-    float *post_NTC = (float *)calloc(N * (T + 1) * m_states, sizeof(DTYPE_CPU));
+    float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
+    float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
+    float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
+
+    // we are only callocing here so we can compare tensors later
+    beam_element_t *beam_vector = (beam_element_t*)calloc(N * max_beam_width * (T + 1), sizeof(beam_element_t));
+    MALLOC_CHK(beam_vector);
+
+    int32_t *states = (int32_t *)calloc(N * T, sizeof(int32_t));
+    MALLOC_CHK(states);
+    
+    uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    MALLOC_CHK(moves);
+
+    float *qual_data = (float *)calloc(N * T * n_base, sizeof(float));
+    MALLOC_CHK(qual_data);
+
+    float *base_probs = (float *)calloc(N * T, sizeof(float));
+    MALLOC_CHK(base_probs);
+
+    float *total_probs = (float *)calloc(N * T, sizeof(float));
+    MALLOC_CHK(total_probs);
+
+    char *sequence = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(sequence);
+
+    char *qstring = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(qstring);
     
     // create threads
     const int num_threads = std::min(N, target_threads);
@@ -226,11 +312,30 @@ void decode_cpu(
         pt_args[t].T = T;
         pt_args[t].N = N;
         pt_args[t].C = C;
+        pt_args[t].states = states;
+        pt_args[t].moves = moves;
+        pt_args[t].qual_data = qual_data;
+        pt_args[t].base_probs = base_probs;
+        pt_args[t].total_probs = total_probs;
+        pt_args[t].sequence = sequence;
+        pt_args[t].qstring = qstring;
+        pt_args[t].beam_vector = beam_vector;
     }
 
     // score tensors
     for (t = 0; t < num_threads; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single_scan_score, (void*)(&pt_args[t]));
+        NEG_CHK(ret);
+    }
+
+    for (t = 0; t < num_threads; t++) {
+        ret = pthread_join(tids[t], NULL);
+        NEG_CHK(ret);
+    }
+
+    // beam search
+    for (t = 0; t < num_threads; t++) {
+        ret = pthread_create(&tids[t], NULL, pthread_single_beam_search, (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
@@ -246,18 +351,41 @@ void decode_cpu(
     fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * m_states, fp);
+    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
     fclose(fp);
 
     fp = fopen("fwd_NTC.blob", "w");
-    fwrite(fwd_NTC, sizeof(float), N * (T + 1) * m_states, fp);
+    fwrite(fwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), N * (T + 1) * m_states, fp);
+    fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp);
     fclose(fp);
 
+    // write beam results
+    fp = fopen("moves.blob", "w");
+    fwrite(moves, sizeof(uint8_t), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("sequence.blob", "w");
+    fwrite(sequence, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("qstring.blob", "w");
+    fwrite(qstring, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    // cleanup
     free(bwd_NTC);
     free(fwd_NTC);
     free(post_NTC);
+
+    free(beam_vector);
+    free(qual_data);
+    free(states);
+    free(moves);
+    free(base_probs);
+    free(total_probs);
+    free(sequence);
+    free(qstring);
 }

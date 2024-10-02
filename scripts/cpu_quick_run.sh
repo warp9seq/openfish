@@ -35,5 +35,8 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob || die "failed diff"
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_fwd_NTC.blob fwd_NTC.blob || die "failed diff"
 diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_moves.blob moves.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_sequence.blob sequence.blob || die "failed diff"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qstring.blob qstring.blob || die "failed diff"
 
 echo "tests passed for ${MODEL}"
