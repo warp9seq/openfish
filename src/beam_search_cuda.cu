@@ -67,7 +67,6 @@ __global__ void generate_sequence_cuda(
     char *_qstring,
     const float shift,
     const float scale,
-    const size_t seq_len,
     const size_t T,
     const size_t N
 ) {
@@ -83,6 +82,11 @@ __global__ void generate_sequence_cuda(
     float *total_probs = _total_probs + chunk * T;
     char *sequence = _sequence + chunk * T;
     char *qstring = _qstring + chunk * T;
+
+    size_t seq_len = 0;
+    for (int i = 0; i < T; ++i) {
+        seq_len += moves[i];
+    }
 
     size_t seq_pos = 0;
 

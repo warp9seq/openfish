@@ -22,7 +22,6 @@ __global__ void generate_sequence_cuda(
     char *qstring,
     const float shift,
     const float scale,
-    const size_t seq_len,
     const size_t T,
     const size_t N
 );

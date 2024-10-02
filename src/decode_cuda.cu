@@ -217,7 +217,7 @@ void decode_cuda(
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
     dim3 block_size_beam(1, 1, 1);
-    // dim3 block_size_gen_seq(1, 1, 1);
+    dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
     // expect input already transformed
@@ -359,8 +359,6 @@ void decode_cuda(
     const float q_shift = options->q_shift;
     const float beam_cut = options->beam_cut;
 
-    fprintf(stderr, "starting beam search...\n");
-
     t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
@@ -391,6 +389,32 @@ void decode_cuda(
     elapsed = t1 - t0;
     fprintf(stderr, "beam search completed in %f secs\n", elapsed);
 
+    t0 = realtime();
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        generate_sequence_cuda<<<grid_size,block_size_gen>>>(
+            moves_cuda,
+            states_cuda,
+            qual_data_cuda,
+            base_probs_cuda,
+            total_probs_cuda,
+            sequence_cuda,
+            qstring_cuda,
+            q_shift,
+            q_scale,
+            T,
+            N
+        );
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
+	// end timing
+	t1 = realtime();
+    elapsed = t1 - t0;
+    fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
+    
 	// copy scan results
     cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
