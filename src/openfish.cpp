@@ -11,7 +11,7 @@ void decode(
     const DecoderOptions *options
 ) {
 #ifdef HAVE_CUDA
-    decode_gpu(T, N, C, target_threads, scores_TNC, chunk_results, state_len, options);
+    decode_cuda(T, N, C, target_threads, scores_TNC, chunk_results, state_len, options);
 #else
     decode_cpu(T, N, C, target_threads, scores_TNC, chunk_results, state_len, options);
 #endif

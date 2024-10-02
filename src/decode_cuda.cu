@@ -1,4 +1,5 @@
-#include "decode_gpu.cuh"
+#include "decode_cuda.cuh"
+#include "beam_search_cuda.cuh"
 #include "error.h"
 #include "error.cuh"
 #include "misc.h"
@@ -187,7 +188,7 @@ __global__ void fwd_post_scan(
     }
 }
 
-void decode_gpu(
+void decode_cuda(
     const int T,
     const int N,
     const int C,
@@ -197,8 +198,7 @@ void decode_gpu(
     const int state_len,
     const DecoderOptions *options
 ) {
-    const int n_base = 4;
-    const int num_states = std::pow(n_base, state_len);
+    const int num_states = std::pow(NUM_BASES, state_len);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));

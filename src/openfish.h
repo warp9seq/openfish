@@ -3,7 +3,7 @@
 #include "decode_cpu.h"
 
 #ifdef HAVE_CUDA
-#include "decode_gpu.cuh"
+#include "decode_cuda.cuh"
 #endif
 
 void decode(
