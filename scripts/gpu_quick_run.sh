@@ -41,6 +41,10 @@ echo "comparing bwd tensors..."
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN || die "failed diff"
 echo "comparing post tensors..."
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN || die "failed diff"
+echo "comparing sequence (just checking for consistency)..."
+diff sequence_0.blob sequence.blob
+echo "comparing qstring (just checking for consistency)..."
+diff qstring_0.blob qstring.blob
 
 # echo "tests passed for ${MODEL}"
 

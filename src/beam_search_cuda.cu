@@ -77,7 +77,7 @@ __global__ void generate_sequence_cuda(
 
     const uint8_t *moves = _moves + chunk * T;
     const state_t *states = _states + chunk * T;
-    const float *qual_data = _qual_data + chunk * (T * NUM_BASES);
+    const float *qual_data = _qual_data + chunk * T * NUM_BASES;
     float *base_probs = _base_probs + chunk * T;
     float *total_probs = _total_probs + chunk * T;
     char *sequence = _sequence + chunk * T;
@@ -93,8 +93,8 @@ __global__ void generate_sequence_cuda(
     const char alphabet[4] = {'A', 'C', 'G', 'T'};
 
     for (size_t i = 0; i < seq_len; ++i) {
-        base_probs[i] = 0;
-        total_probs[i] = 0;
+        base_probs[i] = 0.0f;
+        total_probs[i] = 0.0f;
     }
 
     for (size_t blk = 0; blk < T; ++blk) {
@@ -237,7 +237,7 @@ __global__ void beam_search_cuda(
     // states where none of them has the requisite sequence hash.
     const uint32_t HASH_PRESENT_BITS = 4096;
     const uint32_t HASH_PRESENT_MASK = HASH_PRESENT_BITS - 1;
-    bool step_hash_present[4096];  // Default constructor zeros content.
+    __shared__ bool step_hash_present[4096];  // Default constructor zeros content.
 
     // Iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
