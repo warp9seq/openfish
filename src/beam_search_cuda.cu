@@ -124,7 +124,7 @@ __global__ void generate_sequence_cuda(
     for (size_t i = 0; i < seq_len; ++i) {
         sequence[i] = alphabet[int(sequence[i])];
         base_probs[i] = 1.0f - (base_probs[i] / total_probs[i]);
-        base_probs[i] = -10.0f * log10f(base_probs[i]);
+        base_probs[i] = -10.0f * __log10f(base_probs[i]);
         float qscore = base_probs[i] * scale + shift;
         if (qscore > 50.0f) qscore = 50.0f;
         if (qscore < 1.0f) qscore = 1.0f;
@@ -487,7 +487,7 @@ __global__ void beam_search_cuda(
         }
         if (block_prob < 0.0f) block_prob = 0.0f;
         else if (block_prob > 1.0f) block_prob = 1.0f;
-        block_prob = powf(block_prob, 0.4f);  // Power fudge factor
+        block_prob = __powf(block_prob, 0.4f);  // Power fudge factor
 
         // Calculate a placeholder qscore for the "wrong" bases
         float wrong_base_prob = (1.0f - block_prob) / 3.0f;
