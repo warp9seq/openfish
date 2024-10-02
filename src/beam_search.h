@@ -14,7 +14,7 @@ typedef struct beam_element {
 
 void generate_sequence(
     const uint8_t *moves,
-    const int32_t *states,
+    const state_t *states,
     const float *qual_data,
     const float shift,
     const float scale,
@@ -36,7 +36,7 @@ void beam_search(
     const size_t max_beam_width,
     const float beam_cut,
     const float fixed_stay_score,
-    int32_t *states,
+    state_t *states,
     uint8_t *moves,
     float *qual_data,
     float score_scale,
