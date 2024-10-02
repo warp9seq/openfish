@@ -106,7 +106,7 @@ __global__ void fwd_post_scan(
     __shared__ DTYPE_GPU exp_vals[k_max_states];
     __shared__ DTYPE_GPU exp_sum;
     __shared__ DTYPE_GPU max_val;
-    max_val = FLT_MIN;
+    max_val = -FLT_MAX;
 
     // This batch element's scores.
     const DTYPE_GPU* const chunk_scores = scores_in + chunk * ts_states;
@@ -182,7 +182,7 @@ __global__ void fwd_post_scan(
         for (uint64_t state = state_begin; state < state_end; ++state) {
             out[ts_idx + state] = exp_vals[state] / exp_sum;
         }
-        max_val = FLT_MIN;
+        max_val = -FLT_MAX;
         __syncthreads();
     }
 }
@@ -195,7 +195,7 @@ void decode_gpu(
     float *scores_TNC,
     std::vector<DecodedChunk>& chunk_results,
     const int state_len,
-    const DecoderOptions* options
+    const DecoderOptions *options
 ) {
     const int n_base = 4;
     const int num_states = std::pow(n_base, state_len);
