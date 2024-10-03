@@ -57,6 +57,10 @@ ifdef bench
 	CPPFLAGS += -DBENCH=1
 endif
 
+ifdef debug
+	CPPFLAGS += -DDEBUG=1
+endif
+
 .PHONY: clean distclean test
 
 $(BINARY): $(OBJ)

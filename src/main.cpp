@@ -39,8 +39,28 @@ int main(int argc, char* argv[]) {
     
     std::vector<DecodedChunk> chunk_results(N);
     const int target_threads = 40;
-    decode(T, N, C, target_threads, scores, chunk_results, state_len, &options);
 
+    uint8_t *moves;
+    char *sequence;
+    char *qstring;
+    decode(T, N, C, target_threads, scores, chunk_results, state_len, &options, &moves, &sequence, &qstring);
+
+    fp = fopen("moves.blob", "w");
+    fwrite(moves, sizeof(uint8_t), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("sequence.blob", "w");
+    fwrite(sequence, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("qstring.blob", "w");
+    fwrite(qstring, sizeof(char), N * T, fp);
+    fclose(fp);
+
+    free(moves);
+    free(sequence);
+    free(qstring);
+    
     free(scores);
 
     return 0;
