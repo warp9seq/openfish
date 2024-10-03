@@ -1,7 +1,7 @@
 CC       = gcc
 CXX		 = g++
 
-CPPFLAGS +=	-I src/
+CPPFLAGS +=	-I src/ -I include/
 CFLAGS	+= 	-g -Wall -O2
 CXXFLAGS   += -g -Wall -O2  -std=c++14
 LDFLAGS  += $(LIBS) -lz -lm -lpthread -lstdc++fs
@@ -66,7 +66,7 @@ endif
 $(BINARY): $(OBJ)
 	$(CXX) $(CFLAGS) $(OBJ) $(LDFLAGS) $(CUDA_LDFLAGS) -o $@
 
-$(BUILD_DIR)/main.o: src/main.cpp
+$(BUILD_DIR)/main.o: src/main.cpp include/openfish/openfish.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
 $(BUILD_DIR)/misc.o: src/misc.cpp src/misc.h
@@ -84,7 +84,7 @@ $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.cpp
 $(BUILD_DIR)/beam_search.o: src/beam_search.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
-$(BUILD_DIR)/openfish.o: src/openfish.cpp
+$(BUILD_DIR)/openfish.o: src/openfish.cpp include/openfish/openfish.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $< -c -o $@
 
 # cuda

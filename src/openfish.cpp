@@ -1,4 +1,4 @@
-#include "openfish.h"
+#include <openfish/openfish.h>
 
 void decode(
     const int T,

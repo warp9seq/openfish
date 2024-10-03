@@ -1,4 +1,3 @@
-openfish
 compare_blob
 thirdparty/torch
 *.pt

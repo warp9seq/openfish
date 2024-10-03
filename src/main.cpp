@@ -1,4 +1,4 @@
-#include "openfish.h"
+#include <openfish/openfish.h>
 #include "error.h"
 
 #include <math.h>
