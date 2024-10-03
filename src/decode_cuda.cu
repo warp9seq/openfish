@@ -182,7 +182,6 @@ __global__ void fwd_post_scan(
         for (uint64_t state = 0; state < num_states; ++state) {
             exp_sum += exp_vals[state];
         }
-        __syncthreads();
         
         // calculate posterior probability
         for (uint64_t state = state_begin; state < state_end; ++state) {
