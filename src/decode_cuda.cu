@@ -173,7 +173,7 @@ __global__ void fwd_post_scan(
         // enter exp vals
         for (uint64_t state = state_begin; state < state_end; ++state) {
             exp_vals[state] = __expf(fwd_vals[state] - max_val);
-            // atomicAdd(&exp_sum, exp_vals[state]); // for some reason this is not synchronized
+            // atomicAdd(&exp_sum, exp_vals[state]); // this does not give us deterministic results, turn on for production
         }
         __syncthreads();
 
