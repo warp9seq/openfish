@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include <cstdint>
 
 // g++ -o compare_blob compare_blob.cpp 
 
@@ -30,17 +31,21 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
 
-    float max_diff = 0.0;
-    float avg_diff = 0.0;
+    float max_diff = 0.0f;
+    float avg_diff = 0.0f;
+    uint64_t n_diff = 0;
     for (int i = 0; i < tens_len; ++i) {
         float diff = std::fabs(tens0[i] - tens1[i]);
-        if (diff > max_diff) {
-            max_diff = diff;
+        if (diff != 0.0f) {
+            if (diff > max_diff) {
+                max_diff = diff;
+            }
+            avg_diff += diff;
+            n_diff += 1;
         }
-        avg_diff += diff;
     }
     avg_diff /= tens_len;
-    fprintf(stderr, "tensor max elem diff by %f, avg diff: %f, tens_len: %zu\n", max_diff, avg_diff, tens_len);
+    fprintf(stderr, "tensor max elem diff by %.32f, avg diff: %f, tens_len: %zu, n_diffs: %zu\n", max_diff, avg_diff, tens_len, n_diff);
 
     return 0;
 }
