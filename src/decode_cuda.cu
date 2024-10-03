@@ -301,6 +301,18 @@ void decode_cuda(
     char *qstring = (char *)calloc(N * T, sizeof(char));
     MALLOC_CHK(qstring);
 
+    state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
+    MALLOC_CHK(states);
+
+    float *qual_data = (float *)calloc(N * T * NUM_BASES, sizeof(float));
+    MALLOC_CHK(qual_data);
+
+    float *base_probs = (float *)calloc(N * T, sizeof(float));
+    MALLOC_CHK(base_probs);
+
+    float *total_probs = (float *)calloc(N * T, sizeof(float));
+    MALLOC_CHK(total_probs);
+
     // intermediate results
     uint8_t *moves_cuda;
     char *sequence_cuda;
@@ -375,8 +387,8 @@ void decode_cuda(
             num_state_bits,
             beam_cut,
             fixed_stay_score,
-            q_scale,
-            q_shift,
+            1.0f,
+            1.0f,
             T,
             N,
             C
@@ -428,9 +440,38 @@ void decode_cuda(
     checkCudaError();
     cudaMemcpy(qstring, qstring_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
+    
+    // intermediate
+    cudaMemcpy(states, states_cuda, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(total_probs, total_probs_cuda, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(qual_data, qual_data_cuda, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(base_probs, base_probs_cuda, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
     // write results
     FILE *fp;
+
+    fp = fopen("states.blob", "w");
+    fwrite(states, sizeof(state_t), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("qual_data.blob", "w");
+    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
+    fclose(fp);
+
+    fp = fopen("base_probs.blob", "w");
+    fwrite(base_probs, sizeof(float), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("total_probs.blob", "w");
+    fwrite(total_probs, sizeof(float), N * T, fp);
+    fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
     fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
