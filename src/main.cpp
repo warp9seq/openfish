@@ -37,13 +37,12 @@ int main(int argc, char* argv[]) {
         options.q_shift = 0.5;
     }
     
-    std::vector<DecodedChunk> chunk_results(N);
     const int target_threads = 40;
 
     uint8_t *moves;
     char *sequence;
     char *qstring;
-    decode(T, N, C, target_threads, scores, chunk_results, state_len, &options, &moves, &sequence, &qstring);
+    decode(T, N, C, target_threads, scores, state_len, &options, &moves, &sequence, &qstring);
 
     fp = fopen("moves.blob", "w");
     fwrite(moves, sizeof(uint8_t), N * T, fp);

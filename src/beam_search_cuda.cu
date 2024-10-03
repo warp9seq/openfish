@@ -91,12 +91,7 @@ __global__ void generate_sequence_cuda(
     size_t seq_pos = 0;
 
     const char alphabet[4] = {'A', 'C', 'G', 'T'};
-
-    for (size_t i = 0; i < seq_len; ++i) {
-        base_probs[i] = 0.0f;
-        total_probs[i] = 0.0f;
-    }
-
+    
     for (size_t blk = 0; blk < T; ++blk) {
         int state = states[blk];
         int move = int(moves[blk]);

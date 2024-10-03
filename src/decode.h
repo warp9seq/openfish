@@ -11,12 +11,6 @@ constexpr int NUM_BASE_BITS = 2;
 constexpr int NUM_BASES = 1 << NUM_BASE_BITS;
 constexpr size_t MAX_BEAM_WIDTH = 32;
 
-struct DecodedChunk {
-    std::string sequence;
-    std::string qstring;
-    std::vector<uint8_t> moves;
-};
-
 struct DecoderOptions {
     size_t beam_width = 32;
     float beam_cut = 100.0;

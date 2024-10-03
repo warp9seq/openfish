@@ -49,14 +49,11 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 # ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
 
 echo "diff moves..."
-diff moves.gpu_ref moves.blob
-echo "passed!"
+diff moves.gpu_ref moves.blob && echo "passed!" || die "diff failed"
 echo "diff sequence..."
-diff sequence.gpu_ref sequence.blob
-echo "passed!"
+diff sequence.gpu_ref sequence.blob && echo "passed!" || die "diff failed"
 echo "diff qstring..."
-diff qstring.gpu_ref qstring.blob
-echo "passed!"
+diff qstring.gpu_ref qstring.blob && echo "passed!" || die "diff failed"
 
 echo "tests passed for ${MODEL}"
 

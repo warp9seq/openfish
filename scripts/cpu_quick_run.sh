@@ -53,13 +53,12 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 # echo "passed!"
 
 echo "diff moves..."
-diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_moves.blob moves.blob
-echo "passed!"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_moves.blob moves.blob && echo "passed!" || die "diff failed"
+
 echo "diff sequence..."
-diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_sequence.blob sequence.blob
-echo "passed!"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_sequence.blob sequence.blob && echo "passed!" || die "diff failed"
+
 echo "diff qstring..."
-diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qstring.blob qstring.blob
-echo "passed!"
+diff ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qstring.blob qstring.blob && echo "passed!" || die "diff failed"
 
 echo "tests passed for ${MODEL}"
