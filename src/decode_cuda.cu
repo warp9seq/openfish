@@ -201,7 +201,10 @@ void decode_cuda(
     float *scores_TNC,
     std::vector<DecodedChunk>& chunk_results,
     const int state_len,
-    const DecoderOptions *options
+    const DecoderOptions *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
 ) {
     const int num_states = std::pow(NUM_BASES, state_len);
 
@@ -233,11 +236,13 @@ void decode_cuda(
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
+#ifdef DEBUG
     DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
     MALLOC_CHK(bwd_NTC);
 
     DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
     MALLOC_CHK(post_NTC);
+#endif
 
     DTYPE_GPU *scores_TNC_cuda;
     DTYPE_GPU *bwd_NTC_cuda;
@@ -297,15 +302,16 @@ void decode_cuda(
     // beam search
 
     // results
-    uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
     MALLOC_CHK(moves);
 
-    char *sequence = (char *)calloc(N * T, sizeof(char));
+    *sequence = (char *)calloc(N * T, sizeof(char));
     MALLOC_CHK(sequence);
 
-    char *qstring = (char *)calloc(N * T, sizeof(char));
+    *qstring = (char *)calloc(N * T, sizeof(char));
     MALLOC_CHK(qstring);
 
+#ifdef DEBUG
     state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
     MALLOC_CHK(states);
 
@@ -317,6 +323,7 @@ void decode_cuda(
 
     float *total_probs = (float *)calloc(N * T, sizeof(float));
     MALLOC_CHK(total_probs);
+#endif
 
     // intermediate results
     uint8_t *moves_cuda;
@@ -431,22 +438,23 @@ void decode_cuda(
 	t1 = realtime();
     elapsed = t1 - t0;
     fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
-    
-	// copy scan results
+
+    // copy beam_search results
+    cudaMemcpy(*moves, moves_cuda, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(*sequence, sequence_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+    cudaMemcpy(*qstring, qstring_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+#ifdef DEBUG
+    // copy scan results
     cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 	cudaMemcpy(post_NTC, post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    // copy beam_search results
-    cudaMemcpy(moves, moves_cuda, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(sequence, sequence_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-    cudaMemcpy(qstring, qstring_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-    
-    // intermediate
+    // copy intermediate
     cudaMemcpy(states, states_cuda, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
@@ -486,26 +494,10 @@ void decode_cuda(
     fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
     fclose(fp);
 
-    fp = fopen("moves.blob", "w");
-    fwrite(moves, sizeof(uint8_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("sequence.blob", "w");
-    fwrite(sequence, sizeof(char), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qstring.blob", "w");
-    fwrite(qstring, sizeof(char), N * T, fp);
-    fclose(fp);
-
     // cleanup
     free(bwd_NTC);
     free(post_NTC);
-
-    free(moves);
-    free(sequence);
-    free(qstring);
-    
+#endif
     cudaFree(scores_TNC_cuda);
     cudaFree(bwd_NTC_cuda);
     cudaFree(post_NTC_cuda);

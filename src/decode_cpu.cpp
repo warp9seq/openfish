@@ -244,7 +244,10 @@ void decode_cpu(
     float *scores_TNC,
     std::vector<DecodedChunk>& chunk_results,
     const int state_len,
-    const DecoderOptions *options
+    const DecoderOptions *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
 ) {
     // expect input already transformed
     // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
@@ -265,8 +268,14 @@ void decode_cpu(
     state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
     MALLOC_CHK(states);
     
-    uint8_t *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
     MALLOC_CHK(moves);
+
+    *sequence = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(sequence);
+
+    *qstring = (char *)calloc(N * T, sizeof(char));
+    MALLOC_CHK(qstring);
 
     float *qual_data = (float *)calloc(N * T * NUM_BASES, sizeof(float));
     MALLOC_CHK(qual_data);
@@ -276,12 +285,6 @@ void decode_cpu(
 
     float *total_probs = (float *)calloc(N * T, sizeof(float));
     MALLOC_CHK(total_probs);
-
-    char *sequence = (char *)calloc(N * T, sizeof(char));
-    MALLOC_CHK(sequence);
-
-    char *qstring = (char *)calloc(N * T, sizeof(char));
-    MALLOC_CHK(qstring);
     
     // create threads
     const int num_threads = std::min(N, target_threads);
@@ -309,12 +312,12 @@ void decode_cpu(
         pt_args[t].N = N;
         pt_args[t].C = C;
         pt_args[t].states = states;
-        pt_args[t].moves = moves;
+        pt_args[t].moves = *moves;
         pt_args[t].qual_data = qual_data;
         pt_args[t].base_probs = base_probs;
         pt_args[t].total_probs = total_probs;
-        pt_args[t].sequence = sequence;
-        pt_args[t].qstring = qstring;
+        pt_args[t].sequence = *sequence;
+        pt_args[t].qstring = *qstring;
         pt_args[t].beam_vector = beam_vector;
     }
 
@@ -340,6 +343,7 @@ void decode_cpu(
         NEG_CHK(ret);
     }
 
+#ifdef DEBUG
     // write tensors
     FILE *fp;
     fp = fopen("scores_TNC.blob", "w");
@@ -370,18 +374,7 @@ void decode_cpu(
     fp = fopen("total_probs.blob", "w");
     fwrite(total_probs, sizeof(float), N * T, fp);
     fclose(fp);
-
-    fp = fopen("moves.blob", "w");
-    fwrite(moves, sizeof(uint8_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qstring.blob", "w");
-    fwrite(qstring, sizeof(char), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("sequence.blob", "w");
-    fwrite(sequence, sizeof(char), N * T, fp);
-    fclose(fp);
+#endif
 
     // cleanup
     free(bwd_NTC);
@@ -391,9 +384,6 @@ void decode_cpu(
     free(beam_vector);
     free(qual_data);
     free(states);
-    free(moves);
     free(base_probs);
     free(total_probs);
-    free(sequence);
-    free(qstring);
 }

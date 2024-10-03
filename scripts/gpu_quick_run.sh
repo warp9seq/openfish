@@ -41,13 +41,20 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 
 /usr/bin/time  --verbose ./openfish ${SCORES} models/dna_r10.4.1_e8.2_400bps_${MODEL}@v4.2.0 ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
-echo "comparing bwd tensors..."
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
-echo "comparing post tensors..."
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
+# todo: check if files exist
+# todo: compare qual base data and stuff
+# echo "comparing bwd tensors..."
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
+# echo "comparing post tensors..."
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
 
-# echo "tests passed for ${MODEL}"
+diff moves.gpu_ref moves.blob
+diff sequence.gpu_ref sequence.blob
+diff qstring.gpu_ref qstring.blob
 
+echo "tests passed for ${MODEL}"
+
+# .gpu refs are for checking if that 
 # num batches for each model: 20k reads
 # fast - 140
 # hac - 345

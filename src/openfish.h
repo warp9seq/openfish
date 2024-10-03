@@ -14,5 +14,8 @@ void decode(
     float *scores_TNC,
     std::vector<DecodedChunk>& chunk_results,
     const int state_len,
-    const DecoderOptions *options
+    const DecoderOptions *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
 );
