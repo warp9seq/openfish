@@ -16,20 +16,24 @@ STATE_LEN=3
 BATCH_SIZE=1000
 TIMESTEPS=1666
 TENS_LEN=0
+INTENS_LEN=0
 if [ "$MODEL" = "fast" ]; then
     BATCH_SIZE=1000
     STATE_LEN=3
     TENS_LEN=$(( BATCH_SIZE*(TIMESTEPS+1)*64 ))
+    INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 fi
 if [ "$MODEL" = "hac" ]; then
     BATCH_SIZE=400
     STATE_LEN=4
     TENS_LEN=$(( BATCH_SIZE*(TIMESTEPS+1)*256 ))
+    INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 fi
 if [ "$MODEL" = "sup" ]; then
     BATCH_SIZE=200
     STATE_LEN=5
     TENS_LEN=$(( BATCH_SIZE*(TIMESTEPS+1)*1024 ))
+    INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 fi
 
 DATA_DIR=/data/bonwon/slorado_test_data/blobs
@@ -37,19 +41,10 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 
 /usr/bin/time  --verbose ./openfish ${SCORES} models/dna_r10.4.1_e8.2_400bps_${MODEL}@v4.2.0 ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
-# echo "comparing bwd tensors..."
-# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
-# echo "comparing post tensors..."
-# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
-
-# check for consistency
-# diff base_probs_0.blob base_probs.blob
-diff qual_data_0.blob qual_data.blob
-# diff total_probs_0.blob total_probs.blob
-# diff states_0.blob states.blob
-# diff moves_0.blob moves.blob
-# diff sequence_0.blob sequence.blob 
-# diff qstring_0.blob qstring.blob
+echo "comparing bwd tensors..."
+./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
+echo "comparing post tensors..."
+./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
 
 # echo "tests passed for ${MODEL}"
 
