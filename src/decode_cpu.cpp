@@ -153,7 +153,6 @@ typedef struct {
     float *bwd_NTC;
     float *fwd_NTC;
     float *post_NTC;
-    std::vector<DecodedChunk> *chunk_results;
     int32_t start;
     int32_t end;
     int32_t state_len;
@@ -223,14 +222,6 @@ void *pthread_single_beam_search(void *voidargs) {
         }
 
         generate_sequence(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);
-        
-        sequence[seq_len] = '\0';
-        qstring[seq_len] = '\0';
-        (*args->chunk_results)[c] = {
-            std::string(sequence),
-            std::string(qstring),
-            std::vector<uint8_t>(moves, moves + T),
-        };
     }
 
     pthread_exit(0);
@@ -242,7 +233,6 @@ void decode_cpu(
     const int C,
     const int target_threads,
     float *scores_TNC,
-    std::vector<DecodedChunk>& chunk_results,
     const int state_len,
     const DecoderOptions *options,
     uint8_t **moves,
@@ -261,13 +251,7 @@ void decode_cpu(
     float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
     float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
 
-    // we are only callocing here so we can compare tensors later
-    beam_element_t *beam_vector = (beam_element_t *)calloc(N * MAX_BEAM_WIDTH * (T + 1), sizeof(beam_element_t));
-    MALLOC_CHK(beam_vector);
-
-    state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
-    MALLOC_CHK(states);
-    
+    // init results
     *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
     MALLOC_CHK(moves);
 
@@ -277,13 +261,20 @@ void decode_cpu(
     *qstring = (char *)calloc(N * T, sizeof(char));
     MALLOC_CHK(qstring);
 
-    float *qual_data = (float *)calloc(N * T * NUM_BASES, sizeof(float));
+    // intermediate
+    beam_element_t *beam_vector = (beam_element_t *)malloc(N * MAX_BEAM_WIDTH * (T + 1) * sizeof(beam_element_t));
+    MALLOC_CHK(beam_vector);
+
+    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
+    MALLOC_CHK(states);
+
+    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
     MALLOC_CHK(qual_data);
 
-    float *base_probs = (float *)calloc(N * T, sizeof(float));
+    float *base_probs = (float *)malloc(N * T * sizeof(float));
     MALLOC_CHK(base_probs);
 
-    float *total_probs = (float *)calloc(N * T, sizeof(float));
+    float *total_probs = (float *)malloc(N * T * sizeof(float));
     MALLOC_CHK(total_probs);
     
     // create threads
@@ -305,7 +296,6 @@ void decode_cpu(
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].fwd_NTC = fwd_NTC;
         pt_args[t].post_NTC = post_NTC;
-        pt_args[t].chunk_results = &chunk_results;
         pt_args[t].options = options;
         pt_args[t].state_len = state_len;
         pt_args[t].T = T;

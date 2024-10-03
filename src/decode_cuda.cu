@@ -196,9 +196,7 @@ void decode_cuda(
     const int T,
     const int N,
     const int C,
-    const int target_threads,
     float *scores_TNC,
-    std::vector<DecodedChunk>& chunk_results,
     const int state_len,
     const DecoderOptions *options,
     uint8_t **moves,
@@ -300,27 +298,27 @@ void decode_cuda(
 
     // beam search
 
-    // results
-    *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    // init results
+    *moves = (uint8_t *)malloc(N * T * sizeof(uint8_t));
     MALLOC_CHK(moves);
 
-    *sequence = (char *)calloc(N * T, sizeof(char));
+    *sequence = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(sequence);
 
-    *qstring = (char *)calloc(N * T, sizeof(char));
+    *qstring = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(qstring);
 
 #ifdef DEBUG
-    state_t *states = (state_t *)calloc(N * T, sizeof(state_t));
+    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
     MALLOC_CHK(states);
 
-    float *qual_data = (float *)calloc(N * T * NUM_BASES, sizeof(float));
+    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
     MALLOC_CHK(qual_data);
 
-    float *base_probs = (float *)calloc(N * T, sizeof(float));
+    float *base_probs = (float *)malloc(N * T * sizeof(float));
     MALLOC_CHK(base_probs);
 
-    float *total_probs = (float *)calloc(N * T, sizeof(float));
+    float *total_probs = (float *)malloc(N * T * sizeof(float));
     MALLOC_CHK(total_probs);
 #endif
 
@@ -333,12 +331,10 @@ void decode_cuda(
     checkCudaError();
     cudaMemset(moves_cuda, 0, sizeof(uint8_t) * N * T);
 	checkCudaError();
-
     cudaMalloc((void **)&sequence_cuda, sizeof(char) * N * T);
     checkCudaError();
     cudaMemset(sequence_cuda, 0, sizeof(char) * N * T);
 	checkCudaError();
-
     cudaMalloc((void **)&qstring_cuda, sizeof(char) * N * T);
     checkCudaError();
     cudaMemset(qstring_cuda, 0, sizeof(char) * N * T);
@@ -353,28 +349,14 @@ void decode_cuda(
 
     cudaMalloc((void **)&beam_vector_cuda, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     checkCudaError();
-    cudaMemset(beam_vector_cuda, 0, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
-	checkCudaError();
-
     cudaMalloc((void **)&states_cuda, sizeof(state_t) * N * T);
     checkCudaError();
-    cudaMemset(states_cuda, 0, sizeof(state_t) * N * T);
-	checkCudaError();
-
     cudaMalloc((void **)&qual_data_cuda, sizeof(float) * N * T * NUM_BASES);
     checkCudaError();
-    cudaMemset(qual_data_cuda, 0, sizeof(float) * N * T * NUM_BASES);
-	checkCudaError();
-
     cudaMalloc((void **)&base_probs_cuda, sizeof(float) * N * T);
     checkCudaError();
-    cudaMemset(base_probs_cuda, 0, sizeof(float) * N * T);
-	checkCudaError();
-
     cudaMalloc((void **)&total_probs_cuda, sizeof(float) * N * T);
     checkCudaError();
-    cudaMemset(total_probs_cuda, 0, sizeof(float) * N * T);
-	checkCudaError();
 
     const int num_state_bits = static_cast<int>(log2(num_states));
     const float fixed_stay_score = options->blank_score;

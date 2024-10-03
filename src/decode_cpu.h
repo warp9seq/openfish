@@ -8,7 +8,6 @@ void decode_cpu(
     const int C,
     const int target_threads,
     float *scores_TNC,
-    std::vector<DecodedChunk>& chunk_results,
     const int state_len,
     const DecoderOptions *options,
     uint8_t **moves,
