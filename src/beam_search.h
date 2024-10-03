@@ -3,8 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// 16 bit state supports 7-mers with 4 bases.
-typedef int16_t state_t;
+typedef int32_t state_t;
 
 typedef struct beam_element {
     state_t state;
