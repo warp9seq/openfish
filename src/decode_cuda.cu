@@ -105,7 +105,7 @@ __global__ void fwd_post_scan(
     constexpr uint64_t k_max_states = 1024;
     __shared__ DTYPE_GPU fwd_vals[k_max_states];
     __shared__ DTYPE_GPU exp_vals[k_max_states];
-    __shared__ DTYPE_GPU exp_sum;
+    // __shared__ DTYPE_GPU exp_sum;
     __shared__ DTYPE_GPU max_val;
     max_val = -FLT_MAX;
 
@@ -168,17 +168,22 @@ __global__ void fwd_post_scan(
             fwd_vals[state] = val;
             atomicMaxFloat(&max_val, val);
         }
-        exp_sum = 0.0;
         __syncthreads();
 
         // enter exp vals
         for (uint64_t state = state_begin; state < state_end; ++state) {
-            DTYPE_GPU exp_val = __expf(fwd_vals[state] - max_val);
-            exp_vals[state] = exp_val;
-            atomicAdd(&exp_sum, exp_val);
+            exp_vals[state] = __expf(fwd_vals[state] - max_val);
+            // atomicAdd(&exp_sum, exp_vals[state]); // for some reason this is not synchronized
         }
         __syncthreads();
 
+        // get max exp val
+        DTYPE_GPU exp_sum = 0.0f;
+        for (uint64_t state = 0; state < num_states; ++state) {
+            exp_sum += exp_vals[state];
+        }
+        __syncthreads();
+        
         // calculate posterior probability
         for (uint64_t state = state_begin; state < state_end; ++state) {
             out[ts_idx + state] = exp_vals[state] / exp_sum;
