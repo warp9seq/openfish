@@ -225,9 +225,7 @@ __global__ void beam_search(
     // Essentially a k=1 Bloom filter, indicating the presence of steps with particular
     // sequence hashes.  Avoids comparing stay hashes against all possible progenitor
     // states where none of them has the requisite sequence hash.
-    const uint32_t HASH_PRESENT_BITS = 4096;
-    const uint32_t HASH_PRESENT_MASK = HASH_PRESENT_BITS - 1;
-    __shared__ bool step_hash_present[4096];  // Default constructor zeros content.
+    __shared__ bool step_hash_present[HASH_PRESENT_BITS];  // Default constructor zeros content.
 
     // Iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {

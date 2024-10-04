@@ -11,6 +11,9 @@ constexpr int NUM_BASE_BITS = 2;
 constexpr int NUM_BASES = 1 << NUM_BASE_BITS;
 constexpr size_t MAX_BEAM_WIDTH = 32;
 
+constexpr uint32_t HASH_PRESENT_BITS = 4096;
+constexpr uint32_t HASH_PRESENT_MASK = HASH_PRESENT_BITS - 1;
+
 struct DecoderOptions {
     size_t beam_width = 32;
     float beam_cut = 100.0;
