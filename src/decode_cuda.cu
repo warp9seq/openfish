@@ -372,15 +372,12 @@ void decode_cuda(
         beam_search_cuda<<<grid_size,block_size_beam>>>(
             scores_TNC_cuda,
             bwd_NTC_cuda,
-            post_NTC_cuda,
             states_cuda,
             moves_cuda,
-            qual_data_cuda,
             beam_vector_cuda,
             num_state_bits,
             beam_cut,
             fixed_stay_score,
-            1.0f,
             1.0f,
             T,
             N,
@@ -393,6 +390,28 @@ void decode_cuda(
 	t1 = realtime();
     elapsed = t1 - t0;
     fprintf(stderr, "beam search completed in %f secs\n", elapsed);
+
+    t0 = realtime();
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        compute_qual_data<<<grid_size,block_size_gen>>>(
+            post_NTC_cuda,
+            states_cuda,
+            qual_data_cuda,
+            num_state_bits,
+            1.0f,
+            T,
+            N
+        );
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
+	// end timing
+	t1 = realtime();
+    elapsed = t1 - t0;
+    fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
 
     t0 = realtime();
 #ifdef BENCH

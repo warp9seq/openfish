@@ -148,16 +148,13 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 __global__ void beam_search_cuda(
     const float *const _scores_TNC,
     const float *const _bwd_NTC,
-    const float *const _post_NTC,
     state_t *_states,
     uint8_t *_moves,
-    float *_qual_data,
     beam_element_t *_beam_vector,
     const int num_state_bits,
     const float beam_cut,
     const float fixed_stay_score,
     const float score_scale,
-    const float posts_scale,
     const uint64_t T,
     const uint64_t N,
     const uint64_t C
@@ -172,10 +169,8 @@ __global__ void beam_search_cuda(
 
     const float *scores_TNC = _scores_TNC + chunk * (num_states * NUM_BASES);
     const float *bwd_NTC = _bwd_NTC + chunk * num_states * (T + 1);
-    const float *post_NTC = _post_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     uint8_t *moves = _moves + chunk * T;
-    float *qual_data = _qual_data + chunk * (T * NUM_BASES);
     beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (T + 1);
 
     const state_t states_mask = static_cast<state_t>(num_states - 1);
@@ -454,6 +449,27 @@ __global__ void beam_search_cuda(
         element_index = beam_vector[beam_addr].prev_element_index;
     }
     moves[0] = 1;  // Always step in the first event
+}
+
+__global__ void compute_qual_data(
+    const float *const _post_NTC,
+    state_t *_states,
+    float *_qual_data,
+    const int num_state_bits,
+    const float posts_scale,
+    const uint64_t T,
+    const uint64_t N
+) {
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    if (chunk >= N) {
+		return;
+	}
+
+    const size_t num_states = 1ull << num_state_bits;
+
+    const float *post_NTC = _post_NTC + chunk * num_states * (T + 1);
+    state_t *states = _states + chunk * T;
+    float *qual_data = _qual_data + chunk * (T * NUM_BASES);
 
     // old compute, todo: use new compute from latest dorado branch
     int hp_states[4] = {0, 0, 0, 0};  // What state index are the four homopolymers (A is always state 0)
