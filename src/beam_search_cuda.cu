@@ -57,7 +57,7 @@ __device__ static __forceinline__ float log_sum_exp(float x, float y) {
     return m + ((abs_diff < 17.0f) ? (__logf(1.0 + __expf(-abs_diff))) : 0.0f);
 }
 
-__global__ void generate_sequence_cuda(
+__global__ void generate_sequence(
     const uint8_t *_moves,
     const state_t *_states,
     const float *_qual_data,
@@ -145,7 +145,7 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
     return crc;
 }
 
-__global__ void beam_search_cuda(
+__global__ void beam_search(
     const float *const _scores_TNC,
     const float *const _bwd_NTC,
     state_t *_states,

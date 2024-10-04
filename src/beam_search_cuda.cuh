@@ -11,7 +11,7 @@ typedef struct {
     bool stay;
 } beam_element_t;
 
-__global__ void generate_sequence_cuda(
+__global__ void generate_sequence(
     const uint8_t *moves,
     const state_t *states,
     const float *qual_data,
@@ -25,7 +25,7 @@ __global__ void generate_sequence_cuda(
     const size_t N
 );
 
-__global__ void beam_search_cuda(
+__global__ void beam_search(
     const float *const _scores_TNC,
     const float *const _bwd_NTC,
     state_t *_states,

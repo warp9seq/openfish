@@ -369,7 +369,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        beam_search_cuda<<<grid_size,block_size_beam>>>(
+        beam_search<<<grid_size,block_size_beam>>>(
             scores_TNC_cuda,
             bwd_NTC_cuda,
             states_cuda,
@@ -411,14 +411,14 @@ void decode_cuda(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
+    fprintf(stderr, "compute quality data completed in %f secs\n", elapsed);
 
     t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        generate_sequence_cuda<<<grid_size,block_size_gen>>>(
+        generate_sequence<<<grid_size,block_size_gen>>>(
             moves_cuda,
             states_cuda,
             qual_data_cuda,
