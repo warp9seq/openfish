@@ -237,17 +237,6 @@ __global__ void beam_search(
     }
     __syncthreads();
 
-    // Initialise the beam
-    // for (size_t state = tid, beam_element = tid; state < num_states && beam_element < MAX_BEAM_WIDTH; state += nthreads) {
-    //     if (bwd_NTC[state] >= beam_init_threshold) {
-    //         // Note that this first element has a prev_element_index of 0
-    //         prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), static_cast<state_t>(state), 0, false};
-    //         prev_scores[beam_element] = 0.0f;
-    //         beam_element += nthreads;
-    //     }
-    // }
-    // __syncthreads();
-
     // Copy this initial beam front into the beam persistent state
     for (size_t element_idx = tid; element_idx < current_beam_width; element_idx += nthreads) {
         beam_vector[element_idx].state = prev_beam_front[element_idx].state;
@@ -470,20 +459,16 @@ __global__ void beam_search(
         __syncthreads();
 
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
+        for (size_t i = tid; i < elem_count; i += nthreads) {
+            // Remove backwards contribution from score
+            prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
 
-        if (tid == 0) {
-            for (size_t i = 0; i < elem_count; ++i) {
-                // Remove backwards contribution from score
-                prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
-
-                // Copy this new beam front into the beam persistent state
-                beam_vector[beam_offset + i].state = prev_beam_front[i].state;
-                beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
-                beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
-            }
-
-            current_beam_width = elem_count;
+            // Copy this new beam front into the beam persistent state
+            beam_vector[beam_offset + i].state = prev_beam_front[i].state;
+            beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
+            beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
         }
+        current_beam_width = elem_count;
         __syncthreads();
     }
 
