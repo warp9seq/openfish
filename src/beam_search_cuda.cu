@@ -6,6 +6,15 @@
 #include <math.h>
 #include <float.h>
 
+// https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
+__device__ __forceinline__ static float atomicMaxFloat (float * addr, float value) {
+    float old;
+    old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
+         __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
+
+    return old;
+}
+
 // This is the data we need to retain for only the previous timestep (block) in the beam
 //  (and what we construct for the new timestep)
 typedef struct {
@@ -160,7 +169,9 @@ __global__ void beam_search(
     const uint64_t C
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-    if (chunk >= N) {
+    const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+    const uint64_t nthreads = MAX_BEAM_WIDTH;
+    if (chunk >= N || tid >= nthreads) {
 		return;
 	}
 
@@ -189,44 +200,62 @@ __global__ void beam_search(
     __shared__ float current_scores[max_beam_candidates];
     __shared__ float prev_scores[max_beam_candidates];
 
-    // Find the score an initial element needs in order to make it into the beam
-    float beam_init_threshold = -FLT_MAX;
-    if (MAX_BEAM_WIDTH < num_states) {
-        // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
-        constexpr size_t max_states = 1024;
-        float sorted_back_guides[max_states];
-        for (size_t i = 0; i < num_states; ++i) {
-            sorted_back_guides[i] = bwd_NTC[i];
-        }
-
-        beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
-    }
-
-    // Initialise the beam
-    for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
-        if (bwd_NTC[state] >= beam_init_threshold) {
-            // Note that this first element has a prev_element_index of 0
-            prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
-                                             static_cast<state_t>(state), 0, false};
-            prev_scores[beam_element] = 0.0f;
-            ++beam_element;
-        }
-    }
-
-    // Copy this initial beam front into the beam persistent state
-    size_t current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
-    for (size_t element_idx = 0; element_idx < current_beam_width; ++element_idx) {
-        beam_vector[element_idx].state = prev_beam_front[element_idx].state;
-        beam_vector[element_idx].prev_element_index =
-                (prev_beam_front)[element_idx].prev_element_index;
-        beam_vector[element_idx].stay = prev_beam_front[element_idx].stay;
-    }
-
     // Essentially a k=1 Bloom filter, indicating the presence of steps with particular
     // sequence hashes.  Avoids comparing stay hashes against all possible progenitor
     // states where none of them has the requisite sequence hash.
     __shared__ bool step_hash_present[HASH_PRESENT_BITS];  // Default constructor zeros content.
 
+    __shared__ size_t current_beam_width;
+    __shared__ float beam_init_threshold;
+
+    // Find the score an initial element needs in order to make it into the beam
+    if (tid == 0) {
+        beam_init_threshold = -FLT_MAX;
+        current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
+
+        if (MAX_BEAM_WIDTH < num_states) {
+            // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
+            constexpr size_t max_states = 1024;
+            float sorted_back_guides[max_states];
+            for (size_t i = 0; i < num_states; ++i) {
+                sorted_back_guides[i] = bwd_NTC[i];
+            }
+
+            beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
+        }
+
+        // Initialise the beam
+        for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
+            if (bwd_NTC[state] >= beam_init_threshold) {
+                // Note that this first element has a prev_element_index of 0
+                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
+                                                static_cast<state_t>(state), 0, false};
+                prev_scores[beam_element] = 0.0f;
+                ++beam_element;
+            }
+        }
+    }
+    __syncthreads();
+
+    // Initialise the beam
+    // for (size_t state = tid, beam_element = tid; state < num_states && beam_element < MAX_BEAM_WIDTH; state += nthreads) {
+    //     if (bwd_NTC[state] >= beam_init_threshold) {
+    //         // Note that this first element has a prev_element_index of 0
+    //         prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), static_cast<state_t>(state), 0, false};
+    //         prev_scores[beam_element] = 0.0f;
+    //         beam_element += nthreads;
+    //     }
+    // }
+    // __syncthreads();
+
+    // Copy this initial beam front into the beam persistent state
+    for (size_t element_idx = tid; element_idx < current_beam_width; element_idx += nthreads) {
+        beam_vector[element_idx].state = prev_beam_front[element_idx].state;
+        beam_vector[element_idx].prev_element_index = prev_beam_front[element_idx].prev_element_index;
+        beam_vector[element_idx].stay = prev_beam_front[element_idx].stay;
+    }
+    __syncthreads();
+    
     // Iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
@@ -247,53 +276,60 @@ __global__ void beam_search(
          *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
          */
 
-        float max_score = -FLT_MAX;
-
+        __shared__ float max_score;
+        __shared__ uint32_t new_elem_count;
+        
+        max_score = -FLT_MAX;
+        new_elem_count = 0;
         // reset bloom filter
-        for (uint32_t i = 0; i < HASH_PRESENT_BITS; ++i) {
+        for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += nthreads) {
             step_hash_present[i] = false;
         }
-
+        __syncthreads();
+        
         // Generate list of candidate elements for this timestep (block).
         // As we do so, update the maximum score.
-        size_t new_elem_count = 0;
-        for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
+        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
 
             // Expand all the possible steps
             for (int new_base = 0; new_base < NUM_BASES; new_base++) {
                 state_t new_state =
                         (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) |
-                         state_t(new_base));
+                        state_t(new_base));
                 const state_t move_idx = static_cast<state_t>(
                         (new_state << NUM_BASE_BITS) +
                         (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
                 float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
                 float new_score = prev_scores[prev_elem_idx] + block_score +
-                                  static_cast<float>(block_back_scores[new_state]);
+                                static_cast<float>(block_back_scores[new_state]);
                 uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
 
                 step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
 
+                uint32_t new_elem_idx = new_elem_count + (tid * NUM_BASES) + new_base;
+
                 // Add new element to the candidate list
-                current_beam_front[new_elem_count] = {new_hash, new_state, (uint8_t)prev_elem_idx,
-                                                      false};
-                current_scores[new_elem_count] = new_score;
-                max_score = max_score > new_score ? max_score : new_score;
-                ++new_elem_count;
+                current_beam_front[new_elem_idx] = {new_hash, new_state, (uint8_t)prev_elem_idx, false};
+                current_scores[new_elem_idx] = new_score;
+                atomicMaxFloat(&max_score, new_score);
             }
         }
+        if (tid == 0) {
+            new_elem_count += current_beam_width * NUM_BASES;
+        }
+        __syncthreads();
 
-        for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
+        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
+            uint32_t new_elem_idx = new_elem_count + tid;
+
             // Add the possible stay.
-            const float stay_score = prev_scores[prev_elem_idx] + fixed_stay_score +
-                                     static_cast<float>(block_back_scores[previous_element->state]);
-            current_beam_front[new_elem_count] = {previous_element->hash, previous_element->state,
-                                                  (uint8_t)prev_elem_idx, true};
-            current_scores[new_elem_count] = stay_score;
-            max_score = max_score > stay_score ? max_score : stay_score;
+            const float stay_score = prev_scores[prev_elem_idx] + fixed_stay_score + static_cast<float>(block_back_scores[previous_element->state]);
+            current_beam_front[new_elem_idx] = {previous_element->hash, previous_element->state, (uint8_t)prev_elem_idx, true};
+            current_scores[new_elem_idx] = stay_score;
+            atomicMaxFloat(&max_score, stay_score);
 
             // Determine whether the path including this stay duplicates another sequence ending in
             // a step.
@@ -310,103 +346,111 @@ __global__ void beam_search(
                         if (current_scores[stay_elem_idx] > current_scores[step_elem_idx]) {
                             // Fold the step into the stay
                             const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                   current_scores[step_elem_idx]);
+                                                                current_scores[step_elem_idx]);
                             current_scores[stay_elem_idx] = folded_score;
-                            max_score = max_score > folded_score ? max_score : folded_score;
+                            atomicMaxFloat(&max_score, folded_score);
                             // The step element will end up last, sorted by score
                             current_scores[step_elem_idx] = -FLT_MAX;
                         } else {
                             // Fold the stay into the step
                             const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                   current_scores[step_elem_idx]);
+                                                                current_scores[step_elem_idx]);
                             current_scores[step_elem_idx] = folded_score;
-                            max_score = max_score > folded_score ? max_score : folded_score;
+                            atomicMaxFloat(&max_score, folded_score);
                             // The stay element will end up last, sorted by score
                             current_scores[stay_elem_idx] = -FLT_MAX;
                         }
                     }
                 }
             }
-
-            ++new_elem_count;
         }
+        if (tid == 0) {
+            new_elem_count += current_beam_width;
+        }
+        __syncthreads();
 
         // Starting point for finding the cutoff score is the beam cut score
-        float beam_cutoff_score = max_score - log_beam_cut;
-        size_t elem_count;
-        float *score_ptr;
+        __shared__ size_t elem_count;
 
         // Count the elements which meet the min score
-        elem_count = 0;
-        score_ptr = current_scores;
-        for (int i = int(new_elem_count); i; --i) {
-            if (*score_ptr >= beam_cutoff_score) ++elem_count;
-            ++score_ptr;
-        }
+        if (tid == 0) {
+            float beam_cutoff_score = max_score - log_beam_cut;
+            float *score_ptr;
 
-        if (elem_count > MAX_BEAM_WIDTH) {
-            // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
-            float low_score = beam_cutoff_score;
-            float hi_score = max_score;
-            int num_guesses = 1;
-            constexpr int MAX_GUESSES = 10;
-            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
-                if (elem_count > MAX_BEAM_WIDTH) {
-                    // Make a higher guess
-                    low_score = beam_cutoff_score;
-                    beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;  // binary search.
-                } else {
-                    // Make a lower guess
-                    hi_score = beam_cutoff_score;
-                    beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
-                }
-                elem_count = 0;
-                score_ptr = current_scores;
-                for (int i = int(new_elem_count); i; --i) {
-                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                    ++score_ptr;
-                }
-
-                ++num_guesses;
-            }
-            // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it.)
-            //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
-            // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
-            //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score.
-            //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
-            if (num_guesses == MAX_GUESSES) {
-                beam_cutoff_score = hi_score;
-                elem_count = 0;
-                score_ptr = current_scores;
-                for (int i = int(new_elem_count); i; --i) {
-                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                    ++score_ptr;
-                }
+            elem_count = 0;
+            score_ptr = current_scores;
+            for (int i = int(new_elem_count); i; --i) {
+                if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                ++score_ptr;
             }
 
-            // Clamp the element count to the max beam width in case of failure 2 from above.
-            elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
-        }
+            if (elem_count > MAX_BEAM_WIDTH) {
+                // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
+                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
+                float low_score = beam_cutoff_score;
+                float hi_score = max_score;
+                int num_guesses = 1;
+                constexpr int MAX_GUESSES = 10;
+                while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
+                    if (elem_count > MAX_BEAM_WIDTH) {
+                        // Make a higher guess
+                        low_score = beam_cutoff_score;
+                        beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;  // binary search.
+                    } else {
+                        // Make a lower guess
+                        hi_score = beam_cutoff_score;
+                        beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
+                    }
+                    elem_count = 0;
+                    score_ptr = current_scores;
+                    for (int i = int(new_elem_count); i; --i) {
+                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                        ++score_ptr;
+                    }
 
-        size_t write_idx = 0;
-        for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
-            if (current_scores[read_idx] >= beam_cutoff_score) {
-                if (write_idx < MAX_BEAM_WIDTH) {
-                    prev_beam_front[write_idx] = current_beam_front[read_idx];
-                    prev_scores[write_idx] = current_scores[read_idx];
-                    ++write_idx;
-                } else {
-                    break;
+                    ++num_guesses;
+                }
+                // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
+                // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it.)
+                //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
+                // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
+                //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
+                // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score.
+                //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
+                if (num_guesses == MAX_GUESSES) {
+                    beam_cutoff_score = hi_score;
+                    elem_count = 0;
+                    score_ptr = current_scores;
+                    for (int i = int(new_elem_count); i; --i) {
+                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                        ++score_ptr;
+                    }
+                }
+
+                // Clamp the element count to the max beam width in case of failure 2 from above.
+                elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
+            }
+
+            if (tid == 0) {
+                size_t write_idx = 0;
+                for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
+                    if (current_scores[read_idx] >= beam_cutoff_score) {
+                        if (write_idx < MAX_BEAM_WIDTH) {
+                            prev_beam_front[write_idx] = current_beam_front[read_idx];
+                            prev_scores[write_idx] = current_scores[read_idx];
+                            ++write_idx;
+                        } else {
+                            break;
+                        }
+                    }
                 }
             }
         }
+        __syncthreads();
 
         // At the last timestep, we need to ensure the best path corresponds to element 0.
         // The other elements don't matter.
-        if (block_idx == T - 1) {
+        if (tid == 0 && block_idx == T - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
             for (size_t i = 0; i < elem_count; i++) {
@@ -423,30 +467,37 @@ __global__ void beam_search(
             prev_scores[0] = prev_scores[best_score_index];
             prev_scores[best_score_index] = temp1;
         }
+        __syncthreads();
 
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
-        for (size_t i = 0; i < elem_count; ++i) {
-            // Remove backwards contribution from score
-            prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
 
-            // Copy this new beam front into the beam persistent state
-            beam_vector[beam_offset + i].state = prev_beam_front[i].state;
-            beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
-            beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
+        if (tid == 0) {
+            for (size_t i = 0; i < elem_count; ++i) {
+                // Remove backwards contribution from score
+                prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
+
+                // Copy this new beam front into the beam persistent state
+                beam_vector[beam_offset + i].state = prev_beam_front[i].state;
+                beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
+                beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
+            }
+
+            current_beam_width = elem_count;
         }
-
-        current_beam_width = elem_count;
+        __syncthreads();
     }
 
-    // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
-    uint8_t element_index = 0;
-    for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
-        size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
-        states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
-        moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
-        element_index = beam_vector[beam_addr].prev_element_index;
+    if (tid == 0) {
+        // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
+        uint8_t element_index = 0;
+        for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
+            size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
+            states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
+            moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
+            element_index = beam_vector[beam_addr].prev_element_index;
+        }
+        moves[0] = 1;  // Always step in the first event
     }
-    moves[0] = 1;  // Always step in the first event
 }
 
 __global__ void compute_qual_data(

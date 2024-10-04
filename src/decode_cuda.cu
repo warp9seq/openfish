@@ -25,10 +25,10 @@ __global__ void bwd_scan(
 	const int num_states,
 	const int num_states_per_thread
 ) {
-	uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-	uint64_t thread_idx = threadIdx.x + (threadIdx.y * blockDim.x);
-	uint64_t state_begin = thread_idx * num_states_per_thread;
-	uint64_t state_end = state_begin + num_states_per_thread;
+	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+	const uint64_t state_begin = tid * num_states_per_thread;
+	const uint64_t state_end = state_begin + num_states_per_thread;
 
 	if (chunk >= N || state_begin >= num_states) {
 		return;
@@ -85,10 +85,10 @@ __global__ void fwd_post_scan(
     const uint64_t num_states,
     const int num_states_per_thread
 ) {
-    uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-	uint64_t thread_idx = threadIdx.x + (threadIdx.y * blockDim.x);
-	uint64_t state_begin = thread_idx * num_states_per_thread;
-	uint64_t state_end = state_begin + num_states_per_thread;
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+	const uint64_t state_begin = tid * num_states_per_thread;
+	const uint64_t state_end = state_begin + num_states_per_thread;
 
 	if (chunk >= N || state_begin >= num_states) {
 		return;
@@ -221,7 +221,7 @@ void decode_cuda(
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
-    dim3 block_size_beam(1, 1, 1);
+    dim3 block_size_beam(MAX_BEAM_WIDTH, 1, 1);
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
