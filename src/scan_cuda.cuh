@@ -8,6 +8,7 @@ typedef struct scan_args {
     uint64_t T;
     uint64_t N;
     uint64_t C;
+    DTYPE_GPU fixed_stay_score;
 } scan_args_t;
 
 __global__ void bwd_scan(
