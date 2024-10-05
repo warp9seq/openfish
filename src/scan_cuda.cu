@@ -34,7 +34,7 @@ __global__ void bwd_scan(
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const DTYPE_GPU* const chunk_in = scores_in + chunk * ts_states; // should be half DTYPE_GPU (for GPU impl)
+    const DTYPE_GPU* const chunk_in = scores_in + chunk * ts_states;
     DTYPE_GPU* const chunk_out = out + chunk * (T+1) * num_states;
     DTYPE_GPU* const alpha_init = chunk_out + num_states * T;
     for (uint64_t state = tid; state < num_states; state += nthreads) {
@@ -94,41 +94,39 @@ __global__ void fwd_post_scan(
     
     const uint64_t msb = num_states / NUM_BASES;
     const uint64_t ts_states = num_states * NUM_BASES;
-    
+
     __shared__ DTYPE_GPU fwd_vals[MAX_STATES];
     __shared__ DTYPE_GPU exp_vals[MAX_STATES];
     // __shared__ DTYPE_GPU exp_sum;
     __shared__ DTYPE_GPU max_val;
     max_val = -FLT_MAX;
 
-    // This batch element's scores.
+    //scores for this batch
     const DTYPE_GPU* const chunk_scores = scores_in + chunk * ts_states;
 
-    // Alternating forward guide buffers used for successive time steps.
-    __shared__ DTYPE_GPU ts_fwd[2][MAX_STATES]; // threadgroup
+    // alternating forward guide buffers used for successive time steps
+    __shared__ DTYPE_GPU ts_fwd[2][MAX_STATES];
 
-    // The forward guide input for the first step is 0.
+    // the forward guide input for the first step is 0
     for (uint64_t state = tid; state < num_states; state += nthreads) {
         ts_fwd[0][state] = 0.0f;
     }
     __syncthreads();
 
     for (uint64_t ts = 0; ts < T; ++ts) {
-        // We read forward guide values written to TG memory in the previous step as
-        // inputs to this step.  However, there has already been a TG barrier since
-        // they were written.
+        // we read forward guide values written to TG memory in the previous step as inputs to this step
+        // however, there has already been a TG barrier since they were written
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
-        // This time step's scores.
+        // this time step's scores
         const DTYPE_GPU* const ts_scores = chunk_scores + N * ts_states * ts;
 
-        // Alternating TG buffer twiddling.
+        // alternating TG buffer twiddling
         const DTYPE_GPU* const ts_alpha_in = ts_fwd[ts & 1];
         DTYPE_GPU* const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
-        // Calculate the next time step's forward guide from this time step's scores
-        // and forward guide.  It's written to threadgroup memory for use in the
-        // next iteration.
+        // calculate the next time step's forward guide from this time step's scores and forward guide
+        // it's written to threadgroup memory for use in the next iteration
         for (uint64_t state = tid; state < num_states; state += nthreads) {
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / NUM_BASES;
@@ -150,11 +148,10 @@ __global__ void fwd_post_scan(
             }
             ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
 
-            // Load the forward guide value calculated in the last time step for use
-            // in this time step's posterior probability calculation.
+            // Load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
             const DTYPE_GPU fwd_val = ts_alpha_in[state];
 
-            // Calculate fwd/bwd guide product in log space.
+            // calculate fwd/bwd guide product in log space
             const DTYPE_GPU val = fwd_val + bwd[ts_idx + state];
 
             fwd_vals[state] = val;
