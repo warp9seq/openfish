@@ -13,6 +13,9 @@ constexpr size_t MAX_BEAM_WIDTH = 32;
 
 constexpr uint32_t HASH_PRESENT_BITS = 4096;
 constexpr uint32_t HASH_PRESENT_MASK = HASH_PRESENT_BITS - 1;
+constexpr uint32_t MAX_STATES = 1024;
+
+constexpr uint32_t CRC_SEED = 0x12345678u;
 
 struct DecoderOptions {
     size_t beam_width = 32;
