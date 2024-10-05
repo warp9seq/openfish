@@ -183,24 +183,28 @@ void decode_cuda(
     const float q_shift = options->q_shift;
     const float beam_cut = options->beam_cut;
 
+    beam_args_t beam_args = {0};
+    beam_args.scores_TNC = scores_TNC_cuda;
+    beam_args.bwd_NTC = bwd_NTC_cuda;
+    beam_args.post_NTC = post_NTC_cuda;
+    beam_args.T = T;
+    beam_args.N = N;
+    beam_args.C = C;
+    beam_args.num_state_bits = num_state_bits;
+
     t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
         beam_search<<<grid_size,block_size_beam>>>(
-            scores_TNC_cuda,
-            bwd_NTC_cuda,
+            beam_args,
             states_cuda,
             moves_cuda,
             beam_vector_cuda,
-            num_state_bits,
             beam_cut,
             fixed_stay_score,
-            1.0f,
-            T,
-            N,
-            C
+            1.0f
         );
         cudaDeviceSynchronize();
         checkCudaError();
@@ -216,13 +220,10 @@ void decode_cuda(
 #endif
     {
         compute_qual_data<<<grid_size,block_size_gen>>>(
-            post_NTC_cuda,
+            beam_args,
             states_cuda,
             qual_data_cuda,
-            num_state_bits,
-            1.0f,
-            T,
-            N
+            1.0f
         );
         cudaDeviceSynchronize();
         checkCudaError();
@@ -238,6 +239,7 @@ void decode_cuda(
 #endif
     {
         generate_sequence<<<grid_size,block_size_gen>>>(
+            beam_args,
             moves_cuda,
             states_cuda,
             qual_data_cuda,
@@ -246,9 +248,7 @@ void decode_cuda(
             sequence_cuda,
             qstring_cuda,
             q_shift,
-            q_scale,
-            T,
-            N
+            q_scale
         );
         cudaDeviceSynchronize();
         checkCudaError();

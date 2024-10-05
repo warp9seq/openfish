@@ -17,7 +17,7 @@ __device__ __forceinline__ static float atomicMaxFloat (float * addr, float valu
 
 // This is the data we need to retain for only the previous timestep (block) in the beam
 //  (and what we construct for the new timestep)
-typedef struct {
+typedef struct beam_front_element {
     uint32_t hash;
     state_t state;
     uint8_t prev_element_index;
@@ -67,6 +67,7 @@ __device__ static __forceinline__ float log_sum_exp(float x, float y) {
 }
 
 __global__ void generate_sequence(
+    const beam_args_t args,
     const uint8_t *_moves,
     const state_t *_states,
     const float *_qual_data,
@@ -75,15 +76,15 @@ __global__ void generate_sequence(
     char *_sequence,
     char *_qstring,
     const float shift,
-    const float scale,
-    const size_t T,
-    const size_t N
+    const float scale
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-    if (chunk >= N) {
+
+    if (chunk >= args.N) {
 		return;
 	}
 
+    const uint64_t T = args.T;
     const uint8_t *moves = _moves + chunk * T;
     const state_t *states = _states + chunk * T;
     const float *qual_data = _qual_data + chunk * T * NUM_BASES;
@@ -155,31 +156,32 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 }
 
 __global__ void beam_search(
-    const float *const _scores_TNC,
-    const float *const _bwd_NTC,
+    const beam_args_t args,
     state_t *_states,
     uint8_t *_moves,
     beam_element_t *_beam_vector,
-    const int num_state_bits,
     const float beam_cut,
     const float fixed_stay_score,
-    const float score_scale,
-    const uint64_t T,
-    const uint64_t N,
-    const uint64_t C
+    const float score_scale
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = MAX_BEAM_WIDTH;
-    if (chunk >= N || tid >= nthreads) {
+    
+    if (chunk >= args.N || tid >= nthreads) {
 		return;
 	}
 
+    const uint64_t T = args.T;
+    const uint64_t N = args.N;
+    const uint64_t C = args.C;
+
+    const int num_state_bits = args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
     const size_t scores_block_stride = N * C;
 
-    const float *scores_TNC = _scores_TNC + chunk * (num_states * NUM_BASES);
-    const float *bwd_NTC = _bwd_NTC + chunk * num_states * (T + 1);
+    const float *scores_TNC = args.scores_TNC + chunk * (num_states * NUM_BASES);
+    const float *bwd_NTC = args.bwd_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     uint8_t *moves = _moves + chunk * T;
     beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (T + 1);
@@ -486,22 +488,21 @@ __global__ void beam_search(
 }
 
 __global__ void compute_qual_data(
-    const float *const _post_NTC,
+    const beam_args_t args,
     state_t *_states,
     float *_qual_data,
-    const int num_state_bits,
-    const float posts_scale,
-    const uint64_t T,
-    const uint64_t N
+    const float posts_scale
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-    if (chunk >= N) {
+    if (chunk >= args.N) {
 		return;
 	}
 
-    const size_t num_states = 1ull << num_state_bits;
+    const uint64_t T = args.T;
 
-    const float *post_NTC = _post_NTC + chunk * num_states * (T + 1);
+    const size_t num_states = 1ull << args.num_state_bits;
+
+    const float *post_NTC = args.post_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     float *qual_data = _qual_data + chunk * (T * NUM_BASES);
 
