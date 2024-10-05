@@ -189,7 +189,6 @@ __global__ void beam_search(
     const state_t states_mask = static_cast<state_t>(num_states - 1);
 
     // Some values we need
-    constexpr uint32_t CRC_SEED = 0x12345678u;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
     // Create the previous and current beam fronts
@@ -217,8 +216,7 @@ __global__ void beam_search(
 
         if (MAX_BEAM_WIDTH < num_states) {
             // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
-            constexpr size_t max_states = 1024;
-            float sorted_back_guides[max_states];
+            float sorted_back_guides[MAX_STATES];
             for (size_t i = 0; i < num_states; ++i) {
                 sorted_back_guides[i] = bwd_NTC[i];
             }

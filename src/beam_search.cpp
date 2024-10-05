@@ -164,8 +164,7 @@ void beam_search(
     float beam_init_threshold = -FLT_MAX;
     if (MAX_BEAM_WIDTH < num_states) {
         // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
-        constexpr size_t max_states = 1024;
-        float sorted_back_guides[max_states];
+        float sorted_back_guides[MAX_STATES];
         for (size_t i = 0; i < num_states; ++i) {
             sorted_back_guides[i] = back_guide[i];
         }

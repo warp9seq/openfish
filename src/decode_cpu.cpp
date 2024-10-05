@@ -7,11 +7,10 @@
 #include <vector>
 
 static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
-    const uint64_t k_num_bases = 4;
-    const uint64_t k_num_transitions = k_num_bases + 1;
-    const float k_fixed_stay_score = 2.0f;
+    const uint64_t ntransitions = NUM_BASES + 1;
+    const float fixed_stay_score = 2.0f;
 
-    const uint64_t ts_states = num_states * k_num_bases;
+    const uint64_t ts_states = num_states * NUM_BASES;
 
     const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
     float* const chunk_out = out + chunk * (T+1) * num_states;
@@ -28,20 +27,20 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
 
         for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
             const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = (state * k_num_bases) % num_states;
-            const uint64_t step_trans_idx_a = step_state_idx_a * k_num_bases +
-                ((state * k_num_bases) / num_states);
+            const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
+            const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES +
+                ((state * NUM_BASES) / num_states);
 
-            float vals[k_num_transitions];
-            vals[0] = ts_alpha_in[stay_state_idx] + k_fixed_stay_score;
+            float vals[ntransitions];
+            vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
             float max_val = vals[0];
-            for (uint64_t base = 0; base < k_num_bases; ++base) {
+            for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-                    ts_in[step_trans_idx_a + base * k_num_bases];
+                    ts_in[step_trans_idx_a + base * NUM_BASES];
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
-            for (uint64_t i = 0; i < k_num_transitions; ++i) {
+            for (uint64_t i = 0; i < ntransitions; ++i) {
                 sum += exp(vals[i] - max_val);
             }
             ts_alpha_out[state] = max_val + log(sum);
@@ -55,15 +54,14 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
     constexpr uint64_t kNumTransitions = kNumBases + 1;
     constexpr float kFixedStayScore = 2.0f;
     
-    const uint64_t kMsb = num_states / kNumBases;
+    const uint64_t msb = num_states / kNumBases;
     const uint64_t ts_states = num_states * kNumBases;
 
     // This batch element's scores.
     const float *const chunk_scores = scores_in + chunk * ts_states;
 
     // Alternating forward guide buffers used for successive time steps.
-    constexpr uint64_t kMaxStates = 1024;
-    float ts_fwd[2][kMaxStates]; // threadgroup
+    float ts_fwd[2][MAX_STATES]; // threadgroup
 
     // The forward guide input for the first step is 0.
     for (uint64_t state = 0; state < num_states; ++state) {
@@ -99,7 +97,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
                 // otherwise output remains exactly the same for this impl whether it indexes past or not
                 float ts_score = ts < _T ? ts_scores[step_trans_idx_a + base] : 0.0f;
 
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * kMsb] + ts_score;
+                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             float fwd_sum = 0.0f;
