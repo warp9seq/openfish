@@ -142,7 +142,7 @@ __global__ void generate_sequence(
 // Incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
 // (not the same polynomial as CRC32 as used in zip/ethernet).
 __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
-    // Note that this is the reversed polynomial.
+    // note that this is the reversed polynomial
     constexpr uint32_t POLYNOMIAL = 0x82f63b78u;
     for (int i = 0; i < num_new_bits; ++i) {
         uint32_t b = (new_bits ^ crc) & 1;
@@ -178,58 +178,62 @@ __global__ void beam_search(
 
     const int num_state_bits = args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
+    const state_t states_mask = static_cast<state_t>(num_states - 1);
     const size_t scores_block_stride = N * C;
+    const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
     const float *scores_TNC = args.scores_TNC + chunk * (num_states * NUM_BASES);
     const float *bwd_NTC = args.bwd_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     uint8_t *moves = _moves + chunk * T;
+
+    // this contains all the beams we're keeping track of 
     beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (T + 1);
 
-    const state_t states_mask = static_cast<state_t>(num_states - 1);
-
-    // Some values we need
-    const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
-
-    // Create the previous and current beam fronts
-    // Each existing element can be extended by one of NUM_BASES, or be a stay.
+    // create the previous and current beam fronts
+    // each existing beam element can be extended by one of NUM_BASES, or be a stay (for a single beam).
     constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
 
+    // current set of beam fronts (candidates)
     __shared__ beam_front_element_t current_beam_front[max_beam_candidates];
+
+    // the last set of beam fronts
     __shared__ beam_front_element_t prev_beam_front[max_beam_candidates];
 
+    // scores for each possible transition for each state (k-mer)
     __shared__ float current_scores[max_beam_candidates];
     __shared__ float prev_scores[max_beam_candidates];
 
-    // Essentially a k=1 Bloom filter, indicating the presence of steps with particular
-    // sequence hashes.  Avoids comparing stay hashes against all possible progenitor
-    // states where none of them has the requisite sequence hash.
-    __shared__ bool step_hash_present[HASH_PRESENT_BITS];  // Default constructor zeros content.
+    // a k=1 Bloom filter, indicating the presence of steps with particular sequence hashes
+    // avoids comparing stay hashes against all possible progenitor states where none of them has the requisite sequence hash
+    __shared__ bool step_hash_present[HASH_PRESENT_BITS];
 
     __shared__ size_t current_beam_width;
     __shared__ float beam_init_threshold;
-
-    // Find the score an initial element needs in order to make it into the beam
     if (tid == 0) {
         beam_init_threshold = -FLT_MAX;
         current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
+    }
 
+    // find the score a state needs to make it into the first set of beam elements
+    if (tid == 0) {
         if (MAX_BEAM_WIDTH < num_states) {
-            // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
+            // copy the first set of back guides and sort to extract max_beam_width highest elements
             float sorted_back_guides[MAX_STATES];
             for (size_t i = 0; i < num_states; ++i) {
                 sorted_back_guides[i] = bwd_NTC[i];
             }
 
+            // note that we don't need a full sort here to get the max_beam_width highest values
             beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
         }
 
-        // Initialise the beam
+        // initialise all beams
+        // go through all state scores in the first block of the back_guide
         for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
             if (bwd_NTC[state] >= beam_init_threshold) {
-                // Note that this first element has a prev_element_index of 0
-                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
-                                                static_cast<state_t>(state), 0, false};
+                // note that this first element has a prev_element_index of 0
+                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), static_cast<state_t>(state), 0, false};
                 prev_scores[beam_element] = 0.0f;
                 ++beam_element;
             }
@@ -237,7 +241,7 @@ __global__ void beam_search(
     }
     __syncthreads();
 
-    // Copy this initial beam front into the beam persistent state
+    // copy all beam fronts into the beam persistent state
     for (size_t element_idx = tid; element_idx < current_beam_width; element_idx += nthreads) {
         beam_vector[element_idx].state = prev_beam_front[element_idx].state;
         beam_vector[element_idx].prev_element_index = prev_beam_front[element_idx].prev_element_index;
@@ -245,25 +249,10 @@ __global__ void beam_search(
     }
     __syncthreads();
     
-    // Iterate through blocks, extending beam
+    // iterate through blocks, extending each beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
-
-        /*  kmer transitions order:
-         *  N^K , N array
-         *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
-         *  Kmer index is lexicographic with most recent base in the fastest index
-         *
-         *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
-         *  The modifying action is
-         *    0: Remove A from beginning
-         *    1: Remove C from beginning
-         *    2: Remove G from beginning
-         *    3: Remove T from beginning
-         *
-         *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
-         */
 
         __shared__ float max_score;
         __shared__ uint32_t new_elem_count;
@@ -276,31 +265,54 @@ __global__ void beam_search(
         }
         __syncthreads();
         
-        // Generate list of candidate elements for this timestep (block).
-        // As we do so, update the maximum score.
+        // generate list of candidate elements for this timestep (block)
+        // update the max score and scores for each possible transition for each beam
         for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
 
-            // Expand all the possible steps
+            // expand all the possible steps
             for (int new_base = 0; new_base < NUM_BASES; new_base++) {
-                state_t new_state =
-                        (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) |
-                        state_t(new_base));
-                const state_t move_idx = static_cast<state_t>(
-                        (new_state << NUM_BASE_BITS) +
-                        (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
+
+                /*  kmer transitions order:
+                *  N^K , N array
+                *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
+                *  Kmer index is lexicographic with most recent base in the fastest index
+                *
+                *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
+                *  The modifying action is
+                *    0: Remove A from beginning
+                *    1: Remove C from beginning
+                *    2: Remove G from beginning
+                *    3: Remove T from beginning
+                *
+                *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
+                */
+
+                // shift the state (k-mer) left and append the new base to the end of bitset
+                // transition to a new k-mer (see explanation above)
+                state_t new_state = (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) | state_t(new_base));
+
+                // get the score of this transition (see explanation above)
+                const state_t move_idx = static_cast<state_t>((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
                 float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
-                float new_score = prev_scores[prev_elem_idx] + block_score +
-                                static_cast<float>(block_back_scores[new_state]);
-                uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
+                float new_score = prev_scores[prev_elem_idx] + block_score + static_cast<float>(block_back_scores[new_state]);
 
+                // generate hash from previous element and new state
+                uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
                 step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
 
                 uint32_t new_elem_idx = new_elem_count + (tid * NUM_BASES) + new_base;
 
-                // Add new element to the candidate list
-                current_beam_front[new_elem_idx] = {new_hash, new_state, (uint8_t)prev_elem_idx, false};
+                // add new element to candidates
+                current_beam_front[new_elem_idx] = {
+                    new_hash,
+                    new_state,
+                    (uint8_t)prev_elem_idx,
+                    false // this is never a stay, these are possible steps
+                };
+
+                // update scores
                 current_scores[new_elem_idx] = new_score;
                 atomicMaxFloat(&max_score, new_score);
             }
@@ -310,45 +322,80 @@ __global__ void beam_search(
         }
         __syncthreads();
 
+        // generate stays
+
+        // stay: signal is on the same "timestep" with the same base
+        // step: signal is on a different "timestep" with the same base
+        
+        // iter through each previous element to create candidate stays and compare it against the score of a corresponding candidate step
+        // compare each candidate stay with steps of the same hash
+        // whichever stay or step scores worse gets discarded
+        // whichever scores better gets an updated score
+        
+        // e.g.
+        //      if our stay s1 looks like this:
+        //          s0{state: TCGG, stay: false} -> s1{state: TCGG, stay: true}
+        //
+        //      we compare its score to the step p1 that looks like this:
+        //          p0{state: ATCG, stay: false} -> p1{state: TCGG, stay: false}
+        //
+        //      note: both must also have stemmed from the same sequence, so we keep a hash to keep track
+        
         for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
             uint32_t new_elem_idx = new_elem_count + tid;
 
-            // Add the possible stay.
-            const float stay_score = prev_scores[prev_elem_idx] + fixed_stay_score + static_cast<float>(block_back_scores[previous_element->state]);
-            current_beam_front[new_elem_idx] = {previous_element->hash, previous_element->state, (uint8_t)prev_elem_idx, true};
+            // score for possible stay
+            // if it's a stay, it's a kmer that repeats in the sequence
+            const float stay_score = prev_scores[prev_elem_idx]                                         // score of prev elem
+                                    + fixed_stay_score                                                  // + some static score for possible stays
+                                    + static_cast<float>(block_back_scores[previous_element->state]);   // + score of previous state being in this timestep
+
+            // add stay to candidates
+            // since we will always have the step as a candidate (from our previous step) in our current_beam_front and current_scores, we only need to create candidate stay beam elements
+            current_beam_front[new_elem_idx] = {
+                previous_element->hash,
+                previous_element->state,
+                (uint8_t)prev_elem_idx,
+                true // this is always stay, a stay represents a beam_element that has not changed since the last timestep
+            };
             current_scores[new_elem_idx] = stay_score;
+
             atomicMaxFloat(&max_score, stay_score);
 
-            // Determine whether the path including this stay duplicates another sequence ending in
-            // a step.
+            // determine whether the path including this stay duplicates another sequence ending in a step equal to the state of the stay
+            // this "bloom filter" is supposed to help avoid comparing hash against every single step generated before
             if (step_hash_present[previous_element->hash & HASH_PRESENT_MASK]) {
+                // left shift by 2 and then add the previous elem idx
                 size_t stay_elem_idx = (current_beam_width << NUM_BASE_BITS) + prev_elem_idx;
+
                 // latest base is in smallest bits
                 int stay_latest_base = int(previous_element->state & 3);
 
-                // Go through all the possible step extensions that match this destination base with the stay and compare
-                // their hashes, merging if we find any.
+                // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
                 for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
+
+                    // it's a step if it's a previous kmer with a repeated base
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
+
+                    // compare hashes of step extension and possible stay, if they're equal, we merge
                     if (current_beam_front[stay_elem_idx].hash == current_beam_front[step_elem_idx].hash) {
+                        const float folded_score = log_sum_exp(current_scores[stay_elem_idx], current_scores[step_elem_idx]);
+                        // merge: 
+                        //      modify score of whatever scored better with folded score
+                        //      basically discard the worst scoring one
                         if (current_scores[stay_elem_idx] > current_scores[step_elem_idx]) {
-                            // Fold the step into the stay
-                            const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                current_scores[step_elem_idx]);
+                            // fold the step into the stay
                             current_scores[stay_elem_idx] = folded_score;
-                            atomicMaxFloat(&max_score, folded_score);
-                            // The step element will end up last, sorted by score
+                            // the step element will end up last, sorted by score
                             current_scores[step_elem_idx] = -FLT_MAX;
                         } else {
-                            // Fold the stay into the step
-                            const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                current_scores[step_elem_idx]);
+                            // fold the stay into the step
                             current_scores[step_elem_idx] = folded_score;
-                            atomicMaxFloat(&max_score, folded_score);
-                            // The stay element will end up last, sorted by score
+                            // the stay element will end up last, sorted by score
                             current_scores[stay_elem_idx] = -FLT_MAX;
                         }
+                        atomicMaxFloat(&max_score, folded_score);
                     }
                 }
             }
@@ -358,10 +405,11 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        // Starting point for finding the cutoff score is the beam cut score
+        // cut off to fit beam width
+        // starting point for finding the cutoff score is the beam cut score
         __shared__ size_t elem_count;
 
-        // Count the elements which meet the min score
+        // count the elements which meet the min score
         if (tid == 0) {
             float beam_cutoff_score = max_score - log_beam_cut;
             float *score_ptr;
@@ -373,22 +421,23 @@ __global__ void beam_search(
                 ++score_ptr;
             }
 
+            // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
             if (elem_count > MAX_BEAM_WIDTH) {
-                // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
+                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
                 float low_score = beam_cutoff_score;
                 float hi_score = max_score;
                 int num_guesses = 1;
                 constexpr int MAX_GUESSES = 10;
+
                 while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                     if (elem_count > MAX_BEAM_WIDTH) {
-                        // Make a higher guess
+                        // make a higher guess
                         low_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;  // binary search.
+                        beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
                     } else {
-                        // Make a lower guess
+                        // make a lower guess
                         hi_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
+                        beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;
                     }
                     elem_count = 0;
                     score_ptr = current_scores;
@@ -399,12 +448,13 @@ __global__ void beam_search(
 
                     ++num_guesses;
                 }
+
                 // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-                // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it.)
+                // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
                 //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
                 // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
                 //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-                // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score.
+                // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
                 //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
                 if (num_guesses == MAX_GUESSES) {
                     beam_cutoff_score = hi_score;
@@ -416,10 +466,11 @@ __global__ void beam_search(
                     }
                 }
 
-                // Clamp the element count to the max beam width in case of failure 2 from above.
+                // clamp the element count to the max beam width in case of failure 2 from above
                 elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
             }
 
+            // write current scores and beam fronts to prev
             if (tid == 0) {
                 size_t write_idx = 0;
                 for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
@@ -437,8 +488,8 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        // At the last timestep, we need to ensure the best path corresponds to element 0.
-        // The other elements don't matter.
+        // at the last timestep, we need to ensure the best path corresponds to element 0
+        // the other elements don't matter
         if (tid == 0 && block_idx == T - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
@@ -458,22 +509,24 @@ __global__ void beam_search(
         }
         __syncthreads();
 
+        // copy this new beam front into the beam persistent state
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
         for (size_t i = tid; i < elem_count; i += nthreads) {
-            // Remove backwards contribution from score
+            // remove backwards contribution from score
             prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
 
-            // Copy this new beam front into the beam persistent state
             beam_vector[beam_offset + i].state = prev_beam_front[i].state;
             beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
             beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
         }
+        // adjust current beam width
         current_beam_width = elem_count;
         __syncthreads();
     }
 
+    // write out sequence bases and move table
     if (tid == 0) {
-        // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
+        // note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
         uint8_t element_index = 0;
         for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
             size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
@@ -481,7 +534,7 @@ __global__ void beam_search(
             moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
             element_index = beam_vector[beam_addr].prev_element_index;
         }
-        moves[0] = 1;  // Always step in the first event
+        moves[0] = 1;  // always step in the first event
     }
 }
 
@@ -510,43 +563,45 @@ __global__ void compute_qual_data(
     hp_states[1] = hp_states[3] / 3;     // calculate hp C from hp T (01b per base)
     hp_states[2] = hp_states[1] * 2;     // calculate hp G from hp C (10b per base)
 
-    // Compute per-base qual data
+    // compute per-base qual data
     for (size_t block_idx = 0; block_idx < T; block_idx++) {
         int state = states[block_idx];
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];
 
-        // Compute a probability for this block, based on the path kmer. See the following explanation:
+        // compute a probability for this block, based on the path kmer. See the following explanation:
         // https://git.oxfordnanolabs.local/machine-learning/notebooks/-/blob/master/bonito-basecaller-qscores.ipynb
         const float *timestep_posts = post_NTC + ((block_idx + 1) * num_states);
 
-        // For states which are homopolymers, we don't want to count the states more than once
+        // for states which are homopolymers, we don't want to count the states more than once
         bool is_hp = state == hp_states[0] || state == hp_states[1] || state == hp_states[2] ||
                      state == hp_states[3];
         float block_prob = float(timestep_posts[state]) * (is_hp ? -1.0f : 1.0f);
 
-        // Add in left-shifted kmers
+        // add in left-shifted kmers
         int l_shift_idx = state / NUM_BASES;
         int msb = int(num_states) / NUM_BASES;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
             block_prob += float(timestep_posts[l_shift_idx + msb * shift_base]);
         }
 
-        // Add in the right-shifted kmers
+        // add in the right-shifted kmers
         int r_shift_idx = (state * NUM_BASES) % num_states;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
             block_prob += float(timestep_posts[r_shift_idx + shift_base]);
         }
+
+        // clamp block_prob
         if (block_prob < 0.0f) block_prob = 0.0f;
         else if (block_prob > 1.0f) block_prob = 1.0f;
-        block_prob = __powf(block_prob, 0.4f);  // Power fudge factor
+        
+        block_prob = __powf(block_prob, 0.4f);  // power fudge factor
 
-        // Calculate a placeholder qscore for the "wrong" bases
+        // placeholder qscore for the "wrong" bases
         float wrong_base_prob = (1.0f - block_prob) / 3.0f;
 
         for (size_t base = 0; base < NUM_BASES; base++) {
-            qual_data[block_idx * NUM_BASES + base] =
-                    (int(base) == base_to_emit ? block_prob : wrong_base_prob);
+            qual_data[block_idx * NUM_BASES + base] = (int(base) == base_to_emit ? block_prob : wrong_base_prob);
         }
     }
 }
