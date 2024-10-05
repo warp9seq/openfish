@@ -76,6 +76,7 @@ void decode_cuda(
     scan_args.N = N;
     scan_args.C = C;
     scan_args.num_states = num_states;
+    scan_args.fixed_stay_score = options->blank_score;
 
 #ifdef BENCH
     int n_batch = 140; // simulate 20k reads

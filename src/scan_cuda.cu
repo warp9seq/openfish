@@ -30,7 +30,7 @@ __global__ void bwd_scan(
 	}
 
     const uint64_t ntransitions = NUM_BASES + 1;
-    const DTYPE_GPU fixed_stay_score = 2.0f;
+    const DTYPE_GPU fixed_stay_score = args.fixed_stay_score;
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
@@ -90,7 +90,7 @@ __global__ void fwd_post_scan(
 	}
 
     constexpr uint64_t ntransitions = NUM_BASES + 1;
-    constexpr DTYPE_GPU fixed_stay_score = 2.0f;
+    const DTYPE_GPU fixed_stay_score = args.fixed_stay_score;
     
     const uint64_t msb = num_states / NUM_BASES;
     const uint64_t ts_states = num_states * NUM_BASES;
