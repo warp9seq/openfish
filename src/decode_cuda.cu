@@ -53,25 +53,25 @@ void decode_cuda(
     MALLOC_CHK(post_NTC);
 #endif
 
-    DTYPE_GPU *scores_TNC_cuda;
-    DTYPE_GPU *bwd_NTC_cuda;
-    DTYPE_GPU *post_NTC_cuda;
+    DTYPE_GPU *scores_TNC_gpu;
+    DTYPE_GPU *bwd_NTC_gpu;
+    DTYPE_GPU *post_NTC_gpu;
 
     // copy score tensor over
-    cudaMalloc((void **)&scores_TNC_cuda, sizeof(DTYPE_GPU) * T * N * C);
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(DTYPE_GPU) * T * N * C);
 	checkCudaError();
 
-	cudaMemcpy(scores_TNC_cuda, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
 	checkCudaError();
 
     // init scan tensors
-    cudaMalloc((void **)&bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
+    cudaMalloc((void **)&bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
-    cudaMalloc((void **)&post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem);
+    cudaMalloc((void **)&post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
 	checkCudaError();
 
     scan_args_t scan_args = {0};
-    scan_args.scores_in = scores_TNC_cuda;
+    scan_args.scores_in = scores_TNC_gpu;
     scan_args.T = T;
     scan_args.N = N;
     scan_args.C = C;
@@ -92,7 +92,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_cuda);
+        bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu);
         cudaDeviceSynchronize();
         checkCudaError();
     }
@@ -107,7 +107,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_cuda, post_NTC_cuda);
+        fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu, post_NTC_gpu);
         cudaDeviceSynchronize();
         checkCudaError();
     }
@@ -143,39 +143,39 @@ void decode_cuda(
 #endif
 
     // intermediate results
-    uint8_t *moves_cuda;
-    char *sequence_cuda;
-    char *qstring_cuda;
+    uint8_t *moves_gpu;
+    char *sequence_gpu;
+    char *qstring_gpu;
 
-    cudaMalloc((void **)&moves_cuda, sizeof(uint8_t) * N * T);
+    cudaMalloc((void **)&moves_gpu, sizeof(uint8_t) * N * T);
     checkCudaError();
-    cudaMemset(moves_cuda, 0, sizeof(uint8_t) * N * T);
+    cudaMemset(moves_gpu, 0, sizeof(uint8_t) * N * T);
 	checkCudaError();
-    cudaMalloc((void **)&sequence_cuda, sizeof(char) * N * T);
+    cudaMalloc((void **)&sequence_gpu, sizeof(char) * N * T);
     checkCudaError();
-    cudaMemset(sequence_cuda, 0, sizeof(char) * N * T);
+    cudaMemset(sequence_gpu, 0, sizeof(char) * N * T);
 	checkCudaError();
-    cudaMalloc((void **)&qstring_cuda, sizeof(char) * N * T);
+    cudaMalloc((void **)&qstring_gpu, sizeof(char) * N * T);
     checkCudaError();
-    cudaMemset(qstring_cuda, 0, sizeof(char) * N * T);
+    cudaMemset(qstring_gpu, 0, sizeof(char) * N * T);
 	checkCudaError();
     
     // intermediate
-    beam_element_t *beam_vector_cuda;
-    state_t *states_cuda;
-    float *qual_data_cuda;
-    float *base_probs_cuda;
-    float *total_probs_cuda;
+    beam_element_t *beam_vector_gpu;
+    state_t *states_gpu;
+    float *qual_data_gpu;
+    float *base_probs_gpu;
+    float *total_probs_gpu;
 
-    cudaMalloc((void **)&beam_vector_cuda, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+    cudaMalloc((void **)&beam_vector_gpu, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     checkCudaError();
-    cudaMalloc((void **)&states_cuda, sizeof(state_t) * N * T);
+    cudaMalloc((void **)&states_gpu, sizeof(state_t) * N * T);
     checkCudaError();
-    cudaMalloc((void **)&qual_data_cuda, sizeof(float) * N * T * NUM_BASES);
+    cudaMalloc((void **)&qual_data_gpu, sizeof(float) * N * T * NUM_BASES);
     checkCudaError();
-    cudaMalloc((void **)&base_probs_cuda, sizeof(float) * N * T);
+    cudaMalloc((void **)&base_probs_gpu, sizeof(float) * N * T);
     checkCudaError();
-    cudaMalloc((void **)&total_probs_cuda, sizeof(float) * N * T);
+    cudaMalloc((void **)&total_probs_gpu, sizeof(float) * N * T);
     checkCudaError();
 
     const int num_state_bits = static_cast<int>(log2(num_states));
@@ -185,9 +185,9 @@ void decode_cuda(
     const float beam_cut = options->beam_cut;
 
     beam_args_t beam_args = {0};
-    beam_args.scores_TNC = scores_TNC_cuda;
-    beam_args.bwd_NTC = bwd_NTC_cuda;
-    beam_args.post_NTC = post_NTC_cuda;
+    beam_args.scores_TNC = scores_TNC_gpu;
+    beam_args.bwd_NTC = bwd_NTC_gpu;
+    beam_args.post_NTC = post_NTC_gpu;
     beam_args.T = T;
     beam_args.N = N;
     beam_args.C = C;
@@ -200,9 +200,9 @@ void decode_cuda(
     {
         beam_search<<<grid_size,block_size_beam>>>(
             beam_args,
-            states_cuda,
-            moves_cuda,
-            beam_vector_cuda,
+            states_gpu,
+            moves_gpu,
+            beam_vector_gpu,
             beam_cut,
             fixed_stay_score,
             1.0f
@@ -222,8 +222,8 @@ void decode_cuda(
     {
         compute_qual_data<<<grid_size,block_size_gen>>>(
             beam_args,
-            states_cuda,
-            qual_data_cuda,
+            states_gpu,
+            qual_data_gpu,
             1.0f
         );
         cudaDeviceSynchronize();
@@ -241,13 +241,13 @@ void decode_cuda(
     {
         generate_sequence<<<grid_size,block_size_gen>>>(
             beam_args,
-            moves_cuda,
-            states_cuda,
-            qual_data_cuda,
-            base_probs_cuda,
-            total_probs_cuda,
-            sequence_cuda,
-            qstring_cuda,
+            moves_gpu,
+            states_gpu,
+            qual_data_gpu,
+            base_probs_gpu,
+            total_probs_gpu,
+            sequence_gpu,
+            qstring_gpu,
             q_shift,
             q_scale
         );
@@ -260,31 +260,31 @@ void decode_cuda(
     fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
 
     // copy beam_search results
-    cudaMemcpy(*moves, moves_cuda, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
+    cudaMemcpy(*moves, moves_gpu, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
-	cudaMemcpy(*sequence, sequence_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+	cudaMemcpy(*sequence, sequence_gpu, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
-    cudaMemcpy(*qstring, qstring_cuda, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    cudaMemcpy(*qstring, qstring_gpu, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
 #ifdef DEBUG
     // copy scan results
-    cudaMemcpy(bwd_NTC, bwd_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+    cudaMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
-	cudaMemcpy(post_NTC, post_NTC_cuda, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+	cudaMemcpy(post_NTC, post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     // copy intermediate
-    cudaMemcpy(states, states_cuda, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
+    cudaMemcpy(states, states_gpu, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(total_probs, total_probs_cuda, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    cudaMemcpy(total_probs, total_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(qual_data, qual_data_cuda, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
+    cudaMemcpy(qual_data, qual_data_gpu, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(base_probs, base_probs_cuda, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    cudaMemcpy(base_probs, base_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     // write results
@@ -318,17 +318,17 @@ void decode_cuda(
     free(bwd_NTC);
     free(post_NTC);
 #endif
-    cudaFree(scores_TNC_cuda);
-    cudaFree(bwd_NTC_cuda);
-    cudaFree(post_NTC_cuda);
+    cudaFree(scores_TNC_gpu);
+    cudaFree(bwd_NTC_gpu);
+    cudaFree(post_NTC_gpu);
 
-    cudaFree(moves_cuda);
-    cudaFree(sequence_cuda);
-    cudaFree(qstring_cuda);
+    cudaFree(moves_gpu);
+    cudaFree(sequence_gpu);
+    cudaFree(qstring_gpu);
 
-    cudaFree(beam_vector_cuda);
-    cudaFree(states_cuda);
-    cudaFree(qual_data_cuda);
-    cudaFree(base_probs_cuda);
-    cudaFree(total_probs_cuda);
+    cudaFree(beam_vector_gpu);
+    cudaFree(states_gpu);
+    cudaFree(qual_data_gpu);
+    cudaFree(base_probs_gpu);
+    cudaFree(total_probs_gpu);
 }
