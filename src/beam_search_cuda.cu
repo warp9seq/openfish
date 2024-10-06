@@ -1,19 +1,11 @@
 #include "beam_search_cuda.cuh"
 #include "decode.h"
+#include "cuda_utils.cuh"
 
 #include "error.h"
 
 #include <math.h>
 #include <float.h>
-
-// https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
-__device__ __forceinline__ static float atomicMaxFloat (float * addr, float value) {
-    float old;
-    old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
-         __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
-
-    return old;
-}
 
 // This is the data we need to retain for only the previous timestep (block) in the beam
 //  (and what we construct for the new timestep)
