@@ -46,11 +46,12 @@ ifdef cuda
 else ifdef rocm
 	ROCM_ROOT = /opt/rocm
 	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
+	HIP_LIB ?= $(ROCM_ROOT)/lib
 	HIPCXX ?= $(ROCM_ROOT)/bin/hipcc
-	HIP_CFLAGS += -g -std=c++17 -Wall -Wextra
-	HIP_OBJ += $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
-	HIP_LDFLAGS = -lrt -ldl --hip-link
-	OBJ += $(BUILD_DIR)/hip_code.o $(HIP_OBJ) $(BUILD_DIR)/decode_hip.o
+	HIP_CFLAGS += -g -std=c++11 -Wall -Wextra
+	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
+	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
+	OBJ += $(BUILD_DIR)/hip_code.a
 	CPPFLAGS += -DHAVE_HIP=1
 endif
 
@@ -88,9 +89,6 @@ $(BUILD_DIR)/beam_search.o: src/beam_search.cpp
 $(BUILD_DIR)/openfish.o: src/openfish.cpp include/openfish/openfish.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/decode_hip.o: src/decode_hip.cpp
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
-
 # cuda
 $(BUILD_DIR)/cuda_code.o: $(CUDA_OBJ)
 	$(NVCC) $(CUDA_CFLAGS) -dlink $^ -o $@
@@ -105,14 +103,17 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 # hip
-$(BUILD_DIR)/hip_code.o: $(HIP_OBJ)
-	$(HIPCXX) $(HIP_CFLAGS) -dlink $^ -o $@
+$(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
+	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc $^ -o $@
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+
+$(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
+	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*.o
