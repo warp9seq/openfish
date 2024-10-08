@@ -1,18 +1,11 @@
 #pragma once
 
-#include "decode_cpu.h"
+#include "decode.h"
 
-#ifdef HAVE_CUDA
-#include "decode_cuda.cuh"
-#elif HAVE_HIP
-#include "decode_hip.h"
-#endif
-
-void decode(
+void decode_hip(
     const int T,
     const int N,
     const int C,
-    const int target_threads,
     float *scores_TNC,
     const int state_len,
     const DecoderOptions *options,
