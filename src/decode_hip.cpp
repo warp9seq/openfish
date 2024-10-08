@@ -1,11 +1,13 @@
-#include "decode_cuda.cuh"
-#include "scan_cuda.cuh"
-#include "beam_search_cuda.cuh"
+#include "decode_hip.h"
+#include "scan_hip.h"
+#include "beam_search_hip.h"
 #include "error.h"
-#include "cuda_utils.cuh"
+#include "hip_utils.hpp"
 #include "misc.h"
 
-void decode_cuda(
+#include <hip/hip_runtime.h>
+
+void decode_hip(
     const int T,
     const int N,
     const int C,
@@ -58,17 +60,13 @@ void decode_cuda(
     DTYPE_GPU *post_NTC_gpu;
 
     // copy score tensor over
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(DTYPE_GPU) * T * N * C);
-	checkCudaError();
+    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(DTYPE_GPU) * T * N * C));
 
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
-	checkCudaError();
+	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, hipMemcpyHostToDevice));
 
     // init scan tensors
-    cudaMalloc((void **)&bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
-	checkCudaError();
-    cudaMalloc((void **)&post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
-	checkCudaError();
+    HIP_CHECK(hipMalloc((void **)&bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem));
+    HIP_CHECK(hipMalloc((void **)&post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem));
 
     scan_args_t scan_args = {0};
     scan_args.scores_in = scores_TNC_gpu;
@@ -93,8 +91,7 @@ void decode_cuda(
 #endif
     {
         bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu);
-        cudaDeviceSynchronize();
-        checkCudaError();
+        HIP_CHECK(hipDeviceSynchronize());
     }
 	// end timing
 	t1 = realtime();
@@ -108,8 +105,7 @@ void decode_cuda(
 #endif
     {
         fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu, post_NTC_gpu);
-        cudaDeviceSynchronize();
-        checkCudaError();
+        HIP_CHECK(hipDeviceSynchronize());
     }
 	// end timing
 	t1 = realtime();
@@ -147,18 +143,12 @@ void decode_cuda(
     char *sequence_gpu;
     char *qstring_gpu;
 
-    cudaMalloc((void **)&moves_gpu, sizeof(uint8_t) * N * T);
-    checkCudaError();
-    cudaMemset(moves_gpu, 0, sizeof(uint8_t) * N * T);
-	checkCudaError();
-    cudaMalloc((void **)&sequence_gpu, sizeof(char) * N * T);
-    checkCudaError();
-    cudaMemset(sequence_gpu, 0, sizeof(char) * N * T);
-	checkCudaError();
-    cudaMalloc((void **)&qstring_gpu, sizeof(char) * N * T);
-    checkCudaError();
-    cudaMemset(qstring_gpu, 0, sizeof(char) * N * T);
-	checkCudaError();
+    HIP_CHECK(hipMalloc((void **)&moves_gpu, sizeof(uint8_t) * N * T));
+    HIP_CHECK(hipMemset(moves_gpu, 0, sizeof(uint8_t) * N * T));
+    HIP_CHECK(hipMalloc((void **)&sequence_gpu, sizeof(char) * N * T));
+    HIP_CHECK(hipMemset(sequence_gpu, 0, sizeof(char) * N * T));
+    HIP_CHECK(hipMalloc((void **)&qstring_gpu, sizeof(char) * N * T));
+    HIP_CHECK(hipMemset(qstring_gpu, 0, sizeof(char) * N * T));
     
     // intermediate
     beam_element_t *beam_vector_gpu;
@@ -167,16 +157,11 @@ void decode_cuda(
     float *base_probs_gpu;
     float *total_probs_gpu;
 
-    cudaMalloc((void **)&beam_vector_gpu, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
-    checkCudaError();
-    cudaMalloc((void **)&states_gpu, sizeof(state_t) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&qual_data_gpu, sizeof(float) * N * T * NUM_BASES);
-    checkCudaError();
-    cudaMalloc((void **)&base_probs_gpu, sizeof(float) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&total_probs_gpu, sizeof(float) * N * T);
-    checkCudaError();
+    HIP_CHECK(hipMalloc((void **)&beam_vector_gpu, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1)));
+    HIP_CHECK(hipMalloc((void **)&states_gpu, sizeof(state_t) * N * T));
+    HIP_CHECK(hipMalloc((void **)&qual_data_gpu, sizeof(float) * N * T * NUM_BASES));
+    HIP_CHECK(hipMalloc((void **)&base_probs_gpu, sizeof(float) * N * T));
+    HIP_CHECK(hipMalloc((void **)&total_probs_gpu, sizeof(float) * N * T));
 
     const int num_state_bits = static_cast<int>(log2(num_states));
     const float fixed_stay_score = options->blank_score;
@@ -207,8 +192,7 @@ void decode_cuda(
             fixed_stay_score,
             1.0f
         );
-        cudaDeviceSynchronize();
-        checkCudaError();
+        HIP_CHECK(hipDeviceSynchronize());
     }
 	// end timing
 	t1 = realtime();
@@ -226,8 +210,7 @@ void decode_cuda(
             qual_data_gpu,
             1.0f
         );
-        cudaDeviceSynchronize();
-        checkCudaError();
+        HIP_CHECK(hipDeviceSynchronize());
     }
 	// end timing
 	t1 = realtime();
@@ -251,8 +234,7 @@ void decode_cuda(
             q_shift,
             q_scale
         );
-        cudaDeviceSynchronize();
-        checkCudaError();
+        HIP_CHECK(hipDeviceSynchronize());
     }
 	// end timing
 	t1 = realtime();
@@ -260,32 +242,20 @@ void decode_cuda(
     fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
 
     // copy beam_search results
-    cudaMemcpy(*moves, moves_gpu, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(*sequence, sequence_gpu, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-    cudaMemcpy(*qstring, qstring_gpu, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    HIP_CHECK(hipMemcpy(*moves, moves_gpu, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost));
+	HIP_CHECK(hipMemcpy(*sequence, sequence_gpu, sizeof(char) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(*qstring, qstring_gpu, sizeof(char) * N * T, hipMemcpyDeviceToHost));
 
 #ifdef DEBUG
     // copy scan results
-    cudaMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(post_NTC, post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    HIP_CHECK(hipMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, hipMemcpyDeviceToHost));
+	HIP_CHECK(hipMemcpy(post_NTC, post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, hipMemcpyDeviceToHost));
 
     // copy intermediate
-    cudaMemcpy(states, states_gpu, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(total_probs, total_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(qual_data, qual_data_gpu, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(base_probs, base_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    HIP_CHECK(hipMemcpy(states, states_gpu, sizeof(state_t) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(total_probs, total_probs_gpu, sizeof(float) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(qual_data, qual_data_gpu, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(base_probs, base_probs_gpu, sizeof(float) * N * T, hipMemcpyDeviceToHost));
 
     // write results
     FILE *fp;
@@ -318,17 +288,15 @@ void decode_cuda(
     free(bwd_NTC);
     free(post_NTC);
 #endif
-    cudaFree(scores_TNC_gpu);
-    cudaFree(bwd_NTC_gpu);
-    cudaFree(post_NTC_gpu);
-
-    cudaFree(moves_gpu);
-    cudaFree(sequence_gpu);
-    cudaFree(qstring_gpu);
-
-    cudaFree(beam_vector_gpu);
-    cudaFree(states_gpu);
-    cudaFree(qual_data_gpu);
-    cudaFree(base_probs_gpu);
-    cudaFree(total_probs_gpu);
+    HIP_CHECK(hipFree(scores_TNC_gpu));
+    HIP_CHECK(hipFree(bwd_NTC_gpu));
+    HIP_CHECK(hipFree(post_NTC_gpu));
+    HIP_CHECK(hipFree(moves_gpu));
+    HIP_CHECK(hipFree(sequence_gpu));
+    HIP_CHECK(hipFree(qstring_gpu));
+    HIP_CHECK(hipFree(beam_vector_gpu));
+    HIP_CHECK(hipFree(states_gpu));
+    HIP_CHECK(hipFree(qual_data_gpu));
+    HIP_CHECK(hipFree(base_probs_gpu));
+    HIP_CHECK(hipFree(total_probs_gpu));
 }
