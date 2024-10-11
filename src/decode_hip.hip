@@ -116,13 +116,13 @@ void decode_hip(
 
     // init results
     *moves = (uint8_t *)malloc(N * T * sizeof(uint8_t));
-    MALLOC_CHK(moves);
+    MALLOC_CHK(*moves);
 
     *sequence = (char *)malloc(N * T * sizeof(char));
-    MALLOC_CHK(sequence);
+    MALLOC_CHK(*sequence);
 
     *qstring = (char *)malloc(N * T * sizeof(char));
-    MALLOC_CHK(qstring);
+    MALLOC_CHK(*qstring);
 
 #ifdef DEBUG
     state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
