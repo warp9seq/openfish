@@ -86,8 +86,10 @@ __global__ void generate_sequence(
     char *qstring = _qstring + chunk * T;
 
     size_t seq_len = 0;
-    for (int i = 0; i < T; ++i) {
+    for (size_t i = 0; i < T; ++i) {
         seq_len += moves[i];
+        base_probs[i] = 0.0f;
+        total_probs[i] = 0.0f;
     }
 
     size_t seq_pos = 0;
