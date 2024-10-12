@@ -170,7 +170,7 @@ __global__ void beam_search(
 
     const int num_state_bits = args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
-    const state_t states_mask = static_cast<state_t>(num_states - 1);
+    const state_t states_mask = (state_t)(num_states - 1);
     const size_t scores_block_stride = N * C;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
@@ -225,7 +225,7 @@ __global__ void beam_search(
         for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
             if (bwd_NTC[state] >= beam_init_threshold) {
                 // note that this first element has a prev_element_index of 0
-                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), static_cast<state_t>(state), 0, false};
+                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), (state_t)(state), 0, false};
                 prev_scores[beam_element] = 0.0f;
                 ++beam_element;
             }
@@ -285,7 +285,7 @@ __global__ void beam_search(
                 state_t new_state = (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) | state_t(new_base));
 
                 // get the score of this transition (see explanation above)
-                const state_t move_idx = static_cast<state_t>((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
+                const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
                 float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
                 float new_score = prev_scores[prev_elem_idx] + block_score + static_cast<float>(block_back_scores[new_state]);
