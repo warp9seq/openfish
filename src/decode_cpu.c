@@ -51,12 +51,10 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
 
 static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
-    constexpr uint64_t kNumBases = 4;
-    constexpr uint64_t kNumTransitions = kNumBases + 1;
-    constexpr float kFixedStayScore = 2.0f;
+    const float kFixedStayScore = 2.0f;
     
-    const uint64_t msb = num_states / kNumBases;
-    const uint64_t ts_states = num_states * kNumBases;
+    const uint64_t msb = num_states / NUM_BASES;
+    const uint64_t ts_states = num_states * NUM_BASES;
 
     // This batch element's scores.
     const float *const chunk_scores = scores_in + chunk * ts_states;
@@ -88,11 +86,11 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         // next iteration.
         for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
             const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / kNumBases;
-            const uint64_t step_trans_idx_a = state * kNumBases;
-            float vals[kNumTransitions];
+            const uint64_t step_state_idx_a = state / NUM_BASES;
+            const uint64_t step_trans_idx_a = state * NUM_BASES;
+            float vals[NUM_TRANSITIONS];
             float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-            for (uint64_t base = 0; base < kNumBases; ++base) {
+            for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 // todo: this is a bandaid for indexing past the actual T dimension of scores
                 // need to verify with actual MetalTxCaller impl output,
                 // otherwise output remains exactly the same for this impl whether it indexes past or not
@@ -102,7 +100,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             float fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < kNumTransitions; ++i) {
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
                 fwd_sum += exp(vals[i] - fwd_max_val);
             }
             ts_alpha_out[state] = fwd_max_val + log(fwd_sum);
@@ -289,7 +287,7 @@ void decode_cpu(
     // set the data structures
     for (t = 0; t < num_threads; t++) {
         pt_args[t].start = t * chunks_per_thread + MIN(t, num_threads_with_one_more_chunk);
-        pt_args[t].end = pt_args[t].start + chunks_per_thread + int(t < num_threads_with_one_more_chunk);
+        pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
         pt_args[t].scores_TNC = scores_TNC;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].fwd_NTC = fwd_NTC;

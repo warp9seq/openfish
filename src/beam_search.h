@@ -1,7 +1,13 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
 
 typedef int32_t state_t;
 
@@ -41,3 +47,7 @@ void beam_search(
     float posts_scale,
     beam_element_t *beam_vector
 );
+
+#ifdef __cplusplus
+}
+#endif

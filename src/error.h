@@ -31,6 +31,10 @@ SOFTWARE.
 #ifndef ERROR_H
 #define ERROR_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -140,5 +144,9 @@ void set_log_level(enum log_level_opt level);
         exit(EXIT_FAILURE); \
     } \
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
