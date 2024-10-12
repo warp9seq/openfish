@@ -251,13 +251,13 @@ void decode_cpu(
 
     // init results
     *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
-    MALLOC_CHK(moves);
+    MALLOC_CHK(*moves);
 
     *sequence = (char *)calloc(N * T, sizeof(char));
-    MALLOC_CHK(sequence);
+    MALLOC_CHK(*sequence);
 
     *qstring = (char *)calloc(N * T, sizeof(char));
-    MALLOC_CHK(qstring);
+    MALLOC_CHK(*qstring);
 
     // intermediate
     beam_element_t *beam_vector = (beam_element_t *)malloc(N * MAX_BEAM_WIDTH * (T + 1) * sizeof(beam_element_t));
