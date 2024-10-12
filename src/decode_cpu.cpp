@@ -9,7 +9,6 @@
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
-    const uint64_t ntransitions = NUM_BASES + 1;
     const float fixed_stay_score = 2.0f;
 
     const uint64_t ts_states = num_states * NUM_BASES;
@@ -33,7 +32,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
             const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES +
                 ((state * NUM_BASES) / num_states);
 
-            float vals[ntransitions];
+            float vals[NUM_TRANSITIONS];
             vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
             float max_val = vals[0];
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
@@ -42,7 +41,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
-            for (uint64_t i = 0; i < ntransitions; ++i) {
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
                 sum += exp(vals[i] - max_val);
             }
             ts_alpha_out[state] = max_val + log(sum);
@@ -191,7 +190,7 @@ void *pthread_single_beam_search(void *voidargs) {
     const decoder_opts_t *options = args->options;
     
     const int num_states = pow(NUM_BASES, args->state_len);
-    const int num_state_bits = static_cast<int>(log2(num_states));
+    const int num_state_bits = (int)log2(num_states);
     const int T = args->T;
     const int N = args->N;
     const int C = args->C;

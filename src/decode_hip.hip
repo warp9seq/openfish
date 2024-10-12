@@ -163,7 +163,7 @@ void decode_hip(
     HIP_CHECK(hipMalloc((void **)&base_probs_gpu, sizeof(float) * N * T));
     HIP_CHECK(hipMalloc((void **)&total_probs_gpu, sizeof(float) * N * T));
 
-    const int num_state_bits = static_cast<int>(log2(num_states));
+    const int num_state_bits = (int)log2(num_states);
     const float fixed_stay_score = options->blank_score;
     const float q_scale = options->q_scale;
     const float q_shift = options->q_shift;
