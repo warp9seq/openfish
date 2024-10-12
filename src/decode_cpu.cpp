@@ -4,7 +4,9 @@
 #include "misc.h"
 
 #include <math.h>
-#include <vector>
+#include <pthread.h>
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
     const uint64_t ntransitions = NUM_BASES + 1;
@@ -146,7 +148,7 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
 }
 
 typedef struct {
-    const DecoderOptions *options;
+    const decoder_opts_t *options;
     const float *scores_TNC;
     float *bwd_NTC;
     float *fwd_NTC;
@@ -170,7 +172,7 @@ typedef struct {
 void* pthread_single_scan_score(void* voidargs) {
     decode_thread_arg_t* args = (decode_thread_arg_t*)voidargs;
 
-    const int num_states = std::pow(NUM_BASES, args->state_len);
+    const int num_states = pow(NUM_BASES, args->state_len);
 
     const int T = args->T;
     const int N = args->N;
@@ -186,9 +188,9 @@ void* pthread_single_scan_score(void* voidargs) {
 
 void *pthread_single_beam_search(void *voidargs) {
     decode_thread_arg_t *args = (decode_thread_arg_t *)voidargs;
-    const DecoderOptions *options = args->options;
+    const decoder_opts_t *options = args->options;
     
-    const int num_states = std::pow(NUM_BASES, args->state_len);
+    const int num_states = pow(NUM_BASES, args->state_len);
     const int num_state_bits = static_cast<int>(log2(num_states));
     const int T = args->T;
     const int N = args->N;
@@ -200,17 +202,17 @@ void *pthread_single_beam_search(void *voidargs) {
     const float beam_cut = options->beam_cut;
 
     for (int c = args->start; c < args->end; c++) {
-        auto scores = args->scores_TNC + c * (num_states * NUM_BASES);
-        auto bwd = args->bwd_NTC + c * num_states * (T+1);
-        auto post = args->post_NTC + c * num_states * (T+1);
-        auto states = args->states + c * T;
-        auto moves = args->moves + c * T;
-        auto qual_data = args->qual_data + c * (T * NUM_BASES);
-        auto base_probs = args->base_probs + c * T;
-        auto total_probs = args->total_probs + c * T;
-        auto sequence = args->sequence + c * T;
-        auto qstring = args->qstring + c * T;
-        auto beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
+        const float *scores = args->scores_TNC + c * (num_states * NUM_BASES);
+        float *bwd = args->bwd_NTC + c * num_states * (T+1);
+        float *post = args->post_NTC + c * num_states * (T+1);
+        state_t *states = args->states + c * T;
+        uint8_t *moves = args->moves + c * T;
+        float *qual_data = args->qual_data + c * (T * NUM_BASES);
+        float *base_probs = args->base_probs + c * T;
+        float *total_probs = args->total_probs + c * T;
+        char *sequence = args->sequence + c * T;
+        char *qstring = args->qstring + c * T;
+        beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
 
         beam_search(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
@@ -232,22 +234,21 @@ void decode_cpu(
     const int target_threads,
     float *scores_TNC,
     const int state_len,
-    const DecoderOptions *options,
+    const decoder_opts_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring
 ) {
     // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_CPU).transpose(0, 1).contiguous();
-    
-    const int MAX_BEAM_WIDTH = 32;
-    const int num_states = std::pow(NUM_BASES, state_len);
+    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
+
+    const int num_states = pow(NUM_BASES, state_len);
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
-    float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
-    float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
-    float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(DTYPE_CPU));
+    float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
+    float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
+    float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
 
     // init results
     *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
@@ -276,7 +277,7 @@ void decode_cpu(
     MALLOC_CHK(total_probs);
     
     // create threads
-    const int num_threads = std::min(N, target_threads);
+    const int num_threads = MIN(N, target_threads);
     const int chunks_per_thread = N / num_threads;
     const int num_threads_with_one_more_chunk = N % num_threads;
 
@@ -288,7 +289,7 @@ void decode_cpu(
 
     // set the data structures
     for (t = 0; t < num_threads; t++) {
-        pt_args[t].start = t * chunks_per_thread + std::min(t, num_threads_with_one_more_chunk);
+        pt_args[t].start = t * chunks_per_thread + MIN(t, num_threads_with_one_more_chunk);
         pt_args[t].end = pt_args[t].start + chunks_per_thread + int(t < num_threads_with_one_more_chunk);
         pt_args[t].scores_TNC = scores_TNC;
         pt_args[t].bwd_NTC = bwd_NTC;

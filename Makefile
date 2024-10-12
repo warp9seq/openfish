@@ -4,7 +4,7 @@ CXX		 = g++
 CPPFLAGS +=	-I src/ -I include/
 CFLAGS	+= 	-g -Wall -O2
 CXXFLAGS   += -g -Wall -O2 -std=c++14
-LDFLAGS  += $(LIBS) -lz -lm -lpthread -lstdc++fs
+LDFLAGS  += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = build
 
 # https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_dual_abi.html

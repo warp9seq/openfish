@@ -186,17 +186,17 @@ __global__ void beam_search(
 
     // create the previous and current beam fronts
     // each existing beam element can be extended by one of NUM_BASES, or be a stay (for a single beam).
-    constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
+    constexpr size_t MAX_BEAM_CANDIDATES = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
 
     // current set of beam fronts (candidates)
-    __shared__ beam_front_element_t current_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t current_beam_front[MAX_BEAM_CANDIDATES];
 
     // the last set of beam fronts
-    __shared__ beam_front_element_t prev_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t prev_beam_front[MAX_BEAM_CANDIDATES];
 
     // scores for each possible transition for each state (k-mer)
-    __shared__ float current_scores[max_beam_candidates];
-    __shared__ float prev_scores[max_beam_candidates];
+    __shared__ float current_scores[MAX_BEAM_CANDIDATES];
+    __shared__ float prev_scores[MAX_BEAM_CANDIDATES];
 
     // a k=1 Bloom filter, indicating the presence of steps with particular sequence hashes
     // avoids comparing stay hashes against all possible progenitor states where none of them has the requisite sequence hash

@@ -1,21 +1,22 @@
 #include <openfish/openfish.h>
 #include "error.h"
-
 #include <math.h>
+#include <string.h>
+#include <stdlib.h>
 
 int main(int argc, char* argv[]) {
     const int T = 1666;
     const int N = strtol(argv[3], NULL, 10);
     const int state_len = strtol(argv[4], NULL, 10);
-    const int C = std::pow(4, state_len) * 4;
+    const int C = pow(4, state_len) * 4;
     
     size_t scores_len = T * N * C;
-    float *scores = (float *)calloc(scores_len, sizeof(DTYPE_CPU));
+    float *scores = (float *)calloc(scores_len, sizeof(float));
     MALLOC_CHK(scores);
 
     FILE *fp = fopen(argv[1], "rb");
 
-    size_t result = fread(scores, sizeof(DTYPE_CPU), scores_len, fp);
+    size_t result = fread(scores, sizeof(float), scores_len, fp);
     if (result != scores_len) {
         ERROR("%s", "error reading score file");
         exit(EXIT_FAILURE);
@@ -23,7 +24,7 @@ int main(int argc, char* argv[]) {
     fclose(fp);
     
     
-    DecoderOptions options = DecoderOptions();
+    decoder_opts_t options = DECODER_INIT;
 
     // config mods from 4.2.0 models
     if (state_len == 3) { // fast

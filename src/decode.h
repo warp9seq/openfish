@@ -1,28 +1,25 @@
 #pragma once
+#include <stdbool.h>
+#include <stdlib.h>
 
-#include <string>
-#include <vector>
-#include <cstdint>
+#define NUM_BASE_BITS (2)
+#define NUM_BASES (1 << NUM_BASE_BITS)
+#define MAX_BEAM_WIDTH (32)
 
-#define DTYPE_CPU float
-#define DTYPE_GPU float
+#define HASH_PRESENT_BITS (4096)
+#define HASH_PRESENT_MASK (HASH_PRESENT_BITS - 1)
+#define MAX_STATES (1024)
+#define MAX_BEAM_CANDIDATES ((NUM_BASES + 1) * MAX_BEAM_WIDTH)
+#define CRC_SEED (0x12345678u)
 
-constexpr int NUM_BASE_BITS = 2;
-constexpr int NUM_BASES = 1 << NUM_BASE_BITS;
-constexpr size_t MAX_BEAM_WIDTH = 32;
+typedef struct decoder_opts {
+    size_t beam_width;
+    float beam_cut;
+    float blank_score;
+    float q_shift;
+    float q_scale;
+    float temperature;
+    bool move_pad;
+} decoder_opts_t;
 
-constexpr uint32_t HASH_PRESENT_BITS = 4096;
-constexpr uint32_t HASH_PRESENT_MASK = HASH_PRESENT_BITS - 1;
-constexpr uint32_t MAX_STATES = 1024;
-
-constexpr uint32_t CRC_SEED = 0x12345678u;
-
-struct DecoderOptions {
-    size_t beam_width = 32;
-    float beam_cut = 100.0;
-    float blank_score = 2.0;
-    float q_shift = 0.0;
-    float q_scale = 1.0;
-    float temperature = 1.0;
-    bool move_pad = false;
-};
+#define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}

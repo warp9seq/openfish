@@ -13,12 +13,12 @@ void decode_hip(
     const int C,
     float *scores_TNC,
     const int state_len,
-    const DecoderOptions *options,
+    const decoder_opts_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring
 ) {
-    const int num_states = std::pow(NUM_BASES, state_len);
+    const int num_states = pow(NUM_BASES, state_len);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
@@ -41,32 +41,32 @@ void decode_hip(
 	dim3 grid_size(grid_len, 1, 1);
 
     // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
+    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
     
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
 #ifdef DEBUG
-    DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    float *bwd_NTC = (float *)malloc(num_scan_elem * sizeof(float));
     MALLOC_CHK(bwd_NTC);
 
-    DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    float *post_NTC = (float *)malloc(num_scan_elem * sizeof(float));
     MALLOC_CHK(post_NTC);
 #endif
 
-    DTYPE_GPU *scores_TNC_gpu;
-    DTYPE_GPU *bwd_NTC_gpu;
-    DTYPE_GPU *post_NTC_gpu;
+    float *scores_TNC_gpu;
+    float *bwd_NTC_gpu;
+    float *post_NTC_gpu;
 
     // copy score tensor over
-    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(DTYPE_GPU) * T * N * C));
+    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(float) * T * N * C));
 
-	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, hipMemcpyHostToDevice));
+	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(float) * T * N * C, hipMemcpyHostToDevice));
 
     // init scan tensors
-    HIP_CHECK(hipMalloc((void **)&bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem));
-    HIP_CHECK(hipMalloc((void **)&post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem));
+    HIP_CHECK(hipMalloc((void **)&bwd_NTC_gpu, sizeof(float) * num_scan_elem));
+    HIP_CHECK(hipMalloc((void **)&post_NTC_gpu, sizeof(float) * num_scan_elem));
 
     scan_args_t scan_args = {0};
     scan_args.scores_in = scores_TNC_gpu;
@@ -248,8 +248,8 @@ void decode_hip(
 
 #ifdef DEBUG
     // copy scan results
-    HIP_CHECK(hipMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, hipMemcpyDeviceToHost));
-	HIP_CHECK(hipMemcpy(post_NTC, post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(float) * num_scan_elem, hipMemcpyDeviceToHost));
+	HIP_CHECK(hipMemcpy(post_NTC, post_NTC_gpu, sizeof(float) * num_scan_elem, hipMemcpyDeviceToHost));
 
     // copy intermediate
     HIP_CHECK(hipMemcpy(states, states_gpu, sizeof(state_t) * N * T, hipMemcpyDeviceToHost));
@@ -277,11 +277,11 @@ void decode_hip(
     fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fwrite(bwd_NTC, sizeof(float), num_scan_elem, fp);
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fwrite(post_NTC, sizeof(float), num_scan_elem, fp);
     fclose(fp);
 
     // cleanup

@@ -98,10 +98,10 @@ __global__ void generate_sequence(
     
     for (size_t blk = 0; blk < T; ++blk) {
         int state = states[blk];
-        int move = int(moves[blk]);
+        int move = (int)moves[blk];
         int base = state & 3;
         int offset = (blk == 0) ? 0 : move - 1;
-        int probPos = int(seq_pos) + offset;
+        int probPos = (int)(seq_pos + offset);
 
         // get the probability for the called base.
         base_probs[probPos] += qual_data[blk * NUM_BASES + base];
@@ -112,22 +112,22 @@ __global__ void generate_sequence(
         }
 
         if (blk == 0) {
-            sequence[seq_pos++] = char(base);
+            sequence[seq_pos++] = (char)base;
         } else {
             for (int j = 0; j < move; ++j) {
-                sequence[seq_pos++] = char(base);
+                sequence[seq_pos++] = (char)base;
             }
         }
     }
 
     for (size_t i = 0; i < seq_len; ++i) {
-        sequence[i] = alphabet[int(sequence[i])];
+        sequence[i] = alphabet[(int)sequence[i]];
         base_probs[i] = 1.0f - (base_probs[i] / total_probs[i]);
         base_probs[i] = -10.0f * __log10f(base_probs[i]);
         float qscore = base_probs[i] * scale + shift;
         if (qscore > 50.0f) qscore = 50.0f;
         if (qscore < 1.0f) qscore = 1.0f;
-        qstring[i] = char(33.5f + qscore);
+        qstring[i] = (char)(33.5f + qscore);
     }
     sequence[seq_len] = '\0';
     qstring[seq_len] = '\0';
@@ -137,7 +137,7 @@ __global__ void generate_sequence(
 // (not the same polynomial as CRC32 as used in zip/ethernet).
 __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     // note that this is the reversed polynomial
-    constexpr uint32_t POLYNOMIAL = 0x82f63b78u;
+    const uint32_t POLYNOMIAL = 0x82f63b78u;
     for (int i = 0; i < num_new_bits; ++i) {
         uint32_t b = (new_bits ^ crc) & 1;
         crc >>= 1;
@@ -186,17 +186,16 @@ __global__ void beam_search(
 
     // create the previous and current beam fronts
     // each existing beam element can be extended by one of NUM_BASES, or be a stay (for a single beam).
-    constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
 
     // current set of beam fronts (candidates)
-    __shared__ beam_front_element_t current_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t current_beam_front[MAX_BEAM_CANDIDATES];
 
     // the last set of beam fronts
-    __shared__ beam_front_element_t prev_beam_front[max_beam_candidates];
+    __shared__ beam_front_element_t prev_beam_front[MAX_BEAM_CANDIDATES];
 
     // scores for each possible transition for each state (k-mer)
-    __shared__ float current_scores[max_beam_candidates];
-    __shared__ float prev_scores[max_beam_candidates];
+    __shared__ float current_scores[MAX_BEAM_CANDIDATES];
+    __shared__ float prev_scores[MAX_BEAM_CANDIDATES];
 
     // a k=1 Bloom filter, indicating the presence of steps with particular sequence hashes
     // avoids comparing stay hashes against all possible progenitor states where none of them has the requisite sequence hash
@@ -227,7 +226,8 @@ __global__ void beam_search(
         for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
             if (bwd_NTC[state] >= beam_init_threshold) {
                 // note that this first element has a prev_element_index of 0
-                prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32), (state_t)(state), 0, false};
+                beam_front_element_t new_beam_elem = {crc32c(CRC_SEED, (uint32_t)state, 32), (state_t)state, 0, false};
+                prev_beam_front[beam_element] = new_beam_elem;
                 prev_scores[beam_element] = 0.0f;
                 ++beam_element;
             }
@@ -289,8 +289,8 @@ __global__ void beam_search(
                 // get the score of this transition (see explanation above)
                 const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
-                float new_score = prev_scores[prev_elem_idx] + block_score + static_cast<float>(block_back_scores[new_state]);
+                float block_score = (float)block_scores[move_idx] * score_scale;
+                float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
 
                 // generate hash from previous element and new state
                 uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
@@ -299,12 +299,13 @@ __global__ void beam_search(
                 uint32_t new_elem_idx = new_elem_count + (tid * NUM_BASES) + new_base;
 
                 // add new element to candidates
-                current_beam_front[new_elem_idx] = {
+                beam_front_element_t new_beam_elem = {
                     new_hash,
                     new_state,
                     (uint8_t)prev_elem_idx,
                     false // this is never a stay, these are possible steps
                 };
+                current_beam_front[new_elem_idx] = new_beam_elem;
 
                 // update scores
                 current_scores[new_elem_idx] = new_score;
@@ -343,16 +344,17 @@ __global__ void beam_search(
             // if it's a stay, it's a kmer that repeats in the sequence
             const float stay_score = prev_scores[prev_elem_idx]                                         // score of prev elem
                                     + fixed_stay_score                                                  // + some static score for possible stays
-                                    + static_cast<float>(block_back_scores[previous_element->state]);   // + score of previous state being in this timestep
+                                    + (float)block_back_scores[previous_element->state];   // + score of previous state being in this timestep
 
             // add stay to candidates
             // since we will always have the step as a candidate (from our previous step) in our current_beam_front and current_scores, we only need to create candidate stay beam elements
-            current_beam_front[new_elem_idx] = {
+            beam_front_element_t new_beam_elem = {
                 previous_element->hash,
                 previous_element->state,
                 (uint8_t)prev_elem_idx,
                 true // this is always stay, a stay represents a beam_element that has not changed since the last timestep
             };
+            current_beam_front[new_elem_idx] = new_beam_elem;
             current_scores[new_elem_idx] = stay_score;
 
             atomicMaxFloat(&max_score, stay_score);
@@ -421,7 +423,7 @@ __global__ void beam_search(
                 float low_score = beam_cutoff_score;
                 float hi_score = max_score;
                 int num_guesses = 1;
-                constexpr int MAX_GUESSES = 10;
+                const int MAX_GUESSES = 10;
 
                 while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                     if (elem_count > MAX_BEAM_WIDTH) {
@@ -435,7 +437,7 @@ __global__ void beam_search(
                     }
                     elem_count = 0;
                     score_ptr = current_scores;
-                    for (int i = int(new_elem_count); i; --i) {
+                    for (int i = (int)new_elem_count; i; --i) {
                         if (*score_ptr >= beam_cutoff_score) ++elem_count;
                         ++score_ptr;
                     }
@@ -454,7 +456,7 @@ __global__ void beam_search(
                     beam_cutoff_score = hi_score;
                     elem_count = 0;
                     score_ptr = current_scores;
-                    for (int i = int(new_elem_count); i; --i) {
+                    for (int i = (int)new_elem_count; i; --i) {
                         if (*score_ptr >= beam_cutoff_score) ++elem_count;
                         ++score_ptr;
                     }
@@ -507,7 +509,7 @@ __global__ void beam_search(
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
         for (size_t i = tid; i < elem_count; i += nthreads) {
             // remove backwards contribution from score
-            prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
+            prev_scores[i] -= (float)block_back_scores[prev_beam_front[i].state];
 
             beam_vector[beam_offset + i].state = prev_beam_front[i].state;
             beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
@@ -524,7 +526,7 @@ __global__ void beam_search(
         uint8_t element_index = 0;
         for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
             size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
-            states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
+            states[beam_idx - 1] = (int32_t)beam_vector[beam_addr].state;
             moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
             element_index = beam_vector[beam_addr].prev_element_index;
         }
@@ -553,7 +555,7 @@ __global__ void compute_qual_data(
 
     // old compute, todo: use new compute from latest dorado branch
     int hp_states[4] = {0, 0, 0, 0};  // What state index are the four homopolymers (A is always state 0)
-    hp_states[3] = int(num_states) - 1;  // homopolymer T is always the last state. (11b per base)
+    hp_states[3] = (int)num_states - 1;  // homopolymer T is always the last state. (11b per base)
     hp_states[1] = hp_states[3] / 3;     // calculate hp C from hp T (01b per base)
     hp_states[2] = hp_states[1] * 2;     // calculate hp G from hp C (10b per base)
 
@@ -570,19 +572,19 @@ __global__ void compute_qual_data(
         // for states which are homopolymers, we don't want to count the states more than once
         bool is_hp = state == hp_states[0] || state == hp_states[1] || state == hp_states[2] ||
                      state == hp_states[3];
-        float block_prob = float(timestep_posts[state]) * (is_hp ? -1.0f : 1.0f);
+        float block_prob = (float)timestep_posts[state] * (is_hp ? -1.0f : 1.0f);
 
         // add in left-shifted kmers
         int l_shift_idx = state / NUM_BASES;
-        int msb = int(num_states) / NUM_BASES;
+        int msb = (int)num_states / NUM_BASES;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
-            block_prob += float(timestep_posts[l_shift_idx + msb * shift_base]);
+            block_prob += (float)timestep_posts[l_shift_idx + msb * shift_base];
         }
 
         // add in the right-shifted kmers
         int r_shift_idx = (state * NUM_BASES) % num_states;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
-            block_prob += float(timestep_posts[r_shift_idx + shift_base]);
+            block_prob += (float)timestep_posts[r_shift_idx + shift_base];
         }
 
         // clamp block_prob
@@ -595,7 +597,7 @@ __global__ void compute_qual_data(
         float wrong_base_prob = (1.0f - block_prob) / 3.0f;
 
         for (size_t base = 0; base < NUM_BASES; base++) {
-            qual_data[block_idx * NUM_BASES + base] = (int(base) == base_to_emit ? block_prob : wrong_base_prob);
+            qual_data[block_idx * NUM_BASES + base] = ((int)base == base_to_emit ? block_prob : wrong_base_prob);
         }
     }
 }
