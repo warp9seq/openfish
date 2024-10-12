@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdio.h>
+
 #define checkCudaError() { gpuAssert(__FILE__, __LINE__); }
 
 static inline void gpuAssert(const char *file, int line){

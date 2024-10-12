@@ -8,7 +8,7 @@ void decode_hip(
     const int C,
     float *scores_TNC,
     const int state_len,
-    const DecoderOptions *options,
+    const decoder_opts_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring

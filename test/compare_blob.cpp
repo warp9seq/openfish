@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
     float avg_diff = 0.0f;
     uint64_t n_diff = 0;
     for (int i = 0; i < tens_len; ++i) {
-        float diff = std::fabs(tens0[i] - tens1[i]);
+        float diff = fabs(tens0[i] - tens1[i]);
         if (diff != 0.0f) {
             if (diff > max_diff) {
                 max_diff = diff;

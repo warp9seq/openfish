@@ -1,4 +1,4 @@
-#include "decode_cuda.cuh"
+#include "decode_cuda.h"
 #include "scan_cuda.cuh"
 #include "beam_search_cuda.cuh"
 #include "error.h"
@@ -11,12 +11,12 @@ void decode_cuda(
     const int C,
     float *scores_TNC,
     const int state_len,
-    const DecoderOptions *options,
+    const decoder_opts_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring
 ) {
-    const int num_states = std::pow(NUM_BASES, state_len);
+    const int num_states = pow(NUM_BASES, state_len);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
@@ -39,35 +39,35 @@ void decode_cuda(
 	dim3 grid_size(grid_len, 1, 1);
 
     // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(DTYPE_GPU).transpose(0, 1).contiguous();
+    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
     
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
     LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
 #ifdef DEBUG
-    DTYPE_GPU *bwd_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    float *bwd_NTC = (float *)malloc(num_scan_elem * sizeof(float));
     MALLOC_CHK(bwd_NTC);
 
-    DTYPE_GPU *post_NTC = (DTYPE_GPU *)malloc(num_scan_elem * sizeof(DTYPE_GPU));
+    float *post_NTC = (float *)malloc(num_scan_elem * sizeof(float));
     MALLOC_CHK(post_NTC);
 #endif
 
-    DTYPE_GPU *scores_TNC_gpu;
-    DTYPE_GPU *bwd_NTC_gpu;
-    DTYPE_GPU *post_NTC_gpu;
+    float *scores_TNC_gpu;
+    float *bwd_NTC_gpu;
+    float *post_NTC_gpu;
 
     // copy score tensor over
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(DTYPE_GPU) * T * N * C);
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(float) * T * N * C);
 	checkCudaError();
 
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(DTYPE_GPU) * T * N * C, cudaMemcpyHostToDevice);
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(float) * T * N * C, cudaMemcpyHostToDevice);
 	checkCudaError();
 
     // init scan tensors
-    cudaMalloc((void **)&bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
+    cudaMalloc((void **)&bwd_NTC_gpu, sizeof(float) * num_scan_elem);
 	checkCudaError();
-    cudaMalloc((void **)&post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem);
+    cudaMalloc((void **)&post_NTC_gpu, sizeof(float) * num_scan_elem);
 	checkCudaError();
 
     scan_args_t scan_args = {0};
@@ -269,9 +269,9 @@ void decode_cuda(
 
 #ifdef DEBUG
     // copy scan results
-    cudaMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+    cudaMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(float) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
-	cudaMemcpy(post_NTC, post_NTC_gpu, sizeof(DTYPE_GPU) * num_scan_elem, cudaMemcpyDeviceToHost);
+	cudaMemcpy(post_NTC, post_NTC_gpu, sizeof(float) * num_scan_elem, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     // copy intermediate
@@ -307,11 +307,11 @@ void decode_cuda(
     fclose(fp);
 
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fwrite(bwd_NTC, sizeof(float), num_scan_elem, fp);
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(DTYPE_GPU), num_scan_elem, fp);
+    fwrite(post_NTC, sizeof(float), num_scan_elem, fp);
     fclose(fp);
 
     // cleanup

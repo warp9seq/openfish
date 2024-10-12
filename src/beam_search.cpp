@@ -76,10 +76,10 @@ void generate_sequence(
 
     for (size_t blk = 0; blk < num_ts; ++blk) {
         int state = states[blk];
-        int move = int(moves[blk]);
+        int move = (int)moves[blk];
         int base = state & 3;
         int offset = (blk == 0) ? 0 : move - 1;
-        int probPos = int(seq_pos) + offset;
+        int probPos = (int)(seq_pos + offset);
 
         // get the probability for the called base.
         base_probs[probPos] += qual_data[blk * NUM_BASES + base];
@@ -90,22 +90,22 @@ void generate_sequence(
         }
 
         if (blk == 0) {
-            sequence[seq_pos++] = char(base);
+            sequence[seq_pos++] = (char)base;
         } else {
             for (int j = 0; j < move; ++j) {
-                sequence[seq_pos++] = char(base);
+                sequence[seq_pos++] = (char)base;
             }
         }
     }
 
     for (size_t i = 0; i < seq_len; ++i) {
-        sequence[i] = alphabet[int(sequence[i])];
+        sequence[i] = alphabet[(int)sequence[i]];
         base_probs[i] = 1.0f - (base_probs[i] / total_probs[i]);
         base_probs[i] = -10.0f * log10f(base_probs[i]);
         float qscore = base_probs[i] * scale + shift;
         if (qscore > 50.0f) qscore = 50.0f;
         if (qscore < 1.0f) qscore = 1.0f;
-        qstring[i] = char(33.5f + qscore);
+        qstring[i] = (char)(33.5f + qscore);
     }
     sequence[seq_len] = '\0';
     qstring[seq_len] = '\0';
@@ -115,7 +115,7 @@ void generate_sequence(
 // (not the same polynomial as CRC32 as used in zip/ethernet).
 static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     // Note that this is the reversed polynomial.
-    constexpr uint32_t POLYNOMIAL = 0x82f63b78u;
+    const uint32_t POLYNOMIAL = 0x82f63b78u;
     for (int i = 0; i < num_new_bits; ++i) {
         uint32_t b = (new_bits ^ crc) & 1;
         crc >>= 1;
@@ -128,10 +128,10 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
 }
 
 void beam_search(
-    const float *const scores,
+    const float *const scores_TNC,
     size_t scores_block_stride,
-    const float *const back_guide,
-    const float *const posts,
+    const float *const bwd_NTC,
+    const float *const post_NTC,
     const int num_state_bits,
     const size_t T,
     const float beam_cut,
@@ -145,50 +145,52 @@ void beam_search(
 ) {
     const size_t num_states = 1ull << num_state_bits;
     const state_t states_mask = static_cast<state_t>(num_states - 1);
-
-    // Some values we need
-    constexpr uint32_t CRC_SEED = 0x12345678u;
     const float log_beam_cut = (beam_cut > 0.0f) ? logf(beam_cut) : FLT_MAX;
 
-    // Create the previous and current beam fronts
-    // Each existing element can be extended by one of NUM_BASES, or be a stay.
-    constexpr size_t max_beam_candidates = (NUM_BASES + 1) * MAX_BEAM_WIDTH;
+    // create the previous and current beam fronts
+    // each existing beam element can be extended by one of NUM_BASES, or be a stay (for a single beam).
 
-    beam_front_element_t current_beam_front[max_beam_candidates];
-    beam_front_element_t prev_beam_front[max_beam_candidates];
+    // current set of beam fronts (candidates)
+    beam_front_element_t current_beam_front[MAX_BEAM_CANDIDATES];
 
-    float current_scores[max_beam_candidates];
-    float prev_scores[max_beam_candidates];
+    // the last set of beam fronts
+    beam_front_element_t prev_beam_front[MAX_BEAM_CANDIDATES];
+
+    // scores for each possible transition for each state (k-mer)
+    float current_scores[MAX_BEAM_CANDIDATES];
+    float prev_scores[MAX_BEAM_CANDIDATES];
 
     // Find the score an initial element needs in order to make it into the beam
     float beam_init_threshold = -FLT_MAX;
     if (MAX_BEAM_WIDTH < num_states) {
-        // Copy the first set of back guides and sort to extract MAX_BEAM_WIDTH highest elements
-        float sorted_back_guides[MAX_STATES];
-        for (size_t i = 0; i < num_states; ++i) {
-            sorted_back_guides[i] = back_guide[i];
-        }
+        if (MAX_BEAM_WIDTH < num_states) {
+            // copy the first set of back guides and sort to extract max_beam_width highest elements
+            float sorted_bwd_NTCs[MAX_STATES];
+            for (size_t i = 0; i < num_states; ++i) {
+                sorted_bwd_NTCs[i] = bwd_NTC[i];
+            }
 
-        beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
+            // note that we don't need a full sort here to get the max_beam_width highest values
+            beam_init_threshold = kth_largestf(sorted_bwd_NTCs, MAX_BEAM_WIDTH-1, num_states);
+        }
     }
 
-    // Initialise the beam
+    // initialise all beams
+    // go through all state scores in the first block of the back_guide
     for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
-        if (back_guide[state] >= beam_init_threshold) {
-            // Note that this first element has a prev_element_index of 0
-            prev_beam_front[beam_element] = {crc32c(CRC_SEED, uint32_t(state), 32),
-                                             static_cast<state_t>(state), 0, false};
+        if (bwd_NTC[state] >= beam_init_threshold) {
+            // note that this first element has a prev_element_index of 0
+            prev_beam_front[beam_element] = {crc32c(CRC_SEED, (uint32_t)state, 32), (state_t)state, 0, false};
             prev_scores[beam_element] = 0.0f;
             ++beam_element;
         }
     }
 
-    // Copy this initial beam front into the beam persistent state
+    // copy all beam fronts into the beam persistent state
     size_t current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
     for (size_t element_idx = 0; element_idx < current_beam_width; ++element_idx) {
         beam_vector[element_idx].state = prev_beam_front[element_idx].state;
-        beam_vector[element_idx].prev_element_index =
-                (prev_beam_front)[element_idx].prev_element_index;
+        beam_vector[element_idx].prev_element_index = prev_beam_front[element_idx].prev_element_index;
         beam_vector[element_idx].stay = prev_beam_front[element_idx].stay;
     }
 
@@ -199,23 +201,8 @@ void beam_search(
 
     // Iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
-        const float *const block_scores = scores + (block_idx * scores_block_stride);
-        const float *const block_back_scores = back_guide + ((block_idx + 1) << num_state_bits);
-
-        /*  kmer transitions order:
-         *  N^K , N array
-         *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
-         *  Kmer index is lexicographic with most recent base in the fastest index
-         *
-         *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
-         *  The modifying action is
-         *    0: Remove A from beginning
-         *    1: Remove C from beginning
-         *    2: Remove G from beginning
-         *    3: Remove T from beginning
-         *
-         *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
-         */
+        const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float max_score = -FLT_MAX;
 
@@ -224,32 +211,57 @@ void beam_search(
             step_hash_present[i] = false;
         }
 
-        // Generate list of candidate elements for this timestep (block).
-        // As we do so, update the maximum score.
+        // generate list of candidate elements for this timestep (block)
+        // update the max score and scores for each possible transition for each beam
         size_t new_elem_count = 0;
         for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
 
-            // Expand all the possible steps
+            // expand all the possible steps
             for (int new_base = 0; new_base < NUM_BASES; new_base++) {
-                state_t new_state =
-                        (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) |
-                         state_t(new_base));
-                const state_t move_idx = static_cast<state_t>(
-                        (new_state << NUM_BASE_BITS) +
-                        (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                float block_score = static_cast<float>(block_scores[move_idx]) * score_scale;
-                float new_score = prev_scores[prev_elem_idx] + block_score +
-                                  static_cast<float>(block_back_scores[new_state]);
+                /*  kmer transitions order:
+                *  N^K , N array
+                *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
+                *  Kmer index is lexicographic with most recent base in the fastest index
+                *
+                *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
+                *  The modifying action is
+                *    0: Remove A from beginning
+                *    1: Remove C from beginning
+                *    2: Remove G from beginning
+                *    3: Remove T from beginning
+                *
+                *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
+                */
+
+                // shift the state (k-mer) left and append the new base to the end of bitset
+                // transition to a new k-mer (see explanation above)
+                state_t new_state = (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) | state_t(new_base));
+
+                // get the score of this transition (see explanation above)
+                const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
+
+                float block_score = (float)block_scores[move_idx] * score_scale;
+                float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
+
+                // generate hash from previous element and new state
                 uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
-
                 step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
 
-                // Add new element to the candidate list
-                current_beam_front[new_elem_count] = {new_hash, new_state, (uint8_t)prev_elem_idx,
-                                                      false};
-                current_scores[new_elem_count] = new_score;
+                uint32_t new_elem_idx = new_elem_count;
+
+                // add new element to candidates
+                beam_front_element_t new_beam_elem = {
+                    new_hash,
+                    new_state,
+                    (uint8_t)prev_elem_idx,
+                    false // this is never a stay, these are possible steps
+                };
+                current_beam_front[new_elem_idx] = new_beam_elem;
+
+                // update scores
+                current_scores[new_elem_idx] = new_score;
                 max_score = max_score > new_score ? max_score : new_score;
                 ++new_elem_count;
             }
@@ -257,106 +269,126 @@ void beam_search(
 
         for (size_t prev_elem_idx = 0; prev_elem_idx < current_beam_width; ++prev_elem_idx) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
-            // Add the possible stay.
-            const float stay_score = prev_scores[prev_elem_idx] + fixed_stay_score +
-                                     static_cast<float>(block_back_scores[previous_element->state]);
-            current_beam_front[new_elem_count] = {previous_element->hash, previous_element->state,
-                                                  (uint8_t)prev_elem_idx, true};
-            current_scores[new_elem_count] = stay_score;
+            uint32_t new_elem_idx = new_elem_count;
+
+            // score for possible stay
+            // if it's a stay, it's a kmer that repeats in the sequence
+            const float stay_score = prev_scores[prev_elem_idx]                                         // score of prev elem
+                                    + fixed_stay_score                                                  // + some static score for possible stays
+                                    + (float)block_back_scores[previous_element->state];   // + score of previous state being in this timestep
+
+            // add stay to candidates
+            // since we will always have the step as a candidate (from our previous step) in our current_beam_front and current_scores, we only need to create candidate stay beam elements
+            beam_front_element_t new_beam_elem = {
+                previous_element->hash,
+                previous_element->state,
+                (uint8_t)prev_elem_idx,
+                true // this is always stay, a stay represents a beam_element that has not changed since the last timestep
+            };
+            current_beam_front[new_elem_idx] = new_beam_elem;
+            current_scores[new_elem_idx] = stay_score;
+
             max_score = max_score > stay_score ? max_score : stay_score;
 
-            // Determine whether the path including this stay duplicates another sequence ending in
-            // a step.
+            // determine whether the path including this stay duplicates another sequence ending in a step equal to the state of the stay
+            // this "bloom filter" is supposed to help avoid comparing hash against every single step generated before
             if (step_hash_present[previous_element->hash & HASH_PRESENT_MASK]) {
+                // left shift by 2 and then add the previous elem idx
                 size_t stay_elem_idx = (current_beam_width << NUM_BASE_BITS) + prev_elem_idx;
+
                 // latest base is in smallest bits
                 int stay_latest_base = int(previous_element->state & 3);
 
-                // Go through all the possible step extensions that match this destination base with the stay and compare
-                // their hashes, merging if we find any.
-                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width;
-                     prev_elem_comp_idx++) {
+                // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
+                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
+
+                    // it's a step if it's a previous kmer with a repeated base
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
-                    if (current_beam_front[stay_elem_idx].hash ==
-                        current_beam_front[step_elem_idx].hash) {
+
+                    // compare hashes of step extension and possible stay, if they're equal, we merge
+                    if (current_beam_front[stay_elem_idx].hash == current_beam_front[step_elem_idx].hash) {
+                        const float folded_score = log_sum_exp(current_scores[stay_elem_idx], current_scores[step_elem_idx]);
+                        // merge: 
+                        //      modify score of whatever scored better with folded score
+                        //      basically discard the worst scoring one
                         if (current_scores[stay_elem_idx] > current_scores[step_elem_idx]) {
-                            // Fold the step into the stay
-                            const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                   current_scores[step_elem_idx]);
+                            // fold the step into the stay
                             current_scores[stay_elem_idx] = folded_score;
-                            max_score = max_score > folded_score ? max_score : folded_score;
-                            // The step element will end up last, sorted by score
+                            // the step element will end up last, sorted by score
                             current_scores[step_elem_idx] = -FLT_MAX;
                         } else {
-                            // Fold the stay into the step
-                            const float folded_score = log_sum_exp(current_scores[stay_elem_idx],
-                                                                   current_scores[step_elem_idx]);
+                            // fold the stay into the step
                             current_scores[step_elem_idx] = folded_score;
-                            max_score = max_score > folded_score ? max_score : folded_score;
-                            // The stay element will end up last, sorted by score
+                            // the stay element will end up last, sorted by score
                             current_scores[stay_elem_idx] = -FLT_MAX;
                         }
+                        max_score = folded_score > max_score ? folded_score : max_score;
                     }
                 }
             }
-
             ++new_elem_count;
         }
 
-        // Starting point for finding the cutoff score is the beam cut score
+        // cut off to fit beam width
+        // starting point for finding the cutoff score is the beam cut score
         float beam_cutoff_score = max_score - log_beam_cut;
+        float *score_ptr;
+        size_t elem_count;
 
-        auto get_elem_count = [new_elem_count, &beam_cutoff_score, &current_scores]() {
-            // Count the elements which meet the beam cutoff.
-            size_t elem_count = 0;
-            const float *score_ptr = current_scores;
-            for (int i = int(new_elem_count); i; --i) {
-                if (*score_ptr >= beam_cutoff_score) {
-                    ++elem_count;
-                }
-                ++score_ptr;
-            }
-            return elem_count;
-        };
+        // count the elements which meet the min score
+        elem_count = 0;
+        score_ptr = current_scores;
+        for (int i = int(new_elem_count); i; --i) {
+            if (*score_ptr >= beam_cutoff_score) ++elem_count;
+            ++score_ptr;
+        }
 
-        // Count the elements which meet the min score
-        size_t elem_count = get_elem_count();
-
+        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
         if (elem_count > MAX_BEAM_WIDTH) {
-            // Need to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            size_t min_beam_width =
-                    (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept.
+            size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
             float low_score = beam_cutoff_score;
             float hi_score = max_score;
             int num_guesses = 1;
-            constexpr int MAX_GUESSES = 10;
-            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) &&
-                   num_guesses < MAX_GUESSES) {
+            const int MAX_GUESSES = 10;
+
+            while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                 if (elem_count > MAX_BEAM_WIDTH) {
-                    // Make a higher guess
+                    // make a higher guess
                     low_score = beam_cutoff_score;
-                    beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;  // binary search.
+                    beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
                 } else {
-                    // Make a lower guess
+                    // make a lower guess
                     hi_score = beam_cutoff_score;
-                    beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;  // binary search.
+                    beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;
                 }
-                elem_count = get_elem_count();
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = (int)new_elem_count; i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
+
                 ++num_guesses;
             }
+
             // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it.)
+            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
             //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
             // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
             //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score.
+            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
                 beam_cutoff_score = hi_score;
-                elem_count = get_elem_count();
+                elem_count = 0;
+                score_ptr = current_scores;
+                for (int i = (int)new_elem_count; i; --i) {
+                    if (*score_ptr >= beam_cutoff_score) ++elem_count;
+                    ++score_ptr;
+                }
             }
 
-            // Clamp the element count to the max beam width in case of failure 2 from above.
+            // clamp the element count to the max beam width in case of failure 2 from above
             elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
         }
 
@@ -393,73 +425,76 @@ void beam_search(
             prev_scores[best_score_index] = temp1;
         }
 
+        // copy this new beam front into the beam persistent state
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
         for (size_t i = 0; i < elem_count; ++i) {
-            // Remove backwards contribution from score
-            prev_scores[i] -= float(block_back_scores[prev_beam_front[i].state]);
+            // remove backwards contribution from score
+            prev_scores[i] -= (float)block_back_scores[prev_beam_front[i].state];
 
-            // Copy this new beam front into the beam persistent state
             beam_vector[beam_offset + i].state = prev_beam_front[i].state;
             beam_vector[beam_offset + i].prev_element_index = prev_beam_front[i].prev_element_index;
             beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
         }
-
+        // adjust current beam width
         current_beam_width = elem_count;
     }
 
-    // Note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
+    // write out sequence bases and move table
+    // note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
     uint8_t element_index = 0;
     for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
         size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
-        states[beam_idx - 1] = int32_t(beam_vector[beam_addr].state);
+        states[beam_idx - 1] = (int32_t)beam_vector[beam_addr].state;
         moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
         element_index = beam_vector[beam_addr].prev_element_index;
     }
-    moves[0] = 1;  // Always step in the first event
+    moves[0] = 1;  // always step in the first event
 
     // old compute, todo: use new compute from latest dorado branch
     int hp_states[4] = {0, 0, 0, 0};  // What state index are the four homopolymers (A is always state 0)
-    hp_states[3] = int(num_states) - 1;  // homopolymer T is always the last state. (11b per base)
+    hp_states[3] = (int)num_states - 1;  // homopolymer T is always the last state. (11b per base)
     hp_states[1] = hp_states[3] / 3;     // calculate hp C from hp T (01b per base)
     hp_states[2] = hp_states[1] * 2;     // calculate hp G from hp C (10b per base)
 
-    // Compute per-base qual data
+    // compute per-base qual data
     for (size_t block_idx = 0; block_idx < T; block_idx++) {
         int state = states[block_idx];
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];
 
-        // Compute a probability for this block, based on the path kmer. See the following explanation:
+        // compute a probability for this block, based on the path kmer. See the following explanation:
         // https://git.oxfordnanolabs.local/machine-learning/notebooks/-/blob/master/bonito-basecaller-qscores.ipynb
-        const float *timestep_posts = posts + ((block_idx + 1) * num_states);
+        const float *timestep_posts = post_NTC + ((block_idx + 1) * num_states);
 
-        // For states which are homopolymers, we don't want to count the states more than once
+        // for states which are homopolymers, we don't want to count the states more than once
         bool is_hp = state == hp_states[0] || state == hp_states[1] || state == hp_states[2] ||
                      state == hp_states[3];
-        float block_prob = float(timestep_posts[state]) * (is_hp ? -1.0f : 1.0f);
+        float block_prob = (float)timestep_posts[state] * (is_hp ? -1.0f : 1.0f);
 
-        // Add in left-shifted kmers
+        // add in left-shifted kmers
         int l_shift_idx = state / NUM_BASES;
-        int msb = int(num_states) / NUM_BASES;
+        int msb = (int)num_states / NUM_BASES;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
-            block_prob += float(timestep_posts[l_shift_idx + msb * shift_base]);
+            block_prob += (float)timestep_posts[l_shift_idx + msb * shift_base];
         }
 
-        // Add in the right-shifted kmers
+        // add in the right-shifted kmers
         int r_shift_idx = (state * NUM_BASES) % num_states;
         for (int shift_base = 0; shift_base < NUM_BASES; shift_base++) {
-            block_prob += float(timestep_posts[r_shift_idx + shift_base]);
+            block_prob += (float)timestep_posts[r_shift_idx + shift_base];
         }
+
+        // clamp block_prob
         if (block_prob < 0.0f) block_prob = 0.0f;
         else if (block_prob > 1.0f) block_prob = 1.0f;
-        block_prob = powf(block_prob, 0.4f);  // Power fudge factor
+        
+        block_prob = powf(block_prob, 0.4f);  // power fudge factor
 
-        // Calculate a placeholder qscore for the "wrong" bases
+        // placeholder qscore for the "wrong" bases
         float wrong_base_prob = (1.0f - block_prob) / 3.0f;
 
         for (size_t base = 0; base < NUM_BASES; base++) {
-            qual_data[block_idx * NUM_BASES + base] =
-                    (int(base) == base_to_emit ? block_prob : wrong_base_prob);
+            qual_data[block_idx * NUM_BASES + base] = ((int)base == base_to_emit ? block_prob : wrong_base_prob);
         }
     }
 }
