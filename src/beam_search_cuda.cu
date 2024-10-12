@@ -7,8 +7,7 @@
 #include <math.h>
 #include <float.h>
 
-// This is the data we need to retain for only the previous timestep (block) in the beam
-//  (and what we construct for the new timestep)
+// the data we need to retain for only the previous timestep (block) in the beam (and what we construct for the new timestep)
 typedef struct beam_front_element {
     uint32_t hash;
     state_t state;
