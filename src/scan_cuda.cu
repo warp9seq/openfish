@@ -21,7 +21,6 @@ __global__ void bwd_scan(
 		return;
 	}
 
-    const uint64_t ntransitions = NUM_BASES + 1;
     const float fixed_stay_score = args.fixed_stay_score;
 
     const uint64_t ts_states = num_states * NUM_BASES;
@@ -45,7 +44,7 @@ __global__ void bwd_scan(
             const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES +
                 ((state * NUM_BASES) / num_states);
 
-            float vals[ntransitions];
+            float vals[NUM_TRANSITIONS];
             vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
             float max_val = vals[0];
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
@@ -54,7 +53,7 @@ __global__ void bwd_scan(
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
-            for (uint64_t i = 0; i < ntransitions; ++i) {
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
                 sum += __expf(vals[i] - max_val);
             }
             ts_alpha_out[state] = max_val + __logf(sum);
@@ -81,7 +80,6 @@ __global__ void fwd_post_scan(
 		return;
 	}
 
-    constexpr uint64_t ntransitions = NUM_BASES + 1;
     const float fixed_stay_score = args.fixed_stay_score;
     
     const uint64_t msb = num_states / NUM_BASES;
@@ -123,7 +121,7 @@ __global__ void fwd_post_scan(
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / NUM_BASES;
             const uint64_t step_trans_idx_a = state * NUM_BASES;
-            float vals[ntransitions];
+            float vals[NUM_TRANSITIONS];
             float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 // todo: this is a bandaid for indexing past the actual T dimension of scores
@@ -135,7 +133,7 @@ __global__ void fwd_post_scan(
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             float fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < ntransitions; ++i) {
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
                 fwd_sum += exp(vals[i] - fwd_max_val);
             }
             ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);

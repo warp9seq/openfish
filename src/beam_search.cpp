@@ -144,7 +144,7 @@ void beam_search(
     beam_element_t *beam_vector
 ) {
     const size_t num_states = 1ull << num_state_bits;
-    const state_t states_mask = static_cast<state_t>(num_states - 1);
+    const state_t states_mask = (state_t)(num_states - 1);
     const float log_beam_cut = (beam_cut > 0.0f) ? logf(beam_cut) : FLT_MAX;
 
     // create the previous and current beam fronts
