@@ -1,5 +1,9 @@
 #ifndef OPENFISH_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "decode_cpu.h"
 
 #ifdef HAVE_CUDA
@@ -20,5 +24,9 @@ void decode(
     char **sequence,
     char **qstring
 );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // OPENFISH_H

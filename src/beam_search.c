@@ -180,7 +180,8 @@ void beam_search(
     for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
         if (bwd_NTC[state] >= beam_init_threshold) {
             // note that this first element has a prev_element_index of 0
-            prev_beam_front[beam_element] = {crc32c(CRC_SEED, (uint32_t)state, 32), (state_t)state, 0, false};
+            beam_front_element_t new_elem = {crc32c(CRC_SEED, (uint32_t)state, 32), (state_t)state, 0, false};
+            prev_beam_front[beam_element] = new_elem;
             prev_scores[beam_element] = 0.0f;
             ++beam_element;
         }
@@ -237,7 +238,7 @@ void beam_search(
 
                 // shift the state (k-mer) left and append the new base to the end of bitset
                 // transition to a new k-mer (see explanation above)
-                state_t new_state = (state_t((previous_element->state << NUM_BASE_BITS) & states_mask) | state_t(new_base));
+                state_t new_state = ((state_t)((previous_element->state << NUM_BASE_BITS) & states_mask) | (state_t)(new_base));
 
                 // get the score of this transition (see explanation above)
                 const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
@@ -297,7 +298,7 @@ void beam_search(
                 size_t stay_elem_idx = (current_beam_width << NUM_BASE_BITS) + prev_elem_idx;
 
                 // latest base is in smallest bits
-                int stay_latest_base = int(previous_element->state & 3);
+                int stay_latest_base = (int)(previous_element->state & 3);
 
                 // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
                 for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
@@ -338,7 +339,7 @@ void beam_search(
         // count the elements which meet the min score
         elem_count = 0;
         score_ptr = current_scores;
-        for (int i = int(new_elem_count); i; --i) {
+        for (int i = (int)(new_elem_count); i; --i) {
             if (*score_ptr >= beam_cutoff_score) ++elem_count;
             ++score_ptr;
         }

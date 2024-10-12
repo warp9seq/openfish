@@ -2,7 +2,7 @@
 #include <math.h>
 #include <cstdint>
 
-// g++ -o compare_blob compare_blob.cpp 
+// g++ -o compare_blob compare_blob.c 
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
