@@ -1,5 +1,13 @@
 #include <openfish/openfish.h>
 
+#include "decode_cpu.h"
+
+#ifdef HAVE_CUDA
+#include "decode_cuda.h"
+#elif HAVE_HIP
+#include "decode_hip.h"
+#endif
+
 void decode(
     const int T,
     const int N,

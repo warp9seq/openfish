@@ -1,16 +1,25 @@
 #ifndef OPENFISH_H
+#define OPENFISH_H
+
+#include <stdbool.h>
+#include <stdlib.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "decode_cpu.h"
+#define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
 
-#ifdef HAVE_CUDA
-#include "decode_cuda.h"
-#elif HAVE_HIP
-#include "decode_hip.h"
-#endif
+typedef struct decoder_opts {
+    size_t beam_width;
+    float beam_cut;
+    float blank_score;
+    float q_shift;
+    float q_scale;
+    float temperature;
+    bool move_pad;
+} decoder_opts_t;
 
 void decode(
     const int T,

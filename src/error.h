@@ -31,13 +31,13 @@ SOFTWARE.
 #ifndef ERROR_H
 #define ERROR_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define log_level get_log_level()
 
