@@ -1,11 +1,12 @@
 #ifndef DECODE_CUDA_H
+#define DECODE_CUDA_H
+
+#include <stdint.h>
+#include "decode.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
-#include "decode.h"
 
 void decode_cuda(
     const int T,

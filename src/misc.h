@@ -7,14 +7,14 @@
 #ifndef MISC_H
 #define MISC_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <stdint.h>
 #include <math.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 double realtime(void);
 

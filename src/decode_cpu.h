@@ -1,7 +1,14 @@
-#pragma once
+#ifndef DECODE_CPU_H
+#define DECODE_CPU_H
+
+#include <openfish/openfish.h>
 
 #include <stdint.h>
 #include "decode.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 void decode_cpu(
     const int T,
@@ -15,3 +22,9 @@ void decode_cpu(
     char **sequence,
     char **qstring
 );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // DECODE_CPU_H

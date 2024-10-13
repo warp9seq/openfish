@@ -1,13 +1,13 @@
-#pragma once
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef BEAMSEARCH_CPU_H
+#define BEAMSEARCH_CPU_H
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef int32_t state_t;
 
@@ -51,3 +51,5 @@ void beam_search(
 #ifdef __cplusplus
 }
 #endif
+
+#endif // BEAMSEARCH_CPU_H
