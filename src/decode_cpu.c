@@ -3,6 +3,8 @@
 #include "error.h"
 #include "misc.h"
 
+#include <openfish/openfish.h>
+
 #include <math.h>
 #include <pthread.h>
 
@@ -241,7 +243,7 @@ void decode_cpu(
 
     const int num_states = pow(NUM_BASES, state_len);
 
-    LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
+    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
     float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
     float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
@@ -274,11 +276,11 @@ void decode_cpu(
     MALLOC_CHK(total_probs);
     
     // create threads
-    const int num_threads = MIN(N, target_threads);
+    const int num_threads = N < target_threads ? N : target_threads;
     const int chunks_per_thread = N / num_threads;
     const int num_threads_with_one_more_chunk = N % num_threads;
 
-    LOG_DEBUG("dispatching %d threads for cpu decoding", num_threads);
+    OPENFISH_LOG_DEBUG("dispatching %d threads for cpu decoding", num_threads);
 
     pthread_t tids[num_threads];
     decode_thread_arg_t pt_args[num_threads];
@@ -286,7 +288,8 @@ void decode_cpu(
 
     // set the data structures
     for (t = 0; t < num_threads; t++) {
-        pt_args[t].start = t * chunks_per_thread + MIN(t, num_threads_with_one_more_chunk);
+        int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
+        pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
         pt_args[t].scores_TNC = scores_TNC;
         pt_args[t].bwd_NTC = bwd_NTC;

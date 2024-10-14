@@ -39,21 +39,21 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#define log_level get_log_level()
+#define openfish_log_level get_openfish_log_level()
 
 // the level of verbosity in the log printed to the standard error
-enum log_level_opt {
-    LOG_OFF,      // nothing at all
-    LOG_ERR,      // error messages
-    LOG_WARN,     // warning and error messages
-    LOG_INFO,     // information, warning and error messages
-    LOG_VERB,     // verbose, information, warning and error messages
-    LOG_DBUG,     // debugging, verbose, information, warning and error messages
-    LOG_TRAC      // tracing, debugging, verbose, information, warning and error messages
+enum openfish_log_level_opt {
+    OPENFISH_LOG_OFF,      // nothing at all
+    OPENFISH_LOG_ERR,      // error messages
+    OPENFISH_LOG_WARN,     // warning and error messages
+    OPENFISH_LOG_INFO,     // information, warning and error messages
+    OPENFISH_LOG_VERB,     // verbose, information, warning and error messages
+    OPENFISH_LOG_DBUG,     // debugging, verbose, information, warning and error messages
+    OPENFISH_LOG_TRAC      // tracing, debugging, verbose, information, warning and error messages
 };
 
-enum log_level_opt get_log_level();
-void set_log_level(enum log_level_opt level);
+enum openfish_log_level_opt get_openfish_log_level();
+void set_openfish_log_level(enum openfish_log_level_opt level);
 
 #define DEBUG_PREFIX "[DEBUG] %s: " /* TODO function before debug */
 #define VERBOSE_PREFIX "[INFO] %s: "
@@ -62,16 +62,16 @@ void set_log_level(enum log_level_opt level);
 #define ERROR_PREFIX "[%s::ERROR]\033[1;31m "
 #define NO_COLOUR "\033[0m"
 
-#define LOG_TRACE(msg, ...) { \
-    if (log_level >= LOG_TRAC) { \
+#define OPENFISH_LOG_TRACE(msg, ...) { \
+    if (openfish_log_level >= OPENFISH_LOG_TRAC) { \
         fprintf(stderr, DEBUG_PREFIX msg \
                 " At %s:%d\n", \
                 __func__, __VA_ARGS__, __FILE__, __LINE__ - 1); \
     } \
 }
 
-#define LOG_DEBUG(msg, ...) { \
-    if (log_level >= LOG_DBUG) { \
+#define OPENFISH_LOG_DEBUG(msg, ...) { \
+    if (openfish_log_level >= OPENFISH_LOG_DBUG) { \
         fprintf(stderr, DEBUG_PREFIX msg \
                 " At %s:%d\n", \
                 __func__, __VA_ARGS__, __FILE__, __LINE__ - 1); \
@@ -79,19 +79,19 @@ void set_log_level(enum log_level_opt level);
 }
 
 #define VERBOSE(msg, ...) { \
-    if (log_level >= LOG_VERB) { \
+    if (openfish_log_level >= OPENFISH_LOG_VERB) { \
         fprintf(stderr, VERBOSE_PREFIX msg "\n", __func__, __VA_ARGS__); \
     } \
 }
 
 #define INFO(msg, ...) { \
-    if (log_level >= LOG_INFO) { \
+    if (openfish_log_level >= OPENFISH_LOG_INFO) { \
         fprintf(stderr, INFO_PREFIX msg NO_COLOUR "\n", __func__, __VA_ARGS__); \
     } \
 }
 
 #define WARNING(msg, ...) { \
-    if (log_level >= LOG_WARN) { \
+    if (openfish_log_level >= OPENFISH_LOG_WARN) { \
         fprintf(stderr, WARNING_PREFIX msg NO_COLOUR \
                 " At %s:%d\n", \
                 __func__, __VA_ARGS__, __FILE__, __LINE__ - 1); \
@@ -99,7 +99,7 @@ void set_log_level(enum log_level_opt level);
 }
 
 #define ERROR(msg, ...) { \
-    if (log_level >= LOG_ERR) { \
+    if (openfish_log_level >= OPENFISH_LOG_ERR) { \
         fprintf(stderr, ERROR_PREFIX msg NO_COLOUR \
                 " At %s:%d\n", \
                 __func__, __VA_ARGS__, __FILE__, __LINE__ - 1); \
