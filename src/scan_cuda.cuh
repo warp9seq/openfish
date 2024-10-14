@@ -1,7 +1,12 @@
-#pragma once
+#ifndef SCAN_CUDA_H
+#define SCAN_CUDA_H
 
 #include <stdint.h>
 #include "decode.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct scan_args {
     float *scores_in;
@@ -22,3 +27,9 @@ __global__ void fwd_post_scan(
     const float *bwd,
     float *out
 );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SCAN_CUDA_H

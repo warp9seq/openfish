@@ -1,9 +1,14 @@
-#pragma once
+#ifndef BEAMSEARCH_CUDA_H
+#define BEAMSEARCH_CUDA_H
+
+#include "decode.h"
 
 #include <cstddef>
 #include <cstdint>
 
-typedef int32_t state_t;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct beam_element {
     state_t state;
@@ -50,3 +55,9 @@ __global__ void compute_qual_data(
     float *_qual_data,
     const float posts_scale
 );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // BEAMSEARCH_CUDA_H

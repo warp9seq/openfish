@@ -1,6 +1,8 @@
 #ifndef BEAMSEARCH_CPU_H
 #define BEAMSEARCH_CPU_H
 
+#include "decode.h"
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -8,8 +10,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef int32_t state_t;
 
 typedef struct beam_element {
     state_t state;

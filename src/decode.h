@@ -1,9 +1,13 @@
 #ifndef DECODE_H
 #define DECODE_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef int32_t state_t;
 
 #define NUM_BASE_BITS (2)
 #define NUM_BASES (4)
