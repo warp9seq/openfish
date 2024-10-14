@@ -30,12 +30,12 @@ SOFTWARE.
 
 #include "error.h"
 
-enum log_level_opt _log_level = LOG_VERB;
+enum openfish_log_level_opt _openfish_log_level = OPENFISH_LOG_VERB;
 
-enum log_level_opt get_log_level() {
-    return _log_level;
+enum openfish_log_level_opt get_openfish_log_level() {
+    return _openfish_log_level;
 }
 
-void set_log_level(enum log_level_opt level) {
-    _log_level = level;
+void set_openfish_log_level(enum openfish_log_level_opt level) {
+    _openfish_log_level = level;
 }

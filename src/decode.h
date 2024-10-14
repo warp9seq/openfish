@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #define NUM_BASE_BITS (2)
-#define NUM_BASES (1 << NUM_BASE_BITS)
+#define NUM_BASES (4)
 #define NUM_TRANSITIONS (NUM_BASES + 1)
 #define MAX_BEAM_WIDTH (32)
 #define HASH_PRESENT_BITS (4096)

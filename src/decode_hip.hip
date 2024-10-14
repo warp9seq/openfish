@@ -45,7 +45,7 @@ void decode_hip(
     
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
-    LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
+    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
 #ifdef DEBUG
     float *bwd_NTC = (float *)malloc(num_scan_elem * sizeof(float));

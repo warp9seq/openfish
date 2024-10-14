@@ -1,6 +1,6 @@
 CC       = gcc
 AR = ar
-CPPFLAGS +=	-I src/ -I include/
+CPPFLAGS +=	-I include/
 CFLAGS	+= 	-g -Wall -O2
 LDFLAGS  += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
