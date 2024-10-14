@@ -186,12 +186,12 @@ void beam_search(
         beam_vector[element_idx].stay = prev_beam_front[element_idx].stay;
     }
 
-    // Essentially a k=1 Bloom filter, indicating the presence of steps with particular
+    // essentially a k=1 Bloom filter, indicating the presence of steps with particular
     // sequence hashes.  Avoids comparing stay hashes against all possible progenitor
     // states where none of them has the requisite sequence hash.
     bool step_hash_present[HASH_PRESENT_BITS];  // Default constructor zeros content.
 
-    // Iterate through blocks, extending beam
+    // iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
@@ -212,19 +212,19 @@ void beam_search(
             // expand all the possible steps
             for (int new_base = 0; new_base < NUM_BASES; new_base++) {
 
-                /*  kmer transitions order:
+                /* kmer transitions order:
                 *  N^K , N array
-                *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
-                *  Kmer index is lexicographic with most recent base in the fastest index
+                *  elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed)
+                *  kmer index is lexicographic with most recent base in the fastest index
                 *
-                *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
-                *  The modifying action is
+                *  e.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
+                *  the modifying action is
                 *    0: Remove A from beginning
                 *    1: Remove C from beginning
                 *    2: Remove G from beginning
                 *    3: Remove T from beginning
                 *
-                *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
+                *  transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
                 */
 
                 // shift the state (k-mer) left and append the new base to the end of bitset
@@ -363,7 +363,7 @@ void beam_search(
                 ++num_guesses;
             }
 
-            // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
+            // if we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
             // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
             //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
             // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
@@ -397,8 +397,8 @@ void beam_search(
             }
         }
 
-        // At the last timestep, we need to ensure the best path corresponds to element 0.
-        // The other elements don't matter.
+        // at the last timestep, we need to ensure the best path corresponds to element 0
+        // the other elements don't matter
         if (block_idx == T - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
@@ -456,7 +456,7 @@ void beam_search(
 
         float block_prob = (float)(timestep_posts[state]) * posts_scale;
 
-        // Get indices of left- and right-shifted kmers
+        // get indices of left- and right-shifted kmers
         int l_shift_idx = state >> NUM_BASE_BITS;
         int r_shift_idx = (state << NUM_BASE_BITS) % num_states;
         int msb = ((int)num_states) >> NUM_BASE_BITS;
@@ -469,7 +469,7 @@ void beam_search(
             shifted_states[2 * shift_base + 1] = r_shift_state;
         }
 
-        // Add probabilities for unique states
+        // add probabilities for unique states
         int candidate_state;
         for (size_t state_idx = 0; state_idx < 2 * NUM_BASES; ++state_idx) {
             candidate_state = shifted_states[state_idx];
@@ -492,7 +492,7 @@ void beam_search(
         else if (block_prob < 0.0f) block_prob = 0.0f;
         block_prob = powf(block_prob, 0.4f); // power fudge factor
 
-        // Calculate a placeholder qscore for the "wrong" bases
+        // calculate a placeholder qscore for the "wrong" bases
         const float wrong_base_prob = (1.0f - block_prob) / 3.0f;
 
         for (size_t base = 0; base < NUM_BASES; base++) {
