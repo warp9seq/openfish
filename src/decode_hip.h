@@ -1,6 +1,11 @@
-#pragma once
+#ifndef DECODE_HIP_H
+#define DECODE_HIP_H
 
 #include "decode.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 void decode_hip(
     const int T,
@@ -13,3 +18,9 @@ void decode_hip(
     char **sequence,
     char **qstring
 );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // DECODE_HIP_H

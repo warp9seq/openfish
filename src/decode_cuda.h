@@ -1,6 +1,7 @@
 #ifndef DECODE_CUDA_H
 #define DECODE_CUDA_H
 
+#include <openfish/openfish.h>
 #include <stdint.h>
 #include "decode.h"
 

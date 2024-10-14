@@ -218,6 +218,8 @@ void *pthread_single_beam_search(void *voidargs) {
         size_t seq_len = 0;
         for (int i = 0; i < T; ++i) {
             seq_len += moves[i];
+            total_probs[i] = 0;
+            base_probs[i] = 0;
         }
 
         generate_sequence(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);

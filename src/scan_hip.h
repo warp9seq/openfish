@@ -1,6 +1,11 @@
-#pragma once
+#ifndef SCAN_HIP_H
+#define SCAN_HIP_H
 
 #include "decode.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct scan_args {
     float *scores_in;
@@ -21,3 +26,9 @@ __global__ void fwd_post_scan(
     const float *bwd,
     float *out
 );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SCAN_HIP_H
