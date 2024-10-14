@@ -6,15 +6,6 @@
 #include <math.h>
 #include <float.h>
 
-// This is the data we need to retain for only the previous timestep (block) in the beam
-//  (and what we construct for the new timestep)
-typedef struct beam_front_element {
-    uint32_t hash;
-    state_t state;
-    uint8_t prev_element_index;
-    bool stay;
-} beam_front_element_t;
-
 static void swapf(float *a, float *b) {
     float temp = *a;
     *a = *b;

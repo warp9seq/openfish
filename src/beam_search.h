@@ -11,12 +11,6 @@
 extern "C" {
 #endif
 
-typedef struct beam_element {
-    state_t state;
-    uint8_t prev_element_index;
-    bool stay;
-} beam_element_t;
-
 void generate_sequence(
     const uint8_t *moves,
     const state_t *states,

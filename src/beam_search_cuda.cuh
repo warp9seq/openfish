@@ -10,22 +10,6 @@
 extern "C" {
 #endif
 
-typedef struct beam_element {
-    state_t state;
-    uint8_t prev_element_index;
-    bool stay;
-} beam_element_t;
-
-typedef struct beam_args {
-    float *scores_TNC;
-    float *bwd_NTC;
-    float *post_NTC;
-    size_t T;
-    size_t N;
-    size_t C;
-    int num_state_bits;
-} beam_args_t;
-
 __global__ void generate_sequence(
     const beam_args_t args,
     const uint8_t *_moves,
