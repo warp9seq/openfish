@@ -1,6 +1,6 @@
 #include "beam_search_hip.h"
 #include "decode.h"
-#include "hip_utils.hpp"
+#include "hip_utils.h"
 
 #include "error.h"
 
