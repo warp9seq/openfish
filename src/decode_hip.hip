@@ -6,12 +6,13 @@
 #include "misc.h"
 
 #include <hip/hip_runtime.h>
+#include <hip/hip_fp16.h>
 
 void decode_hip(
     const int T,
     const int N,
     const int C,
-    float *scores_TNC,
+    void *scores_TNC,
     const int state_len,
     const decoder_opts_t *options,
     uint8_t **moves,
@@ -60,9 +61,9 @@ void decode_hip(
     float *post_NTC_gpu;
 
     // copy score tensor over
-    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(float) * T * N * C));
+    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C));
 
-	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(float) * T * N * C, hipMemcpyHostToDevice));
+	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice));
 
     // init scan tensors
     HIP_CHECK(hipMalloc((void **)&bwd_NTC_gpu, sizeof(float) * num_scan_elem));
