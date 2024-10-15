@@ -2,6 +2,7 @@
 #define DECODE_HIP_H
 
 #include "decode.h"
+#include <openfish/openfish.h>
 
 #ifdef __cplusplus
 extern "C" {

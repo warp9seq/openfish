@@ -2,7 +2,7 @@
 #include "scan_hip.h"
 #include "beam_search_hip.h"
 #include "error.h"
-#include "hip_utils.hpp"
+#include "hip_utils.h"
 #include "misc.h"
 
 #include <hip/hip_runtime.h>

@@ -1,5 +1,5 @@
 #include "scan_hip.h"
-#include "hip_utils.hpp"
+#include "hip_utils.h"
 
 #include <math.h>
 #include <float.h>
