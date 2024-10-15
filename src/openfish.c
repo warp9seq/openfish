@@ -13,7 +13,7 @@ void decode(
     const int N,
     const int C,
     const int target_threads,
-    float *scores_TNC,
+    void *scores_TNC,
     const int state_len,
     const decoder_opts_t *options,
     uint8_t **moves,
