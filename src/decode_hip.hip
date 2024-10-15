@@ -32,8 +32,8 @@ void decode_hip(
         grid_len *= 2;
     }
 
-    fprintf(stderr, "chosen block_dims: %d x %d for num_states %d\n", block_width, block_width, num_states);
-    fprintf(stderr, "chosen grid_len: %d for batch size %d\n", grid_len, N);
+    OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d\n", block_width, block_width, num_states);
+    OPENFISH_LOG_DEBUG("chosen grid_len: %d for batch size %d\n", grid_len, N);
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
@@ -82,7 +82,7 @@ void decode_hip(
     if (num_states == 64) n_batch = 140; // fast
     else if (num_states == 256) n_batch = 345; // hac
     else if (num_states == 1024) n_batch = 685; // sup
-    fprintf(stderr, "simulating %d batches...\n", n_batch);
+    OPENFISH_LOG_DEBUG("simulating %d batches...\n", n_batch);
 #endif
 
     // bwd scan
@@ -97,7 +97,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "bwd scan completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("bwd scan completed in %f secs\n", elapsed);
     
     // fwd + post scan
 	t0 = realtime();
@@ -111,7 +111,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "fwd scan completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs\n", elapsed);
 
     // beam search
 
@@ -198,7 +198,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "beam search completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("beam search completed in %f secs\n", elapsed);
 
     t0 = realtime();
 #ifdef BENCH
@@ -216,7 +216,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "compute quality data completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("compute quality data completed in %f secs\n", elapsed);
 
     t0 = realtime();
 #ifdef BENCH
@@ -240,7 +240,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    fprintf(stderr, "generate sequence completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("generate sequence completed in %f secs\n", elapsed);
 
     // copy beam_search results
     HIP_CHECK(hipMemcpy(*moves, moves_gpu, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost));
