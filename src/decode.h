@@ -25,7 +25,7 @@ typedef struct beam_front_element {
 } beam_front_element_t;
 
 typedef struct beam_args {
-    float *scores_TNC;
+    void *scores_TNC;
     float *bwd_NTC;
     float *post_NTC;
     size_t T;
@@ -35,7 +35,7 @@ typedef struct beam_args {
 } beam_args_t;
 
 typedef struct scan_args {
-    float *scores_in;
+    void *scores_in;
     uint64_t num_states;
     uint64_t T;
     uint64_t N;
