@@ -42,7 +42,7 @@ else ifdef rocm
 	HIP_CFLAGS += -g -Wall -Wextra
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
-	OBJ += $(BUILD_DIR)/hip_code.a
+	OBJ += $(BUILD_DIR)/hip_code.a $(BUILD_DIR)/decode_hip_a.o $(BUILD_DIR)/decode_hip_b.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	CPPFLAGS += -DHAVE_HIP=1
 endif
 
@@ -98,7 +98,14 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
-	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc $^ -o $@
+	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
+	rm $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o $(BUILD_DIR)/decode_hip.o
+	ar x --output lib/ $(BUILD_DIR)/hip_code.a
+	mv $(BUILD_DIR)/beam_search_hip-*.o $(BUILD_DIR)/beam_search_hip.o
+	find $(BUILD_DIR)/decode_hip-*.o | head -n1 | xargs -I '{}' mv {} $(BUILD_DIR)/decode_hip_a.o
+	find $(BUILD_DIR)/decode_hip-*.o | head -n1 | xargs -I '{}' mv {} $(BUILD_DIR)/decode_hip_b.o
+	mv $(BUILD_DIR)/scan_hip-*.o $(BUILD_DIR)/scan_hip.o 
+
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
 	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
