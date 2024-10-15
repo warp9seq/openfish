@@ -6,6 +6,7 @@
 
 #include <math.h>
 #include <float.h>
+#include <cuda_fp16.h>
 
 __device__ static __forceinline__ void swapf(float *a, float *b) {
     float temp = *a;
@@ -167,7 +168,7 @@ __global__ void beam_search(
     const size_t scores_block_stride = N * C;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
-    const float *scores_TNC = args.scores_TNC + chunk * (num_states * NUM_BASES);
+    const half *scores_TNC = (half *)args.scores_TNC + chunk * (num_states * NUM_BASES);
     const float *bwd_NTC = args.bwd_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     uint8_t *moves = _moves + chunk * T;
@@ -236,7 +237,7 @@ __global__ void beam_search(
     
     // iterate through blocks, extending each beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
-        const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         __shared__ float max_score;
@@ -280,7 +281,7 @@ __global__ void beam_search(
                 // get the score of this transition (see explanation above)
                 const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                float block_score = (float)block_scores[move_idx] * score_scale;
+                float block_score = __half2float(block_scores[move_idx]) * score_scale;
                 float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
 
                 // generate hash from previous element and new state
