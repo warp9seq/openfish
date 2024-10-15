@@ -5,11 +5,13 @@
 #include "cuda_utils.cuh"
 #include "misc.h"
 
+#include <cuda_fp16.h>
+
 void decode_cuda(
     const int T,
     const int N,
     const int C,
-    float *scores_TNC,
+    void *scores_TNC,
     const int state_len,
     const decoder_opts_t *options,
     uint8_t **moves,
@@ -37,9 +39,6 @@ void decode_cuda(
     dim3 block_size_beam(MAX_BEAM_WIDTH, 1, 1);
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
-
-    // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
     
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
@@ -53,15 +52,15 @@ void decode_cuda(
     MALLOC_CHK(post_NTC);
 #endif
 
-    float *scores_TNC_gpu;
+    void *scores_TNC_gpu;
     float *bwd_NTC_gpu;
     float *post_NTC_gpu;
 
     // copy score tensor over
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(float) * T * N * C);
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
 	checkCudaError();
 
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(float) * T * N * C, cudaMemcpyHostToDevice);
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
 	checkCudaError();
 
     // init scan tensors
