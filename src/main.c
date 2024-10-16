@@ -10,14 +10,21 @@ int main(int argc, char* argv[]) {
     const int N = strtol(argv[3], NULL, 10);
     const int state_len = strtol(argv[4], NULL, 10);
     const int C = pow(4, state_len) * 4;
+
+    set_openfish_log_level(OPENFISH_LOG_DBUG);
     
     size_t scores_len = T * N * C;
-    float *scores = (float *)calloc(scores_len, sizeof(float));
+#ifdef HAVE_CUDA
+    const int elem_size = sizeof(uint16_t);
+#else
+    const int elem_size = sizeof(float);
+#endif
+    void *scores = calloc(scores_len, elem_size);
     MALLOC_CHK(scores);
 
     FILE *fp = fopen(argv[1], "rb");
 
-    size_t result = fread(scores, sizeof(float), scores_len, fp);
+    size_t result = fread(scores, elem_size, scores_len, fp);
     if (result != scores_len) {
         ERROR("%s", "error reading score file");
         exit(EXIT_FAILURE);
