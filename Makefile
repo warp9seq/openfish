@@ -40,7 +40,7 @@ else ifdef rocm
 	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
 	HIP_LIB ?= $(ROCM_ROOT)/lib
 	HIPCXX ?= $(ROCM_ROOT)/bin/hipcc
-	HIP_CFLAGS += -g -Wall -Wextra
+	HIP_CFLAGS += -g -Wall
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
 	OBJ += $(BUILD_DIR)/hip_code.a $(BUILD_DIR)/decode_hip_a.o $(BUILD_DIR)/decode_hip_b.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
