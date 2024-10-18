@@ -1,8 +1,8 @@
-CC       = gcc
+CC = gcc
 AR = ar
 CPPFLAGS +=	-I include/
-CFLAGS	+= 	-g -Wall -O2
-LDFLAGS  += $(LIBS) -lz -lm -lpthread
+CFLAGS += -g -Wall -O2
+LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
 
 # change the tool name to what you want
@@ -34,6 +34,7 @@ ifdef cuda
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
     OBJ += $(BUILD_DIR)/cuda_code.o $(CUDA_OBJ)
     CPPFLAGS += -DHAVE_CUDA=1
+	STATICLIB = $(BUILD_DIR)/libopenfish_cuda.a
 else ifdef rocm
 	ROCM_ROOT = /opt/rocm
 	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
@@ -44,6 +45,7 @@ else ifdef rocm
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
 	OBJ += $(BUILD_DIR)/hip_code.a $(BUILD_DIR)/decode_hip_a.o $(BUILD_DIR)/decode_hip_b.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	CPPFLAGS += -DHAVE_HIP=1
+	STATICLIB = $(BUILD_DIR)/libopenfish_rocm.a
 endif
 
 ifdef bench

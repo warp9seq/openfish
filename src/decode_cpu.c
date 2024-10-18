@@ -1,4 +1,3 @@
-#include "decode_cpu.h"
 #include "beam_search.h"
 #include "error.h"
 #include "misc.h"
@@ -232,17 +231,14 @@ void decode_cpu(
     const int T,
     const int N,
     const int C,
-    const int target_threads,
-    float *scores_TNC,
+    int nthreads,
+    void *scores_TNC,
     const int state_len,
     const decoder_opts_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring
 ) {
-    // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
-
     const int num_states = pow(NUM_BASES, state_len);
 
     OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
@@ -278,22 +274,22 @@ void decode_cpu(
     MALLOC_CHK(total_probs);
     
     // create threads
-    const int num_threads = N < target_threads ? N : target_threads;
-    const int chunks_per_thread = N / num_threads;
-    const int num_threads_with_one_more_chunk = N % num_threads;
+    nthreads = N < nthreads ? N : nthreads;
+    const int chunks_per_thread = N / nthreads;
+    const int num_threads_with_one_more_chunk = N % nthreads;
 
-    OPENFISH_LOG_DEBUG("dispatching %d threads for cpu decoding", num_threads);
+    OPENFISH_LOG_DEBUG("dispatching %d threads for cpu decoding", nthreads);
 
-    pthread_t tids[num_threads];
-    decode_thread_arg_t pt_args[num_threads];
+    pthread_t tids[nthreads];
+    decode_thread_arg_t pt_args[nthreads];
     int32_t t, ret;
 
     // set the data structures
-    for (t = 0; t < num_threads; t++) {
+    for (t = 0; t < nthreads; t++) {
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
-        pt_args[t].scores_TNC = scores_TNC;
+        pt_args[t].scores_TNC = (float *)scores_TNC;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].fwd_NTC = fwd_NTC;
         pt_args[t].post_NTC = post_NTC;
@@ -313,23 +309,23 @@ void decode_cpu(
     }
 
     // score tensors
-    for (t = 0; t < num_threads; t++) {
+    for (t = 0; t < nthreads; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single_scan_score, (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
-    for (t = 0; t < num_threads; t++) {
+    for (t = 0; t < nthreads; t++) {
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }
 
     // beam search
-    for (t = 0; t < num_threads; t++) {
+    for (t = 0; t < nthreads; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single_beam_search, (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
-    for (t = 0; t < num_threads; t++) {
+    for (t = 0; t < nthreads; t++) {
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }

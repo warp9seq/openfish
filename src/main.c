@@ -46,12 +46,16 @@ int main(int argc, char* argv[]) {
         options.q_shift = 0.5;
     }
     
-    const int target_threads = 40;
-
     uint8_t *moves;
     char *sequence;
     char *qstring;
-    decode(T, N, C, target_threads, scores, state_len, &options, &moves, &sequence, &qstring);
+
+#if defined HAVE_CUDA || defined HAVE_HIP
+    decode_gpu(T, N, C, scores, state_len, &options, &moves, &sequence, &qstring);
+#else
+    int nthreads = 40;
+    decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+#endif
 
     fp = fopen("moves.blob", "w");
     fwrite(moves, sizeof(uint8_t), N * T, fp);

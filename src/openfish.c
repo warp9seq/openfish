@@ -1,18 +1,19 @@
 #include <openfish/openfish.h>
 
-#include "decode_cpu.h"
+#include "error.h"
 
 #ifdef HAVE_CUDA
 #include "decode_cuda.h"
-#elif HAVE_HIP
+#endif
+
+#ifdef HAVE_HIP
 #include "decode_hip.h"
 #endif
 
-void decode(
+void decode_gpu(
     const int T,
     const int N,
     const int C,
-    const int target_threads,
     void *scores_TNC,
     const int state_len,
     const decoder_opts_t *options,
@@ -25,6 +26,6 @@ void decode(
 #elif HAVE_HIP
     decode_hip(T, N, C, scores_TNC, state_len, options, moves, sequence, qstring);
 #else
-    decode_cpu(T, N, C, target_threads, scores_TNC, state_len, options, moves, sequence, qstring);
+    ERROR("%s", "not compiled for gpu");
 #endif
 }
