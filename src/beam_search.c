@@ -48,7 +48,7 @@ static float log_sum_exp(float x, float y) {
     return m + ((abs_diff < 17.0f) ? (log( 1.0 + exp(-abs_diff))) : 0.0f);
 }
 
-void generate_sequence(
+void generate_sequence_cpu(
     const uint8_t *moves,
     const state_t *states,
     const float *qual_data,
@@ -118,7 +118,7 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     return crc;
 }
 
-void beam_search(
+void beam_search_cpu(
     const float *const scores_TNC,
     size_t scores_block_stride,
     const float *const bwd_NTC,

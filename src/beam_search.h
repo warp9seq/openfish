@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-void generate_sequence(
+void generate_sequence_cpu(
     const uint8_t *moves,
     const state_t *states,
     const float *qual_data,
@@ -25,7 +25,7 @@ void generate_sequence(
     char *qstring
 );
 
-void beam_search(
+void beam_search_cpu(
     const float *const scores,
     size_t scores_block_stride,
     const float *const back_guide,

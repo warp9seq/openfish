@@ -212,7 +212,7 @@ void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * T;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
 
-        beam_search(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        beam_search_cpu(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < T; ++i) {
@@ -221,7 +221,7 @@ void *pthread_single_beam_search(void *voidargs) {
             base_probs[i] = 0;
         }
 
-        generate_sequence(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);
+        generate_sequence_cpu(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);
     }
 
     pthread_exit(0);
