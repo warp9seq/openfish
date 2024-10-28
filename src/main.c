@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
     set_openfish_log_level(OPENFISH_LOG_DBUG);
     
     size_t scores_len = T * N * C;
-#ifdef HAVE_CUDA
+#if defined HAVE_CUDA || defined HAVE_HIP
     const int elem_size = sizeof(uint16_t);
 #else
     const int elem_size = sizeof(float);
