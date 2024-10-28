@@ -1,9 +1,11 @@
 #include "decode_hip.h"
 #include "scan_hip.h"
 #include "beam_search_hip.h"
-#include <openfish/openfish_error.h>
+#include "error.h"
 #include "hip_utils.h"
 #include "misc.h"
+
+#include <openfish/openfish_error.h>
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>

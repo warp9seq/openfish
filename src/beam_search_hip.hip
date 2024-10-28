@@ -2,8 +2,6 @@
 #include "decode.h"
 #include "hip_utils.h"
 
-#include <openfish/openfish_error.h>
-
 #include <math.h>
 #include <float.h>
 
