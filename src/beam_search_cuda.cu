@@ -2,8 +2,6 @@
 #include "decode.h"
 #include "cuda_utils.cuh"
 
-#include <openfish/openfish_error.h>
-
 #include <math.h>
 #include <float.h>
 #include <cuda_fp16.h>

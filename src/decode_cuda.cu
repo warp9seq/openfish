@@ -1,9 +1,11 @@
 #include "decode_cuda.h"
 #include "scan_cuda.cuh"
 #include "beam_search_cuda.cuh"
-#include <openfish/openfish_error.h>
+#include "error.h"
 #include "cuda_utils.cuh"
 #include "misc.h"
+
+#include <openfish/openfish_error.h>
 
 #include <cuda_fp16.h>
 

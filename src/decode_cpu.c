@@ -1,8 +1,9 @@
 #include "beam_search.h"
-#include <openfish/openfish_error.h>
+#include "error.h"
 #include "misc.h"
 
 #include <openfish/openfish.h>
+#include <openfish/openfish_error.h>
 
 #include <math.h>
 #include <pthread.h>

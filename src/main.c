@@ -1,6 +1,8 @@
-#include <openfish/openfish.h>
+#include "error.h"
 
+#include <openfish/openfish.h>
 #include <openfish/openfish_error.h>
+
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -26,7 +28,7 @@ int main(int argc, char* argv[]) {
 
     size_t result = fread(scores, elem_size, scores_len, fp);
     if (result != scores_len) {
-        ERROR("%s", "error reading score file");
+        OPENFISH_ERROR("%s", "error reading score file");
         exit(EXIT_FAILURE);
     }
     fclose(fp);

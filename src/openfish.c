@@ -26,6 +26,6 @@ void decode_gpu(
 #elif HAVE_HIP
     decode_hip(T, N, C, scores_TNC, state_len, options, moves, sequence, qstring);
 #else
-    ERROR("%s", "not compiled for gpu");
+    OPENFISH_ERROR("%s", "not compiled for gpu");
 #endif
 }

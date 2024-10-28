@@ -18,7 +18,7 @@ const int error_exit_code = -1;
         const hipError_t error = (condition);                                                 \
         if(error != hipSuccess)                                                             \
         {                \
-            ERROR("%s", hipGetErrorString(error));                               \
+            OPENFISH_ERROR("%s", hipGetErrorString(error));                               \
             exit(error_exit_code);                                                          \
         }                                                                                   \
     }
