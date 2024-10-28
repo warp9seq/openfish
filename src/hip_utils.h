@@ -2,7 +2,7 @@
 #define HIP_UTILS_H
 
 #include <hip/hip_runtime.h>
-#include "error.h"
+#include <openfish/openfish_error.h>
 
 #ifdef __cplusplus
 extern "C" {

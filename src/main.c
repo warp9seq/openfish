@@ -1,6 +1,6 @@
 #include <openfish/openfish.h>
 
-#include "error.h"
+#include <openfish/openfish_error.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>

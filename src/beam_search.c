@@ -1,7 +1,7 @@
 #include "beam_search.h"
 #include "decode.h"
 
-#include "error.h"
+#include <openfish/openfish_error.h>
 
 #include <math.h>
 #include <float.h>
