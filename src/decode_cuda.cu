@@ -318,16 +318,27 @@ void decode_cuda(
     free(post_NTC);
 #endif
     cudaFree(scores_TNC_gpu);
+    checkCudaError();
     cudaFree(bwd_NTC_gpu);
+    checkCudaError();
     cudaFree(post_NTC_gpu);
+    checkCudaError();
 
     cudaFree(moves_gpu);
+    checkCudaError();
     cudaFree(sequence_gpu);
+    checkCudaError();
     cudaFree(qstring_gpu);
+    checkCudaError();
 
     cudaFree(beam_vector_gpu);
+    checkCudaError();
     cudaFree(states_gpu);
+    checkCudaError();
     cudaFree(qual_data_gpu);
+    checkCudaError();
     cudaFree(base_probs_gpu);
+    checkCudaError();
     cudaFree(total_probs_gpu);
+    checkCudaError();
 }
