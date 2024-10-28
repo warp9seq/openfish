@@ -59,6 +59,7 @@ void decode_cuda(
     float *post_NTC_gpu;
 
     // copy score tensor over
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(half) * T * N * C);
     cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
 	checkCudaError();
 
@@ -66,8 +67,10 @@ void decode_cuda(
 	checkCudaError();
 
     // init scan tensors
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * num_scan_elem);
     cudaMalloc((void **)&bwd_NTC_gpu, sizeof(float) * num_scan_elem);
 	checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * num_scan_elem);
     cudaMalloc((void **)&post_NTC_gpu, sizeof(float) * num_scan_elem);
 	checkCudaError();
 
@@ -148,14 +151,17 @@ void decode_cuda(
     char *sequence_gpu;
     char *qstring_gpu;
 
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(uint8_t) * N * T);
     cudaMalloc((void **)&moves_gpu, sizeof(uint8_t) * N * T);
     checkCudaError();
     cudaMemset(moves_gpu, 0, sizeof(uint8_t) * N * T);
 	checkCudaError();
-    cudaMalloc((void **)&sequence_gpu, sizeof(char) * N * T);
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(uint8_t) * N * T);
+    cudaMalloc((void **)&sequence_gpu, sizeof(uint8_t) * N * T);
     checkCudaError();
     cudaMemset(sequence_gpu, 0, sizeof(char) * N * T);
 	checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(char) * N * T);
     cudaMalloc((void **)&qstring_gpu, sizeof(char) * N * T);
     checkCudaError();
     cudaMemset(qstring_gpu, 0, sizeof(char) * N * T);
@@ -168,14 +174,19 @@ void decode_cuda(
     float *base_probs_gpu;
     float *total_probs_gpu;
 
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     cudaMalloc((void **)&beam_vector_gpu, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(state_t) * N * T);
     cudaMalloc((void **)&states_gpu, sizeof(state_t) * N * T);
     checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T * NUM_BASES);
     cudaMalloc((void **)&qual_data_gpu, sizeof(float) * N * T * NUM_BASES);
     checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T);
     cudaMalloc((void **)&base_probs_gpu, sizeof(float) * N * T);
     checkCudaError();
+    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T);
     cudaMalloc((void **)&total_probs_gpu, sizeof(float) * N * T);
     checkCudaError();
 
