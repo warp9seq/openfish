@@ -1,5 +1,5 @@
 #include "beam_search.h"
-#include "error.h"
+#include <openfish/openfish_error.h>
 #include "misc.h"
 
 #include <openfish/openfish.h>

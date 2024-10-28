@@ -1,6 +1,6 @@
 #include <openfish/openfish.h>
 
-#include "error.h"
+#include <openfish/openfish_error.h>
 
 #ifdef HAVE_CUDA
 #include "decode_cuda.h"

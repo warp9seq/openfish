@@ -70,7 +70,7 @@ $(BUILD_DIR)/main.o: src/main.c include/openfish/openfish.h
 $(BUILD_DIR)/misc.o: src/misc.c src/misc.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/error.o: src/error.c src/error.h
+$(BUILD_DIR)/error.o: src/error.c include/openfish/openfish_error.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/signal_prep.o: src/signal_prep.c

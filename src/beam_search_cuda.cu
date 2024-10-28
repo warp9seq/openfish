@@ -2,7 +2,7 @@
 #include "decode.h"
 #include "cuda_utils.cuh"
 
-#include "error.h"
+#include <openfish/openfish_error.h>
 
 #include <math.h>
 #include <float.h>

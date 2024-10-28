@@ -28,7 +28,7 @@ SOFTWARE.
 
 ******************************************************************************/
 
-#include "error.h"
+#include <openfish/openfish_error.h>
 
 enum openfish_log_level_opt _openfish_log_level = OPENFISH_LOG_VERB;
 
