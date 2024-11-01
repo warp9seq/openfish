@@ -33,7 +33,7 @@ fi
 
 ex() {
     if [ $mem -eq 1 ]; then
-        /install/valgrind-3.21/bin/valgrind --error-exitcode=1  --leak-check=full --show-leak-kinds=all --suppressions=test/valgrind.supp --gen-suppressions=yes "$@"
+        valgrind --error-exitcode=1  --leak-check=full --show-leak-kinds=all --suppressions=test/valgrind.supp --gen-suppressions=yes "$@"
     elif [ $cuda -eq 1 ]; then
         cuda-memcheck --leak-check full "$@"
     else

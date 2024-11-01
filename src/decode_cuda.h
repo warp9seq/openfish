@@ -32,6 +32,17 @@ void decode_cuda(
     char **qstring
 );
 
+void *upload_scores_to_cuda(
+    const int T,
+    const int N,
+    const int C,
+    const void *scores_TNC
+);
+
+void free_scores_cuda(
+    void *scores_TNC_gpu
+);
+
 #ifdef __cplusplus
 }
 #endif

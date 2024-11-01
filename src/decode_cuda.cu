@@ -9,6 +9,30 @@
 
 #include <cuda_fp16.h>
 
+void *upload_scores_to_cuda(
+    const int T,
+    const int N,
+    const int C,
+    const void *scores_TNC
+) {
+    void *scores_TNC_gpu;
+
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
+	checkCudaError();
+
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
+	checkCudaError();
+
+    return scores_TNC_gpu;
+}
+
+void free_scores_cuda(
+    void *scores_TNC_gpu
+) {
+    cudaFree(scores_TNC_gpu);
+	checkCudaError();
+}
+
 openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
     const int N,
@@ -25,30 +49,22 @@ openfish_gpubuf_t *gpubuf_init_cuda(
 	checkCudaError();
 
     // return buffers
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(uint8_t) * N * T);
     cudaMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(char) * N * T);
     cudaMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(char) * N * T);
     cudaMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
     checkCudaError();
 
     // beamsearch buffers
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     cudaMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(state_t) * N * T);
     cudaMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T * NUM_BASES);
     cudaMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T);
     cudaMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
     checkCudaError();
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * N * T);
     cudaMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
     checkCudaError();
 

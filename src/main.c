@@ -7,6 +7,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if defined HAVE_CUDA
+#include "decode_cuda.h"
+#endif
+
 int main(int argc, char* argv[]) {
     const int T = 1666;
     const int N = strtol(argv[3], NULL, 10);
@@ -53,7 +57,10 @@ int main(int argc, char* argv[]) {
     char *sequence;
     char *qstring;
 
-#if defined HAVE_CUDA || defined HAVE_HIP
+#if defined HAVE_CUDA
+    void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
+    openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
+#elif defined HAVE_HIP
     openfish_decode_gpu(T, N, C, scores, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
     int nthreads = 40;
@@ -77,9 +84,13 @@ int main(int argc, char* argv[]) {
     free(qstring);
     
     free(scores);
-    
+
 #if defined HAVE_CUDA || defined HAVE_HIP
     openfish_gpubuf_free(gpubuf);
+#endif
+
+#if defined HAVE_CUDA
+    free_scores_cuda(scores_gpu);
 #endif
 
     return 0;
