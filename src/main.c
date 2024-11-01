@@ -18,6 +18,7 @@ int main(int argc, char* argv[]) {
     size_t scores_len = T * N * C;
 #if defined HAVE_CUDA || defined HAVE_HIP
     const int elem_size = sizeof(uint16_t);
+    const openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
 #else
     const int elem_size = sizeof(float);
 #endif
@@ -34,7 +35,7 @@ int main(int argc, char* argv[]) {
     fclose(fp);
     
     
-    decoder_opts_t options = DECODER_INIT;
+    openfish_opt_t options = DECODER_INIT;
 
     // config mods from 4.2.0 models
     if (state_len == 3) { // fast
@@ -53,10 +54,10 @@ int main(int argc, char* argv[]) {
     char *qstring;
 
 #if defined HAVE_CUDA || defined HAVE_HIP
-    decode_gpu(T, N, C, scores, state_len, &options, &moves, &sequence, &qstring);
+    openfish_decode_gpu(T, N, C, scores, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
     int nthreads = 40;
-    decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+    openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
     fp = fopen("moves.blob", "w");
@@ -76,6 +77,8 @@ int main(int argc, char* argv[]) {
     free(qstring);
     
     free(scores);
+
+    openfish_gpubuf_free(gpubuf);
 
     return 0;
 }
