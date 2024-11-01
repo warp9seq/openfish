@@ -7,13 +7,19 @@ BUILD_DIR = lib
 
 # change the tool name to what you want
 BINARY = openfish
-STATICLIB = $(BUILD_DIR)/libopenfish.a
+
+STATICLIB_CPU = $(BUILD_DIR)/libopenfish.a
+STATICLIB_CUDA = $(BUILD_DIR)/libopenfish_cuda.a
+STATICLIB_ROCM = $(BUILD_DIR)/libopenfish_rocm.a
+STATICLIB = $(STATICLIB_CPU)
 
 OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
 	  $(BUILD_DIR)/openfish.o \
 	  $(BUILD_DIR)/beam_search.o \
+
+GPU_LIB =
 
 # add more objects here if needed
 VERSION = `git describe --tags`
@@ -32,9 +38,9 @@ ifdef cuda
     NVCC ?= nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
-    OBJ += $(BUILD_DIR)/cuda_code.o $(CUDA_OBJ)
+    GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
-	STATICLIB = $(BUILD_DIR)/libopenfish_cuda.a
+	STATICLIB = $(STATICLIB_CUDA)
 else ifdef rocm
 	ROCM_ROOT = /opt/rocm
 	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
@@ -42,10 +48,12 @@ else ifdef rocm
 	HIPCXX ?= $(ROCM_ROOT)/bin/hipcc
 	HIP_CFLAGS += -g -Wall
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
+	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
-	OBJ += $(BUILD_DIR)/hip_code.a $(BUILD_DIR)/decode_hip_a.o $(BUILD_DIR)/decode_hip_b.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	CPPFLAGS += -DHAVE_HIP=1
-	STATICLIB = $(BUILD_DIR)/libopenfish_rocm.a
+	STATICLIB = $(STATICLIB_ROCM)
+else
+	GPU_LIB = $(BUILD_DIR)/cpu_decoy.a
 endif
 
 ifdef bench
@@ -61,7 +69,8 @@ endif
 $(BINARY): $(BUILD_DIR)/main.o $(STATICLIB)
 	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(HIP_LDFLAGS) -o $@
 
-$(STATICLIB): $(OBJ)
+$(STATICLIB): $(OBJ) $(GPU_LIB)
+	cp $(GPU_LIB) $@
 	$(AR) rcs $@ $(OBJ)
 
 $(BUILD_DIR)/main.o: src/main.c include/openfish/openfish.h
@@ -85,7 +94,15 @@ $(BUILD_DIR)/beam_search.o: src/beam_search.c
 $(BUILD_DIR)/openfish.o: src/openfish.c include/openfish/openfish.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
+# cpu decoy
+$(BUILD_DIR)/cpu_decoy.a:
+	rm -f $@
+	$(AR) -r $@
+
 # cuda
+$(BUILD_DIR)/cuda.a: $(BUILD_DIR)/cuda_code.o $(CUDA_OBJ)
+	$(AR) rcs $@ $^
+
 $(BUILD_DIR)/cuda_code.o: $(CUDA_OBJ)
 	$(NVCC) $(CUDA_CFLAGS) -dlink $^ -o $@
 
@@ -101,13 +118,6 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 # hip
 $(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
 	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
-	rm $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o $(BUILD_DIR)/decode_hip.o
-	ar x --output lib/ $(BUILD_DIR)/hip_code.a
-	mv $(BUILD_DIR)/beam_search_hip-*.o $(BUILD_DIR)/beam_search_hip.o
-	find $(BUILD_DIR)/decode_hip-*.o | head -n1 | xargs -I '{}' mv {} $(BUILD_DIR)/decode_hip_a.o
-	find $(BUILD_DIR)/decode_hip-*.o | head -n1 | xargs -I '{}' mv {} $(BUILD_DIR)/decode_hip_b.o
-	mv $(BUILD_DIR)/scan_hip-*.o $(BUILD_DIR)/scan_hip.o 
-
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
 	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
@@ -119,9 +129,9 @@ $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
 	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:
-	rm -rf $(BINARY) $(BUILD_DIR)/*.o
+	rm -rf $(BINARY) $(BUILD_DIR)/*
 
 # Delete all gitignored files (but not directories)
 distclean: clean
 	git clean -f -X
-	rm -rf $(BUILD_DIR)/* autom4te.cache
+	rm -rf $(BINARY) $(BUILD_DIR)/* autom4te.cache
