@@ -172,7 +172,7 @@ void decode_cuda(
     const float beam_cut = options->beam_cut;
 
     beam_args_t beam_args = {0};
-    beam_args.scores_TNC = scores_TNC_gpu;
+    beam_args.scores_TNC = (half *)scores_TNC;
     beam_args.bwd_NTC = gpubuf->bwd_NTC;
     beam_args.post_NTC = gpubuf->post_NTC;
     beam_args.T = T;
@@ -183,9 +183,9 @@ void decode_cuda(
     t0 = realtime();
     beam_search<<<grid_size,block_size_beam>>>(
         beam_args,
-        gpubuf->states,
+        (state_t *)gpubuf->states,
         gpubuf->moves,
-        gpubuf->beam_vector,
+        (beam_element_t *)gpubuf->beam_vector,
         beam_cut,
         fixed_stay_score,
         1.0f
@@ -200,7 +200,7 @@ void decode_cuda(
     t0 = realtime();
     compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
-        gpubuf->states,
+        (state_t *)gpubuf->states,
         gpubuf->qual_data,
         1.0f
     );
@@ -215,7 +215,7 @@ void decode_cuda(
     generate_sequence<<<grid_size,block_size_gen>>>(
         beam_args,
         gpubuf->moves,
-        gpubuf->states,
+        (state_t *)gpubuf->states,
         gpubuf->qual_data,
         gpubuf->base_probs,
         gpubuf->total_probs,
