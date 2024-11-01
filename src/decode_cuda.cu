@@ -45,26 +45,9 @@ void decode_cuda(
     const uint64_t num_scan_elem = N * (T + 1) * num_states;
 
     OPENFISH_LOG_DEBUG("scores tensor dim: %d, %d, %d", T, N, C);
-
-#ifdef DEBUG
-    float *bwd_NTC = (float *)malloc(num_scan_elem * sizeof(float));
-    MALLOC_CHK(bwd_NTC);
-
-    float *post_NTC = (float *)malloc(num_scan_elem * sizeof(float));
-    MALLOC_CHK(post_NTC);
-#endif
-
-    void *scores_TNC_gpu;
+    
     float *bwd_NTC_gpu;
     float *post_NTC_gpu;
-
-    // copy score tensor over
-    OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(half) * T * N * C);
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-	checkCudaError();
-
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
-	checkCudaError();
 
     // init scan tensors
     OPENFISH_LOG_DEBUG("allocing %zu bytes on the GPU", sizeof(float) * num_scan_elem);
@@ -75,31 +58,18 @@ void decode_cuda(
 	checkCudaError();
 
     scan_args_t scan_args = {0};
-    scan_args.scores_in = scores_TNC_gpu;
+    scan_args.scores_in = scores_TNC;
     scan_args.T = T;
     scan_args.N = N;
     scan_args.C = C;
     scan_args.num_states = num_states;
     scan_args.fixed_stay_score = options->blank_score;
 
-#ifdef BENCH
-    int n_batch = 140; // simulate 20k reads
-    if (num_states == 64) n_batch = 140; // fast
-    else if (num_states == 256) n_batch = 345; // hac
-    else if (num_states == 1024) n_batch = 685; // sup
-    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
-#endif
-
     // bwd scan
 	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu);
-        cudaDeviceSynchronize();
-        checkCudaError();
-    }
+    bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu);
+    cudaDeviceSynchronize();
+    checkCudaError();
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -107,14 +77,9 @@ void decode_cuda(
     
     // fwd + post scan
 	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu, post_NTC_gpu);
-        cudaDeviceSynchronize();
-        checkCudaError();
-    }
+    fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu, post_NTC_gpu);
+    cudaDeviceSynchronize();
+    checkCudaError();
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -131,20 +96,6 @@ void decode_cuda(
 
     *qstring = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(*qstring);
-
-#ifdef DEBUG
-    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
-    MALLOC_CHK(states);
-
-    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
-    MALLOC_CHK(qual_data);
-
-    float *base_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(base_probs);
-
-    float *total_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(total_probs);
-#endif
 
     // intermediate results
     uint8_t *moves_gpu;
@@ -206,66 +157,51 @@ void decode_cuda(
     beam_args.num_state_bits = num_state_bits;
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        beam_search<<<grid_size,block_size_beam>>>(
-            beam_args,
-            states_gpu,
-            moves_gpu,
-            beam_vector_gpu,
-            beam_cut,
-            fixed_stay_score,
-            1.0f
-        );
-        cudaDeviceSynchronize();
-        checkCudaError();
-    }
+    beam_search<<<grid_size,block_size_beam>>>(
+        beam_args,
+        states_gpu,
+        moves_gpu,
+        beam_vector_gpu,
+        beam_cut,
+        fixed_stay_score,
+        1.0f
+    );
+    cudaDeviceSynchronize();
+    checkCudaError();
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("beam search completed in %f secs", elapsed);
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        compute_qual_data<<<grid_size,block_size_gen>>>(
-            beam_args,
-            states_gpu,
-            qual_data_gpu,
-            1.0f
-        );
-        cudaDeviceSynchronize();
-        checkCudaError();
-    }
+    compute_qual_data<<<grid_size,block_size_gen>>>(
+        beam_args,
+        states_gpu,
+        qual_data_gpu,
+        1.0f
+    );
+    cudaDeviceSynchronize();
+    checkCudaError();
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("compute quality data completed in %f secs", elapsed);
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        generate_sequence<<<grid_size,block_size_gen>>>(
-            beam_args,
-            moves_gpu,
-            states_gpu,
-            qual_data_gpu,
-            base_probs_gpu,
-            total_probs_gpu,
-            sequence_gpu,
-            qstring_gpu,
-            q_shift,
-            q_scale
-        );
-        cudaDeviceSynchronize();
-        checkCudaError();
-    }
+    generate_sequence<<<grid_size,block_size_gen>>>(
+        beam_args,
+        moves_gpu,
+        states_gpu,
+        qual_data_gpu,
+        base_probs_gpu,
+        total_probs_gpu,
+        sequence_gpu,
+        qstring_gpu,
+        q_shift,
+        q_scale
+    );
+    cudaDeviceSynchronize();
+    checkCudaError();
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -279,57 +215,6 @@ void decode_cuda(
     cudaMemcpy(*qstring, qstring_gpu, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-#ifdef DEBUG
-    // copy scan results
-    cudaMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(float) * num_scan_elem, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(post_NTC, post_NTC_gpu, sizeof(float) * num_scan_elem, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    // copy intermediate
-    cudaMemcpy(states, states_gpu, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(total_probs, total_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(qual_data, qual_data_gpu, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(base_probs, base_probs_gpu, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    // write results
-    FILE *fp;
-
-    fp = fopen("states.blob", "w");
-    fwrite(states, sizeof(state_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    fwrite(base_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    fwrite(total_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), num_scan_elem, fp);
-    fclose(fp);
-
-    fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), num_scan_elem, fp);
-    fclose(fp);
-
-    // cleanup
-    free(bwd_NTC);
-    free(post_NTC);
-#endif
     cudaFree(scores_TNC_gpu);
     checkCudaError();
     cudaFree(bwd_NTC_gpu);
