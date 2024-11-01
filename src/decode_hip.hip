@@ -16,7 +16,7 @@ void decode_hip(
     const int C,
     void *scores_TNC,
     const int state_len,
-    const decoder_opts_t *options,
+    const openfish_opt_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring

@@ -147,7 +147,7 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
 }
 
 typedef struct {
-    const decoder_opts_t *options;
+    const openfish_opt_t *options;
     const float *scores_TNC;
     float *bwd_NTC;
     float *fwd_NTC;
@@ -187,7 +187,7 @@ void* pthread_single_scan_score(void* voidargs) {
 
 void *pthread_single_beam_search(void *voidargs) {
     decode_thread_arg_t *args = (decode_thread_arg_t *)voidargs;
-    const decoder_opts_t *options = args->options;
+    const openfish_opt_t *options = args->options;
     
     const int num_states = pow(NUM_BASES, args->state_len);
     const int num_state_bits = (int)log2(num_states);
@@ -228,14 +228,14 @@ void *pthread_single_beam_search(void *voidargs) {
     pthread_exit(0);
 }
 
-void decode_cpu(
+void openfish_decode_cpu(
     const int T,
     const int N,
     const int C,
     int nthreads,
     void *scores_TNC,
     const int state_len,
-    const decoder_opts_t *options,
+    const openfish_opt_t *options,
     uint8_t **moves,
     char **sequence,
     char **qstring
