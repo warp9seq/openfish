@@ -77,8 +77,10 @@ int main(int argc, char* argv[]) {
     free(qstring);
     
     free(scores);
-
+    
+#if defined HAVE_CUDA || defined HAVE_HIP
     openfish_gpubuf_free(gpubuf);
+#endif
 
     return 0;
 }
