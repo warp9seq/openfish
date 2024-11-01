@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     size_t scores_len = T * N * C;
 #if defined HAVE_CUDA || defined HAVE_HIP
     const int elem_size = sizeof(uint16_t);
-    const openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
+    openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
 #else
     const int elem_size = sizeof(float);
 #endif
