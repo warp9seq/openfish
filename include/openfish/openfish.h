@@ -26,7 +26,6 @@ typedef struct openfish_gpubuf {
     float *total_probs;
 } openfish_gpubuf_t;
 
-
 typedef struct openfish_opt {
     size_t beam_width;
     float beam_cut;
