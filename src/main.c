@@ -85,6 +85,14 @@ int main(int argc, char* argv[]) {
     
     free(scores);
 
+#if defined DEBUG && defined HAVE_CUDA
+    write_gpubuf_cuda(T, N, state_len, gpubuf);
+#endif
+
+// #if defined DEBUG && defined HAVE_HIP
+//     write_gpubuf_cuda(T, N, state_len, gpubuf);
+// #endif
+
 #if defined HAVE_CUDA || defined HAVE_HIP
     openfish_gpubuf_free(gpubuf);
 #endif
