@@ -10,6 +10,52 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
+openfish_gpubuf_t *gpubuf_init_hip(
+    const int T,
+    const int N,
+    const int state_len
+) {
+    openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(malloc(sizeof(openfish_gpubuf_t)));
+
+    const int num_states = pow(NUM_BASES, state_len);
+
+    // scan tensors
+    HIP_CHECK(hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states));
+
+    // return buffers
+    HIP_CHECK(hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T));
+    // beamsearch buffers
+    HIP_CHECK(hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1)));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T));
+
+    return gpubuf;
+}
+
+void gpubuf_free_hip(
+    openfish_gpubuf_t *gpubuf
+) {
+    HIP_CHECK(hipFree(gpubuf->bwd_NTC));
+    HIP_CHECK(hipFree(gpubuf->post_NTC));
+
+    HIP_CHECK(hipFree(gpubuf->moves));
+    HIP_CHECK(hipFree(gpubuf->sequence));
+    HIP_CHECK(hipFree(gpubuf->qstring));
+
+    HIP_CHECK(hipFree(gpubuf->beam_vector));
+    HIP_CHECK(hipFree(gpubuf->states));
+    HIP_CHECK(hipFree(gpubuf->qual_data));
+    HIP_CHECK(hipFree(gpubuf->base_probs));
+    HIP_CHECK(hipFree(gpubuf->total_probs));
+
+    free(gpubuf);
+}
+
 void decode_hip(
     const int T,
     const int N,
@@ -17,6 +63,7 @@ void decode_hip(
     void *scores_TNC,
     const int state_len,
     const openfish_opt_t *options,
+    const openfish_gpubuf_t *gpubuf,
     uint8_t **moves,
     char **sequence,
     char **qstring
@@ -34,8 +81,8 @@ void decode_hip(
         grid_len *= 2;
     }
 
-    OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d\n", block_width, block_width, num_states);
-    OPENFISH_LOG_DEBUG("chosen grid_len: %d for batch size %d\n", grid_len, N);
+    OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
+    OPENFISH_LOG_DEBUG("chosen grid_len: %d for batch size %d", grid_len, N);
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
@@ -43,128 +90,47 @@ void decode_hip(
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
-    // expect input already transformed
-    // scores_TNC = scores_TNC.to(torch::kCPU).to(float).transpose(0, 1).contiguous();
-    
-    const uint64_t num_scan_elem = N * (T + 1) * num_states;
-
-    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
-
-#ifdef DEBUG
-    float *bwd_NTC = (float *)malloc(num_scan_elem * sizeof(float));
-    MALLOC_CHK(bwd_NTC);
-
-    float *post_NTC = (float *)malloc(num_scan_elem * sizeof(float));
-    MALLOC_CHK(post_NTC);
-#endif
-
-    float *scores_TNC_gpu;
-    float *bwd_NTC_gpu;
-    float *post_NTC_gpu;
-
-    // copy score tensor over
-    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C));
-
-	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice));
-
-    // init scan tensors
-    HIP_CHECK(hipMalloc((void **)&bwd_NTC_gpu, sizeof(float) * num_scan_elem));
-    HIP_CHECK(hipMalloc((void **)&post_NTC_gpu, sizeof(float) * num_scan_elem));
+    OPENFISH_LOG_DEBUG("scores tensor dim: %d, %d, %d", T, N, C);
 
     scan_args_t scan_args = {0};
-    scan_args.scores_in = scores_TNC_gpu;
+    scan_args.scores_in = scores_TNC;
     scan_args.T = T;
     scan_args.N = N;
     scan_args.C = C;
     scan_args.num_states = num_states;
     scan_args.fixed_stay_score = options->blank_score;
 
-#ifdef BENCH
-    int n_batch = 140; // simulate 20k reads
-    if (num_states == 64) n_batch = 140; // fast
-    else if (num_states == 256) n_batch = 345; // hac
-    else if (num_states == 1024) n_batch = 685; // sup
-    OPENFISH_LOG_DEBUG("simulating %d batches...\n", n_batch);
-#endif
-
     // bwd scan
 	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu);
-        HIP_CHECK(hipDeviceSynchronize());
-    }
+    bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+    HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("bwd scan completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("bwd scan completed in %f secs", elapsed);
     
     // fwd + post scan
 	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, bwd_NTC_gpu, post_NTC_gpu);
-        HIP_CHECK(hipDeviceSynchronize());
-    }
+    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs", elapsed);
 
     // beam search
 
     // init results
     *moves = (uint8_t *)malloc(N * T * sizeof(uint8_t));
     MALLOC_CHK(*moves);
-
     *sequence = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(*sequence);
-
     *qstring = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(*qstring);
 
-#ifdef DEBUG
-    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
-    MALLOC_CHK(states);
-
-    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
-    MALLOC_CHK(qual_data);
-
-    float *base_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(base_probs);
-
-    float *total_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(total_probs);
-#endif
-
-    // intermediate results
-    uint8_t *moves_gpu;
-    char *sequence_gpu;
-    char *qstring_gpu;
-
-    HIP_CHECK(hipMalloc((void **)&moves_gpu, sizeof(uint8_t) * N * T));
-    HIP_CHECK(hipMemset(moves_gpu, 0, sizeof(uint8_t) * N * T));
-    HIP_CHECK(hipMalloc((void **)&sequence_gpu, sizeof(char) * N * T));
-    HIP_CHECK(hipMemset(sequence_gpu, 0, sizeof(char) * N * T));
-    HIP_CHECK(hipMalloc((void **)&qstring_gpu, sizeof(char) * N * T));
-    HIP_CHECK(hipMemset(qstring_gpu, 0, sizeof(char) * N * T));
-    
-    // intermediate
-    beam_element_t *beam_vector_gpu;
-    state_t *states_gpu;
-    float *qual_data_gpu;
-    float *base_probs_gpu;
-    float *total_probs_gpu;
-
-    HIP_CHECK(hipMalloc((void **)&beam_vector_gpu, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1)));
-    HIP_CHECK(hipMalloc((void **)&states_gpu, sizeof(state_t) * N * T));
-    HIP_CHECK(hipMalloc((void **)&qual_data_gpu, sizeof(float) * N * T * NUM_BASES));
-    HIP_CHECK(hipMalloc((void **)&base_probs_gpu, sizeof(float) * N * T));
-    HIP_CHECK(hipMalloc((void **)&total_probs_gpu, sizeof(float) * N * T));
+    HIP_CHECK(hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T));
+    HIP_CHECK(hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T));
+    HIP_CHECK(hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T));
 
     const int num_state_bits = (int)log2(num_states);
     const float fixed_stay_score = options->blank_score;
@@ -173,133 +139,118 @@ void decode_hip(
     const float beam_cut = options->beam_cut;
 
     beam_args_t beam_args = {0};
-    beam_args.scores_TNC = scores_TNC_gpu;
-    beam_args.bwd_NTC = bwd_NTC_gpu;
-    beam_args.post_NTC = post_NTC_gpu;
+    beam_args.scores_TNC = (half *)scores_TNC;
+    beam_args.bwd_NTC = gpubuf->bwd_NTC;
+    beam_args.post_NTC = gpubuf->post_NTC;
     beam_args.T = T;
     beam_args.N = N;
     beam_args.C = C;
     beam_args.num_state_bits = num_state_bits;
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        beam_search<<<grid_size,block_size_beam>>>(
-            beam_args,
-            states_gpu,
-            moves_gpu,
-            beam_vector_gpu,
-            beam_cut,
-            fixed_stay_score,
-            1.0f
-        );
-        HIP_CHECK(hipDeviceSynchronize());
-    }
+    beam_search<<<grid_size,block_size_beam>>>(
+        beam_args,
+        (state_t *)gpubuf->states,
+        gpubuf->moves,
+        (beam_element_t *)gpubuf->beam_vector,
+        beam_cut,
+        fixed_stay_score,
+        1.0f
+    );
+    HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("beam search completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("beam search completed in %f secs", elapsed);
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        compute_qual_data<<<grid_size,block_size_gen>>>(
-            beam_args,
-            states_gpu,
-            qual_data_gpu,
-            1.0f
-        );
-        HIP_CHECK(hipDeviceSynchronize());
-    }
+    compute_qual_data<<<grid_size,block_size_gen>>>(
+        beam_args,
+        (state_t *)gpubuf->states,
+        gpubuf->qual_data,
+        1.0f
+    );
+    HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("compute quality data completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("compute quality data completed in %f secs", elapsed);
 
     t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        generate_sequence<<<grid_size,block_size_gen>>>(
-            beam_args,
-            moves_gpu,
-            states_gpu,
-            qual_data_gpu,
-            base_probs_gpu,
-            total_probs_gpu,
-            sequence_gpu,
-            qstring_gpu,
-            q_shift,
-            q_scale
-        );
-        HIP_CHECK(hipDeviceSynchronize());
-    }
+    generate_sequence<<<grid_size,block_size_gen>>>(
+        beam_args,
+        gpubuf->moves,
+        (state_t *)gpubuf->states,
+        gpubuf->qual_data,
+        gpubuf->base_probs,
+        gpubuf->total_probs,
+        gpubuf->sequence,
+        gpubuf->qstring,
+        q_shift,
+        q_scale
+    );
+    HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("generate sequence completed in %f secs\n", elapsed);
+    OPENFISH_LOG_DEBUG("generate sequence completed in %f secs", elapsed);
 
     // copy beam_search results
-    HIP_CHECK(hipMemcpy(*moves, moves_gpu, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost));
-	HIP_CHECK(hipMemcpy(*sequence, sequence_gpu, sizeof(char) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(*qstring, qstring_gpu, sizeof(char) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost));
+	HIP_CHECK(hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost));
+}
 
-#ifdef DEBUG
+// misc stuff for testing //////////////////////////////////////////////////////
+void *upload_scores_to_hip(
+    const int T,
+    const int N,
+    const int C,
+    const void *scores_TNC
+) {
+    void *scores_TNC_gpu;
+
+    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C));
+	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice));
+
+    return scores_TNC_gpu;
+}
+
+void free_scores_hip(
+    void *scores_TNC_gpu
+) {
+    HIP_CHECK(hipFree(scores_TNC_gpu));
+}
+
+void write_gpubuf_hip(
+    const int T,
+    const int N,
+    const int state_len,
+    const openfish_gpubuf_t *gpubuf
+) {
+    const int num_states = pow(NUM_BASES, state_len);
+
+    float *bwd_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
+    MALLOC_CHK(bwd_NTC);
+    float *post_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
+    MALLOC_CHK(post_NTC);
+    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
+    MALLOC_CHK(states);
+    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
+    MALLOC_CHK(qual_data);
+    float *base_probs = (float *)malloc(N * T * sizeof(float));
+    MALLOC_CHK(base_probs);
+    float *total_probs = (float *)malloc(N * T * sizeof(float));
+    MALLOC_CHK(total_probs);
+
     // copy scan results
-    HIP_CHECK(hipMemcpy(bwd_NTC, bwd_NTC_gpu, sizeof(float) * num_scan_elem, hipMemcpyDeviceToHost));
-	HIP_CHECK(hipMemcpy(post_NTC, post_NTC_gpu, sizeof(float) * num_scan_elem, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost));
+	HIP_CHECK(hipMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost));
 
     // copy intermediate
-    HIP_CHECK(hipMemcpy(states, states_gpu, sizeof(state_t) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(total_probs, total_probs_gpu, sizeof(float) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(qual_data, qual_data_gpu, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(base_probs, base_probs_gpu, sizeof(float) * N * T, hipMemcpyDeviceToHost));
-
-    // write results
-    FILE *fp;
-
-    fp = fopen("states.blob", "w");
-    fwrite(states, sizeof(state_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    fwrite(base_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    fwrite(total_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), num_scan_elem, fp);
-    fclose(fp);
-
-    fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), num_scan_elem, fp);
-    fclose(fp);
-
-    // cleanup
-    free(bwd_NTC);
-    free(post_NTC);
-#endif
-    HIP_CHECK(hipFree(scores_TNC_gpu));
-    HIP_CHECK(hipFree(bwd_NTC_gpu));
-    HIP_CHECK(hipFree(post_NTC_gpu));
-    HIP_CHECK(hipFree(moves_gpu));
-    HIP_CHECK(hipFree(sequence_gpu));
-    HIP_CHECK(hipFree(qstring_gpu));
-    HIP_CHECK(hipFree(beam_vector_gpu));
-    HIP_CHECK(hipFree(states_gpu));
-    HIP_CHECK(hipFree(qual_data_gpu));
-    HIP_CHECK(hipFree(base_probs_gpu));
-    HIP_CHECK(hipFree(total_probs_gpu));
+    HIP_CHECK(hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
 }
+////////////////////////////////////////////////////////////////////////////////
