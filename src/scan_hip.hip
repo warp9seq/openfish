@@ -91,7 +91,7 @@ __global__ void fwd_post_scan(
     __shared__ float max_val;
     if (tid == 0) max_val = -FLT_MAX;
 
-    //scores for this batch
+    // scores for this batch
     const half *const chunk_scores = scores_in + chunk * ts_states;
 
     // alternating forward guide buffers used for successive time steps
@@ -138,7 +138,7 @@ __global__ void fwd_post_scan(
             }
             ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
 
-            // Load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
+            // load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
             const float fwd_val = ts_alpha_in[state];
 
             // calculate fwd/bwd guide product in log space
