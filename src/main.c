@@ -11,6 +11,10 @@
 #include "decode_cuda.h"
 #endif
 
+#if defined HAVE_HIP
+#include "decode_hip.h"
+#endif
+
 int main(int argc, char* argv[]) {
     const int T = 1666;
     const int N = strtol(argv[3], NULL, 10);
@@ -89,9 +93,9 @@ int main(int argc, char* argv[]) {
     write_gpubuf_cuda(T, N, state_len, gpubuf);
 #endif
 
-// #if defined DEBUG && defined HAVE_HIP
-//     write_gpubuf_cuda(T, N, state_len, gpubuf);
-// #endif
+#if defined DEBUG && defined HAVE_HIP
+    write_gpubuf_hip(T, N, state_len, gpubuf);
+#endif
 
 #if defined HAVE_CUDA || defined HAVE_HIP
     openfish_gpubuf_free(gpubuf);
