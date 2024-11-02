@@ -252,5 +252,41 @@ void write_gpubuf_hip(
     HIP_CHECK(hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
     HIP_CHECK(hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost));
     HIP_CHECK(hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
+
+    // write results
+    FILE *fp;
+
+    fp = fopen("states.blob", "w");
+    fwrite(states, sizeof(state_t), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("qual_data.blob", "w");
+    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
+    fclose(fp);
+
+    fp = fopen("base_probs.blob", "w");
+    fwrite(base_probs, sizeof(float), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("total_probs.blob", "w");
+    fwrite(total_probs, sizeof(float), N * T, fp);
+    fclose(fp);
+
+    fp = fopen("bwd_NTC.blob", "w");
+    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    fclose(fp);
+
+    fp = fopen("post_NTC.blob", "w");
+    fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    fclose(fp);
+
+    // cleanup
+    free(states);
+    free(qual_data);
+    free(base_probs);
+    free(total_probs);
+
+    free(bwd_NTC);
+    free(post_NTC);
 }
 ////////////////////////////////////////////////////////////////////////////////
