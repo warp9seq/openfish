@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# make sure to build with debug=1
+
 die() {
 	echo "$1" >&2
 	echo
@@ -8,6 +10,10 @@ die() {
 
 if [ "$#" -ne 1 ]; then
     die "usage: ./quick_run.sh <model>"
+fi
+
+if [ ! -f "compare_blob" ]; then
+    g++ -o compare_blob test/compare_blob.cpp
 fi
 
 MODEL=$1

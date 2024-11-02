@@ -65,7 +65,8 @@ int main(int argc, char* argv[]) {
     void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
     openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #elif defined HAVE_HIP
-    openfish_decode_gpu(T, N, C, scores, state_len, &options, gpubuf, &moves, &sequence, &qstring);
+    void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
+    openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
     int nthreads = 40;
     openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
