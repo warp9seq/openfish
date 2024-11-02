@@ -8,10 +8,7 @@ BUILD_DIR = lib
 # change the tool name to what you want
 BINARY = openfish
 
-STATICLIB_CPU = $(BUILD_DIR)/libopenfish.a
-STATICLIB_CUDA = $(BUILD_DIR)/libopenfish_cuda.a
-STATICLIB_ROCM = $(BUILD_DIR)/libopenfish_rocm.a
-STATICLIB = $(STATICLIB_CPU)
+STATICLIB = $(BUILD_DIR)/libopenfish.a
 
 OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
@@ -40,7 +37,6 @@ ifdef cuda
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
     GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
-	STATICLIB = $(STATICLIB_CUDA)
 else ifdef rocm
 	ROCM_ROOT = /opt/rocm
 	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
@@ -51,7 +47,6 @@ else ifdef rocm
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
 	CPPFLAGS += -DHAVE_HIP=1
-	STATICLIB = $(STATICLIB_ROCM)
 else
 	GPU_LIB = $(BUILD_DIR)/cpu_decoy.a
 endif
