@@ -43,6 +43,13 @@ void free_scores_cuda(
     void *scores_TNC_gpu
 );
 
+void write_gpubuf_cuda(
+    const int T,
+    const int N,
+    const int state_len,
+    const openfish_gpubuf_t *gpubuf
+);
+
 #ifdef __cplusplus
 }
 #endif

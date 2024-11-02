@@ -64,6 +64,8 @@ quick_test() {
     ex ./openfish ${SCORES} models/dna_r10.4.1_e8.2_400bps_${MODEL}@v4.2.0 ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 }
 
+# memory tests
+
 make clean && make
 
 quick_test fast mem || die "running the tool failed"

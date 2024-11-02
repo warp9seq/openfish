@@ -2,7 +2,8 @@
 #include <math.h>
 #include <cstdint>
 
-// g++ -o compare_blob compare_blob.c 
+// compile me for tests:
+// g++ -o compare_blob test/compare_blob.c 
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
@@ -10,6 +11,8 @@ int main(int argc, char* argv[]) {
     }
     FILE *fp;
     size_t result;
+
+    fprintf(stderr, "comapring files %s and %s\n", argv[1], argv[2]);
 
     size_t tens_len = strtol(argv[3], NULL, 10);
     float *tens0 = (float *)calloc(tens_len, sizeof(float));

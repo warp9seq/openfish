@@ -9,30 +9,6 @@
 
 #include <cuda_fp16.h>
 
-void *upload_scores_to_cuda(
-    const int T,
-    const int N,
-    const int C,
-    const void *scores_TNC
-) {
-    void *scores_TNC_gpu;
-
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-	checkCudaError();
-
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
-	checkCudaError();
-
-    return scores_TNC_gpu;
-}
-
-void free_scores_cuda(
-    void *scores_TNC_gpu
-) {
-    cudaFree(scores_TNC_gpu);
-	checkCudaError();
-}
-
 openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
     const int N,
@@ -43,9 +19,9 @@ openfish_gpubuf_t *gpubuf_init_cuda(
     const int num_states = pow(NUM_BASES, state_len);
 
     // scan tensors
-    cudaMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) *  N * (T + 1) * num_states);
+    cudaMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
 	checkCudaError();
-    cudaMalloc((void **)&gpubuf->post_NTC, sizeof(float) *  N * (T + 1) * num_states);
+    cudaMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
 	checkCudaError();
 
     // return buffers
@@ -255,3 +231,70 @@ void decode_cuda(
     cudaMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
 }
+
+// misc stuff for testing //////////////////////////////////////////////////////
+void *upload_scores_to_cuda(
+    const int T,
+    const int N,
+    const int C,
+    const void *scores_TNC
+) {
+    void *scores_TNC_gpu;
+
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
+	checkCudaError();
+
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
+	checkCudaError();
+
+    return scores_TNC_gpu;
+}
+
+void free_scores_cuda(
+    void *scores_TNC_gpu
+) {
+    cudaFree(scores_TNC_gpu);
+	checkCudaError();
+}
+
+void write_gpubuf_cuda(
+    const int T,
+    const int N,
+    const int state_len,
+    const openfish_gpubuf_t *gpubuf
+) {
+    const int num_states = pow(NUM_BASES, state_len);
+
+    float *bwd_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
+    MALLOC_CHK(bwd_NTC);
+    float *post_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
+    MALLOC_CHK(post_NTC);
+    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
+    MALLOC_CHK(states);
+    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
+    MALLOC_CHK(qual_data);
+    float *base_probs = (float *)malloc(N * T * sizeof(float));
+    MALLOC_CHK(base_probs);
+    float *total_probs = (float *)malloc(N * T * sizeof(float));
+    MALLOC_CHK(total_probs);
+
+    // copy scan results
+    cudaMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    // copy intermediate
+    cudaMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+}
+////////////////////////////////////////////////////////////////////////////////
