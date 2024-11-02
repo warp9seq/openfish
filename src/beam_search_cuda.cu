@@ -123,7 +123,7 @@ __global__ void generate_sequence(
     qstring[seq_len] = '\0';
 }
 
-// Incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
+// incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
 // (not the same polynomial as CRC32 as used in zip/ethernet).
 __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     // note that this is the reversed polynomial
@@ -552,8 +552,7 @@ __global__ void compute_qual_data(
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];
 
-        // compute a probability for this block, based on the path kmer. See the following explanation:
-        // https://git.oxfordnanolabs.local/machine-learning/notebooks/-/blob/master/bonito-basecaller-qscores.ipynb
+        // compute a probability for this block, based on the path kmer
         const float *const timestep_posts = post_NTC + ((block_idx + 1) << num_state_bits);
 
         float block_prob = (float)(timestep_posts[state]) * posts_scale;
