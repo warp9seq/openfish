@@ -39,9 +39,8 @@ ifdef cuda
     CPPFLAGS += -DHAVE_CUDA=1
 else ifdef rocm
 	ROCM_ROOT = /opt/rocm
-	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
 	HIP_LIB ?= $(ROCM_ROOT)/lib
-	HIPCXX ?= $(ROCM_ROOT)/bin/hipcc
+	HIPCC ?= hipcc
 	HIP_CFLAGS += -g -Wall
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
@@ -112,16 +111,16 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
-	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
+	$(HIPCC) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*
