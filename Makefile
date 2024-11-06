@@ -29,19 +29,18 @@ endif
 
 # make accel=1 enables the acceelerator (CUDA,OpenCL,FPGA etc if implemented)
 ifdef cuda
-	CUDA_ROOT = /usr/local/cuda
+	CUDA_ROOT ?= /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
     CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o
-    NVCC ?= nvcc
+    NVCC ?= $(CUDA_ROOT)/bin/nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
     GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
 else ifdef rocm
-	ROCM_ROOT = /opt/rocm
-	HIP_INCLUDE_DIR = $(ROCM_ROOT)/include
+	ROCM_ROOT ?= /opt/rocm
 	HIP_LIB ?= $(ROCM_ROOT)/lib
-	HIPCXX ?= $(ROCM_ROOT)/bin/hipcc
+	HIPCC ?= $(ROCM_ROOT)/bin/hipcc
 	HIP_CFLAGS += -g -Wall
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
@@ -112,16 +111,16 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
-	$(HIPCXX) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
+	$(HIPCC) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
-	$(HIPCXX) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*
