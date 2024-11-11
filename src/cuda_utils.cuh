@@ -7,7 +7,7 @@
 static inline void gpuAssert(const char *file, int line){
 	cudaError_t code = cudaGetLastError();
 	if (code != cudaSuccess) {
-        fprintf(stderr, "CUDA error: %s \n in file : %s line number : %d", cudaGetErrorString(code), file, line);
+        fprintf(stderr, "CUDA error: %s \n in file: %s, line number: %d\n", cudaGetErrorString(code), file, line);
         exit(1);
    }
 }

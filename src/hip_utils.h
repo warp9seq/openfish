@@ -8,20 +8,15 @@
 extern "C" {
 #endif
 
-const int error_exit_code = -1;
+#define checkHipError() { gpuAssert(__FILE__, __LINE__); }
 
-/// \brief Checks if the provided error code is \p hipSuccess and if not,
-/// prints an error message to the standard error output and terminates the program
-/// with an error code.
-#define HIP_CHECK(condition)                                                                \
-    {                                                                                       \
-        const hipError_t error = (condition);                                                 \
-        if(error != hipSuccess)                                                             \
-        {                \
-            OPENFISH_ERROR("%s", hipGetErrorString(error));                               \
-            exit(error_exit_code);                                                          \
-        }                                                                                   \
-    }
+static inline void gpuAssert(const char *file, int line){
+	hipError_t code = hipGetLastError();
+	if (code != hipSuccess) {
+        fprintf(stderr, "Hip error: %s \n in file: %s, line number: %d\n", hipGetErrorString(code), file, line);
+        exit(1);
+   }
+}
 
 // https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
 __device__ __forceinline__ static float atomicMaxFloat (float * addr, float value) {
