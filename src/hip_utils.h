@@ -18,7 +18,7 @@ const int error_exit_code = -1;
         const hipError_t error = (condition);                                                 \
         if(error != hipSuccess)                                                             \
         {                \
-            fprintf(stderr,"HIP error: %s \n function: %d, in file: %s, line number: %d\n", hipGetErrorString(error),__func__,__FILE__, __LINE__);                               \
+            fprintf(stderr,"HIP error: %s \n function: %s, in file: %s, line number: %d\n", hipGetErrorString(error),__func__,__FILE__, __LINE__);                               \
             exit(error_exit_code);                                                          \
         }                                                                                   \
     }
