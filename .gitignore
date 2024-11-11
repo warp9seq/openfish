@@ -9,3 +9,4 @@ build/*
 .vscode/
 log.txt
 lib/*
+test/blob/
