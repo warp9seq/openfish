@@ -16,6 +16,7 @@ openfish_gpubuf_t *gpubuf_init_hip(
     const int state_len
 ) {
     openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(malloc(sizeof(openfish_gpubuf_t)));
+    MALLOC_CHK(gpubuf);
 
     const int num_states = pow(NUM_BASES, state_len);
 
@@ -108,7 +109,7 @@ void decode_hip(
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("bwd scan completed in %f secs", elapsed);
-    
+
     // fwd + post scan
 	t0 = realtime();
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
