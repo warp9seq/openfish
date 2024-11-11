@@ -10,6 +10,17 @@ extern "C" {
 
 const int error_exit_code = -1;
 
+#define checkHipError() { gpuAssert(__FILE__, __LINE__); }
+
+static inline void gpuAssert(const char *file, int line){
+	hipError_t code = hipGetLastError();
+	if (code != hipSuccess) {
+        fprintf(stderr, "Hip error: %s \n in file: %s, line number: %d\n", hipGetErrorString(code), file, line);
+        exit(1);
+   }
+}
+
+
 /// \brief Checks if the provided error code is \p hipSuccess and if not,
 /// prints an error message to the standard error output and terminates the program
 /// with an error code.
