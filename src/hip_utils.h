@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-const int error_exit_code = -1;
+// const int error_exit_code = -1;
 
 #define checkHipError() { gpuAssert(__FILE__, __LINE__); }
 
@@ -21,18 +21,18 @@ static inline void gpuAssert(const char *file, int line){
 }
 
 
-/// \brief Checks if the provided error code is \p hipSuccess and if not,
-/// prints an error message to the standard error output and terminates the program
-/// with an error code.
-#define HIP_CHECK(condition)                                                                \
-    {                                                                                       \
-        const hipError_t error = (condition);                                                 \
-        if(error != hipSuccess)                                                             \
-        {                \
-            fprintf(stderr,"HIP error: %s \n function: %s, in file: %s, line number: %d\n", hipGetErrorString(error),__func__,__FILE__, __LINE__);                               \
-            exit(error_exit_code);                                                          \
-        }                                                                                   \
-    }
+// /// \brief Checks if the provided error code is \p hipSuccess and if not,
+// /// prints an error message to the standard error output and terminates the program
+// /// with an error code.
+// #define HIP_CHECK(condition)                                                                \
+//     {                                                                                       \
+//         const hipError_t error = (condition);                                                 \
+//         if(error != hipSuccess)                                                             \
+//         {                \
+//             fprintf(stderr,"HIP error: %s \n function: %s, in file: %s, line number: %d\n", hipGetErrorString(error),__func__,__FILE__, __LINE__);                               \
+//             exit(error_exit_code);                                                          \
+//         }                                                                                   \
+//     }
 
 // https://stackoverflow.com/questions/17399119/how-do-i-use-atomicmax-on-floating-point-values-in-cuda
 __device__ __forceinline__ static float atomicMaxFloat (float * addr, float value) {

@@ -124,6 +124,7 @@ void decode_cuda(
     // bwd scan
 	t0 = realtime();
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+    checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 	// end timing
@@ -134,6 +135,7 @@ void decode_cuda(
     // fwd + post scan
 	t0 = realtime();
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 	// end timing
@@ -183,6 +185,7 @@ void decode_cuda(
         fixed_stay_score,
         1.0f
     );
+    checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 	// end timing
@@ -197,6 +200,7 @@ void decode_cuda(
         gpubuf->qual_data,
         1.0f
     );
+    checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 	// end timing
@@ -217,6 +221,7 @@ void decode_cuda(
         q_shift,
         q_scale
     );
+    checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 	// end timing
