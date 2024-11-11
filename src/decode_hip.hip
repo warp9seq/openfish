@@ -104,6 +104,7 @@ void decode_hip(
     // bwd scan
 	t0 = realtime();
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+    checkHipError();
     HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
@@ -113,6 +114,7 @@ void decode_hip(
     // fwd + post scan
 	t0 = realtime();
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    checkHipError();
     HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
@@ -158,6 +160,7 @@ void decode_hip(
         fixed_stay_score,
         1.0f
     );
+    checkHipError();
     HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
@@ -171,6 +174,7 @@ void decode_hip(
         gpubuf->qual_data,
         1.0f
     );
+    checkHipError();
     HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
@@ -190,6 +194,7 @@ void decode_hip(
         q_shift,
         q_scale
     );
+    checkHipError();
     HIP_CHECK(hipDeviceSynchronize());
 	// end timing
 	t1 = realtime();
