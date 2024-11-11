@@ -21,19 +21,29 @@ openfish_gpubuf_t *gpubuf_init_hip(
     const int num_states = pow(NUM_BASES, state_len);
 
     // scan tensors
-    HIP_CHECK(hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states));
+    hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
+    checkHipError();
 
     // return buffers
-    HIP_CHECK(hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T));
+    hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
+    checkHipError();
     // beamsearch buffers
-    HIP_CHECK(hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1)));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T));
-    HIP_CHECK(hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T));
+    hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+    checkHipError();
+    hipMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
+    checkHipError();
 
     return gpubuf;
 }
@@ -41,18 +51,28 @@ openfish_gpubuf_t *gpubuf_init_hip(
 void gpubuf_free_hip(
     openfish_gpubuf_t *gpubuf
 ) {
-    HIP_CHECK(hipFree(gpubuf->bwd_NTC));
-    HIP_CHECK(hipFree(gpubuf->post_NTC));
+    hipFree(gpubuf->bwd_NTC);
+    checkHipError();
+    hipFree(gpubuf->post_NTC);
+    checkHipError();
 
-    HIP_CHECK(hipFree(gpubuf->moves));
-    HIP_CHECK(hipFree(gpubuf->sequence));
-    HIP_CHECK(hipFree(gpubuf->qstring));
+    hipFree(gpubuf->moves);
+    checkHipError();
+    hipFree(gpubuf->sequence);
+    checkHipError();
+    hipFree(gpubuf->qstring);
+    checkHipError();
 
-    HIP_CHECK(hipFree(gpubuf->beam_vector));
-    HIP_CHECK(hipFree(gpubuf->states));
-    HIP_CHECK(hipFree(gpubuf->qual_data));
-    HIP_CHECK(hipFree(gpubuf->base_probs));
-    HIP_CHECK(hipFree(gpubuf->total_probs));
+    hipFree(gpubuf->beam_vector);
+    checkHipError();
+    hipFree(gpubuf->states);
+    checkHipError();
+    hipFree(gpubuf->qual_data);
+    checkHipError();
+    hipFree(gpubuf->base_probs);
+    checkHipError();
+    hipFree(gpubuf->total_probs);\
+    checkHipError();
 
     free(gpubuf);
 }
@@ -105,7 +125,9 @@ void decode_hip(
 	t0 = realtime();
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
     checkHipError();
-    HIP_CHECK(hipDeviceSynchronize());
+    hipDeviceSynchronize();
+    checkHipError();
+
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -115,7 +137,9 @@ void decode_hip(
 	t0 = realtime();
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkHipError();
-    HIP_CHECK(hipDeviceSynchronize());
+    hipDeviceSynchronize();
+    checkHipError();
+
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -131,9 +155,12 @@ void decode_hip(
     *qstring = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(*qstring);
 
-    HIP_CHECK(hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T));
-    HIP_CHECK(hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T));
-    HIP_CHECK(hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T));
+    hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
+    checkHipError();
+    hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
+    checkHipError();
+    hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
+    checkHipError();
 
     const int num_state_bits = (int)log2(num_states);
     const float fixed_stay_score = options->blank_score;
@@ -161,7 +188,9 @@ void decode_hip(
         1.0f
     );
     checkHipError();
-    HIP_CHECK(hipDeviceSynchronize());
+    hipDeviceSynchronize();
+    checkHipError();
+
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -175,7 +204,9 @@ void decode_hip(
         1.0f
     );
     checkHipError();
-    HIP_CHECK(hipDeviceSynchronize());
+    hipDeviceSynchronize();
+    checkHipError();
+
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -195,16 +226,21 @@ void decode_hip(
         q_scale
     );
     checkHipError();
-    HIP_CHECK(hipDeviceSynchronize());
+    hipDeviceSynchronize();
+    checkHipError();
+
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("generate sequence completed in %f secs", elapsed);
 
     // copy beam_search results
-    HIP_CHECK(hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost));
-	HIP_CHECK(hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost));
+    hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+	hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+    hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
@@ -216,8 +252,10 @@ void *upload_scores_to_hip(
 ) {
     void *scores_TNC_gpu;
 
-    HIP_CHECK(hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C));
-	HIP_CHECK(hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice));
+    hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
+    checkHipError();
+	hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice);
+    checkHipError();
 
     return scores_TNC_gpu;
 }
@@ -225,7 +263,8 @@ void *upload_scores_to_hip(
 void free_scores_hip(
     void *scores_TNC_gpu
 ) {
-    HIP_CHECK(hipFree(scores_TNC_gpu));
+    hipFree(scores_TNC_gpu);
+    checkHipError();
 }
 
 void write_gpubuf_hip(
@@ -250,14 +289,20 @@ void write_gpubuf_hip(
     MALLOC_CHK(total_probs);
 
     // copy scan results
-    HIP_CHECK(hipMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost));
-	HIP_CHECK(hipMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost));
+    hipMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
+    checkHipError();
+	hipMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
+    checkHipError();
 
     // copy intermediate
-    HIP_CHECK(hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost));
-    HIP_CHECK(hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost));
+    hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+    hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+    hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost);
+    checkHipError();
+    hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 
     // write results
     FILE *fp;
