@@ -8,8 +8,6 @@
 extern "C" {
 #endif
 
-// const int error_exit_code = -1;
-
 #define checkHipError() { gpuAssert(__FILE__, __LINE__); }
 
 static inline void gpuAssert(const char *file, int line){
