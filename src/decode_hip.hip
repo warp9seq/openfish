@@ -71,7 +71,7 @@ void gpubuf_free_hip(
     checkHipError();
     hipFree(gpubuf->base_probs);
     checkHipError();
-    hipFree(gpubuf->total_probs);\
+    hipFree(gpubuf->total_probs);
     checkHipError();
 
     free(gpubuf);
