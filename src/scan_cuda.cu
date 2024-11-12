@@ -151,13 +151,14 @@ __global__ void fwd_post_scan(
         // enter exp vals
         for (uint64_t state = tid; state < num_states; state += nthreads) {
             exp_vals[state] = __expf(fwd_vals[state] - max_val);
+            exp_sums[state] = exp_vals[state];
         }
         __syncthreads();
 
         // sum exp_sums
         for (uint64_t s = num_states/2; s > 0; s >>= 1) {
             if (tid < s) { // will not work if each thread is responsible for more than 2 states
-                exp_vals[tid] += exp_vals[tid + s];
+                exp_sums[tid] += exp_sums[tid + s];
             }
             __syncthreads();
         }
