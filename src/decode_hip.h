@@ -43,8 +43,8 @@ void free_scores_hip(
 );
 
 void write_gpubuf_hip(
-    const int T,
-    const int N,
+    const uint64_t T,
+    const uint64_t N,
     const int state_len,
     const openfish_gpubuf_t *gpubuf
 );

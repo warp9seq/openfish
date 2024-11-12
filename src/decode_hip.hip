@@ -22,9 +22,9 @@ openfish_gpubuf_t *gpubuf_init_hip(
 
     // scan tensors
     hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
-    checkHipError();
+	checkHipError();
     hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
-    checkHipError();
+	checkHipError();
 
     // return buffers
     hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
@@ -33,6 +33,7 @@ openfish_gpubuf_t *gpubuf_init_hip(
     checkHipError();
     hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
     checkHipError();
+
     // beamsearch buffers
     hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
     checkHipError();
@@ -121,13 +122,25 @@ void decode_hip(
     scan_args.num_states = num_states;
     scan_args.fixed_stay_score = options->blank_score;
 
+#ifdef BENCH
+    int n_batch = 140; // simulate 20k reads
+    if (num_states == 64) n_batch = 140; // fast
+    else if (num_states == 256) n_batch = 345; // hac
+    else if (num_states == 1024) n_batch = 685; // sup
+    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
+#endif
+
     // bwd scan
 	t0 = realtime();
-    bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
-    checkHipError();
-    hipDeviceSynchronize();
-    checkHipError();
-
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+        checkHipError();
+        hipDeviceSynchronize();
+        checkHipError();
+    }
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -135,11 +148,15 @@ void decode_hip(
 
     // fwd + post scan
 	t0 = realtime();
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-    checkHipError();
-    hipDeviceSynchronize();
-    checkHipError();
-
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkHipError();
+        hipDeviceSynchronize();
+        checkHipError();
+    }
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -156,11 +173,11 @@ void decode_hip(
     MALLOC_CHK(*qstring);
 
     hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
-    checkHipError();
+	checkHipError();
     hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
-    checkHipError();
+	checkHipError();
     hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
-    checkHipError();
+	checkHipError();
 
     const int num_state_bits = (int)log2(num_states);
     const float fixed_stay_score = options->blank_score;
@@ -178,57 +195,69 @@ void decode_hip(
     beam_args.num_state_bits = num_state_bits;
 
     t0 = realtime();
-    beam_search<<<grid_size,block_size_beam>>>(
-        beam_args,
-        (state_t *)gpubuf->states,
-        gpubuf->moves,
-        (beam_element_t *)gpubuf->beam_vector,
-        beam_cut,
-        fixed_stay_score,
-        1.0f
-    );
-    checkHipError();
-    hipDeviceSynchronize();
-    checkHipError();
-
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        beam_search<<<grid_size,block_size_beam>>>(
+            beam_args,
+            (state_t *)gpubuf->states,
+            gpubuf->moves,
+            (beam_element_t *)gpubuf->beam_vector,
+            beam_cut,
+            fixed_stay_score,
+            1.0f
+        );
+        checkHipError();
+        hipDeviceSynchronize();
+        checkHipError();
+    }
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("beam search completed in %f secs", elapsed);
 
     t0 = realtime();
-    compute_qual_data<<<grid_size,block_size_gen>>>(
-        beam_args,
-        (state_t *)gpubuf->states,
-        gpubuf->qual_data,
-        1.0f
-    );
-    checkHipError();
-    hipDeviceSynchronize();
-    checkHipError();
-
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        compute_qual_data<<<grid_size,block_size_gen>>>(
+            beam_args,
+            (state_t *)gpubuf->states,
+            gpubuf->qual_data,
+            1.0f
+        );
+        checkHipError();
+        hipDeviceSynchronize();
+        checkHipError();
+    }
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
     OPENFISH_LOG_DEBUG("compute quality data completed in %f secs", elapsed);
 
     t0 = realtime();
-    generate_sequence<<<grid_size,block_size_gen>>>(
-        beam_args,
-        gpubuf->moves,
-        (state_t *)gpubuf->states,
-        gpubuf->qual_data,
-        gpubuf->base_probs,
-        gpubuf->total_probs,
-        gpubuf->sequence,
-        gpubuf->qstring,
-        q_shift,
-        q_scale
-    );
-    checkHipError();
-    hipDeviceSynchronize();
-    checkHipError();
-
+#ifdef BENCH
+    for (int i = 0; i < n_batch; ++i)
+#endif
+    {
+        generate_sequence<<<grid_size,block_size_gen>>>(
+            beam_args,
+            gpubuf->moves,
+            (state_t *)gpubuf->states,
+            gpubuf->qual_data,
+            gpubuf->base_probs,
+            gpubuf->total_probs,
+            gpubuf->sequence,
+            gpubuf->qstring,
+            q_shift,
+            q_scale
+        );
+        checkHipError();
+        hipDeviceSynchronize();
+        checkHipError();
+    }
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
@@ -253,9 +282,10 @@ void *upload_scores_to_hip(
     void *scores_TNC_gpu;
 
     hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-    checkHipError();
+	checkHipError();
+
 	hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice);
-    checkHipError();
+	checkHipError();
 
     return scores_TNC_gpu;
 }
@@ -264,12 +294,12 @@ void free_scores_hip(
     void *scores_TNC_gpu
 ) {
     hipFree(scores_TNC_gpu);
-    checkHipError();
+	checkHipError();
 }
 
 void write_gpubuf_hip(
-    const int T,
-    const int N,
+    const uint64_t T,
+    const uint64_t N,
     const int state_len,
     const openfish_gpubuf_t *gpubuf
 ) {
@@ -297,47 +327,66 @@ void write_gpubuf_hip(
     // copy intermediate
     hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost);
     checkHipError();
+
     hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
     checkHipError();
+
     hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost);
     checkHipError();
+
     hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
     checkHipError();
 
     // write results
     FILE *fp;
 
-    fp = fopen("states.blob", "w");
-    fwrite(states, sizeof(state_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    fwrite(base_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    fwrite(total_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "bwd_NTC.blob");
+    if (fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "post_NTC.blob");
+    if (fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    // write beam results
+    fp = fopen("qual_data.blob", "w");
+    F_CHK(fp, "qual_data.blob");
+    if (fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp) != N * T * NUM_BASES) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    fp = fopen("base_probs.blob", "w");
+    F_CHK(fp, "base_probs.blob");
+    if (fwrite(base_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    fp = fopen("total_probs.blob", "w");
+    F_CHK(fp, "total_probs.blob");
+    if (fwrite(total_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     // cleanup
+    free(bwd_NTC);
+    free(post_NTC);
     free(states);
     free(qual_data);
     free(base_probs);
     free(total_probs);
-
-    free(bwd_NTC);
-    free(post_NTC);
 }
 ////////////////////////////////////////////////////////////////////////////////
