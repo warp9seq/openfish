@@ -334,33 +334,54 @@ void openfish_decode_cpu(
 #ifdef DEBUG
     // write tensors
     FILE *fp;
-    fp = fopen("scores_TNC.blob", "w");
-    fwrite(scores_TNC, sizeof(float), T * N * C, fp);
-    fclose(fp);
-
+    
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "bwd_NTC.blob");
+    if (fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("fwd_NTC.blob", "w");
-    fwrite(fwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "fwd_NTC.blob");
+    if (fwrite(fwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "post_NTC.blob");
+    if (fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     // write beam results
     fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
+    F_CHK(fp, "qual_data.blob");
+    if (fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp) != N * T * NUM_BASES) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("base_probs.blob", "w");
-    fwrite(base_probs, sizeof(float), N * T, fp);
+    F_CHK(fp, "base_probs.blob");
+    if (fwrite(base_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("total_probs.blob", "w");
-    fwrite(total_probs, sizeof(float), N * T, fp);
+    F_CHK(fp, "total_probs.blob");
+    if (fwrite(total_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 #endif
 

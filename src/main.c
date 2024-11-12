@@ -85,25 +85,24 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("moves.blob", "w");
     F_CHK(fp, "moves.blob");
-    if(fwrite(moves, sizeof(uint8_t), N * T, fp) != N * T) {
-        fprintf(stderr, "error writing moves file: %s\n",strerror(errno));
+    if (fwrite(moves, sizeof(uint8_t), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing moves file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
     fp = fopen("sequence.blob", "w");
     F_CHK(fp, "sequence.blob");
-    if(fwrite(sequence, sizeof(char), N * T, fp) != N * T) {
-        fprintf(stderr, "error writing sequence file: %s\n",strerror(errno));
+    if (fwrite(sequence, sizeof(char), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-
     fclose(fp);
 
     fp = fopen("qstring.blob", "w");
     F_CHK(fp, "qstring.blob");
     if (fwrite(qstring, sizeof(char), N * T, fp) != N * T) {
-        fprintf(stderr, "error writing qstring file: %s\n",strerror(errno));
+        fprintf(stderr, "error writing qstring file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);

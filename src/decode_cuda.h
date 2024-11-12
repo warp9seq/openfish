@@ -44,8 +44,8 @@ void free_scores_cuda(
 );
 
 void write_gpubuf_cuda(
-    const int T,
-    const int N,
+    const uint64_t T,
+    const uint64_t N,
     const int state_len,
     const openfish_gpubuf_t *gpubuf
 );
