@@ -69,6 +69,9 @@ __global__ void fwd_post_scan(
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = blockDim.x * blockDim.y;
+    const int lane_id = tid % warpSize;
+    const int warp_id = tid / warpSize;
+    // const unsigned mask = 0xFFFFFFFFU;
 
     const half *scores_in = (half *)args.scores_in;
     const uint64_t num_states = args.num_states;
@@ -86,10 +89,10 @@ __global__ void fwd_post_scan(
     const uint64_t ts_states = num_states * NUM_BASES;
 
     __shared__ float fwd_vals[MAX_STATES];
+    __shared__ float fwd_maxs[64]; // threadblock max stored in [0]
     __shared__ float exp_vals[MAX_STATES];
-    __shared__ float exp_sum;
-    __shared__ float max_val;
-    if (tid == 0) max_val = -FLT_MAX;
+    __shared__ float exp_sums[64]; // threadblock sum stored in [0]
+    float warp_max;
 
     // scores for this batch
     const half *const chunk_scores = scores_in + chunk * ts_states;
@@ -104,6 +107,7 @@ __global__ void fwd_post_scan(
     __syncthreads();
 
     for (uint64_t ts = 0; ts < T; ++ts) {
+        warp_max = -FLT_MAX;
         // we read forward guide values written to TG memory in the previous step as inputs to this step
         // however, there has already been a TG barrier since they were written
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
@@ -145,23 +149,60 @@ __global__ void fwd_post_scan(
             const float val = fwd_val + bwd[ts_idx + state];
 
             fwd_vals[state] = val;
-            atomicMaxFloat(&max_val, val);
+            warp_max = max(warp_max, val);
         }
-        if (tid == 0) exp_sum = 0;
         __syncthreads();
 
+        // find max fwd val in warp
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_max = max(warp_max, __shfl_down(warp_max, offset));
+        }
+        if (lane_id == 0) fwd_maxs[warp_id] = warp_max;
+        __syncthreads();
+
+        // set max fwd vals in all warps
+        if (warp_id == 0) {
+            warp_max = (tid < num_states/warpSize) ? fwd_maxs[lane_id] : 0;
+
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_max = max(warp_max, __shfl_down(warp_max, offset));
+            }
+            
+            if (tid == 0) fwd_maxs[0] = warp_max;
+        }
+        __syncthreads();
+        
         // enter exp vals
+        float warp_sum = 0.0f;
         for (uint64_t state = tid; state < num_states; state += nthreads) {
-            exp_vals[state] = __expf(fwd_vals[state] - max_val);
-            atomicAdd(&exp_sum, exp_vals[state]);
+            exp_vals[state] = __expf(fwd_vals[state] - fwd_maxs[0]);
+            warp_sum += exp_vals[state];
+        }
+        __syncthreads();
+        
+        // sum exp vals in warp
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_sum += __shfl_down(warp_sum, offset);
+        }
+        if (lane_id == 0) exp_sums[warp_id] = warp_sum;
+        __syncthreads();
+
+        // sum exp vals in all warps
+        if (warp_id == 0) {
+            warp_sum = (tid < num_states/warpSize) ? exp_sums[lane_id] : 0;
+
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_sum += __shfl_down(warp_sum, offset);
+            }
+            
+            if (tid == 0) exp_sums[0] = warp_sum;
         }
         __syncthreads();
         
         // calculate posterior probability
         for (uint64_t state = tid; state < num_states; state += nthreads) {
-            out[ts_idx + state] = exp_vals[state] / exp_sum;
+            out[ts_idx + state] = exp_vals[state] / exp_sums[0];
         }
-        if (tid == 0) max_val = -FLT_MAX;
         __syncthreads();
     }
 }
