@@ -297,8 +297,8 @@ void free_scores_cuda(
 }
 
 void write_gpubuf_cuda(
-    const int T,
-    const int N,
+    const uint64_t T,
+    const uint64_t N,
     const int state_len,
     const openfish_gpubuf_t *gpubuf
 ) {
@@ -339,37 +339,53 @@ void write_gpubuf_cuda(
     // write results
     FILE *fp;
 
-    fp = fopen("states.blob", "w");
-    fwrite(states, sizeof(state_t), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("qual_data.blob", "w");
-    fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp);
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    fwrite(base_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    fwrite(total_probs, sizeof(float), N * T, fp);
-    fclose(fp);
-
     fp = fopen("bwd_NTC.blob", "w");
-    fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "bwd_NTC.blob");
+    if (fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     fp = fopen("post_NTC.blob", "w");
-    fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp);
+    F_CHK(fp, "post_NTC.blob");
+    if (fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    // write beam results
+    fp = fopen("qual_data.blob", "w");
+    F_CHK(fp, "qual_data.blob");
+    if (fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp) != N * T * NUM_BASES) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    fp = fopen("base_probs.blob", "w");
+    F_CHK(fp, "base_probs.blob");
+    if (fwrite(base_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    fp = fopen("total_probs.blob", "w");
+    F_CHK(fp, "total_probs.blob");
+    if (fwrite(total_probs, sizeof(float), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
 
     // cleanup
+    free(bwd_NTC);
+    free(post_NTC);
     free(states);
     free(qual_data);
     free(base_probs);
     free(total_probs);
-
-    free(bwd_NTC);
-    free(post_NTC);
 }
 ////////////////////////////////////////////////////////////////////////////////
