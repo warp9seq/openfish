@@ -86,7 +86,7 @@ __global__ void fwd_post_scan(
 
     __shared__ float fwd_vals[MAX_STATES];
     __shared__ float exp_vals[MAX_STATES];
-    __shared__ float exp_sum;
+    __shared__ float exp_sums[MAX_STATES];
     __shared__ float max_val;
     if (tid == 0) max_val = -FLT_MAX;
 
@@ -146,19 +146,25 @@ __global__ void fwd_post_scan(
             fwd_vals[state] = val;
             atomicMaxFloat(&max_val, val);
         }
-        if (tid == 0) exp_sum = 0;
         __syncthreads();
-
+        
         // enter exp vals
         for (uint64_t state = tid; state < num_states; state += nthreads) {
             exp_vals[state] = __expf(fwd_vals[state] - max_val);
-            atomicAdd(&exp_sum, exp_vals[state]);
         }
         __syncthreads();
+
+        // sum exp_sums
+        for (uint64_t s = num_states/2; s > 0; s >>= 1) {
+            if (tid < s) { // will not work if each thread is responsible for more than 2 states
+                exp_vals[tid] += exp_vals[tid + s];
+            }
+            __syncthreads();
+        }
         
         // calculate posterior probability
         for (uint64_t state = tid; state < num_states; state += nthreads) {
-            out[ts_idx + state] = exp_vals[state] / exp_sum;
+            out[ts_idx + state] = exp_vals[state] / exp_sums[0];
         }
         if (tid == 0) max_val = -FLT_MAX;
         __syncthreads();
