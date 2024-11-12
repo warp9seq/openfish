@@ -161,7 +161,7 @@ __global__ void fwd_post_scan(
 
         // set max fwd vals in all warps
         if (warp_id == 0) {
-            warp_max = (tid < nthreads/warpSize) ? fwd_maxs[lane_id] : 0;
+            warp_max = (tid < num_states/warpSize) ? fwd_maxs[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
@@ -188,7 +188,7 @@ __global__ void fwd_post_scan(
 
         // sum exp vals in all warps
         if (warp_id == 0) {
-            warp_sum = (tid < nthreads/warpSize) ? exp_sums[lane_id] : 0;
+            warp_sum = (tid < num_states/warpSize) ? exp_sums[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_sum += __shfl_down_sync(mask, warp_sum, offset);
