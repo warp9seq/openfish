@@ -328,10 +328,9 @@ __global__ void beam_search(
         //          p0{state: ATCG, stay: false} -> p1{state: TCGG, stay: false}
         //
         //      note: both must also have stemmed from the same sequence, so we keep a hash to keep track
-        
-        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
-            uint32_t new_elem_idx = new_elem_count + tid;
+            uint32_t new_elem_idx = new_elem_count + prev_elem_idx;
 
             // score for possible stay
             // if it's a stay, it's a kmer that repeats in the sequence
@@ -362,7 +361,7 @@ __global__ void beam_search(
                 int stay_latest_base = (int)(previous_element->state & 3);
 
                 // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
-                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
+                for (size_t prev_elem_comp_idx = (tid % NUM_BASES); prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx += NUM_BASES) {
 
                     // it's a step if it's a previous kmer with a repeated base
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
@@ -389,9 +388,11 @@ __global__ void beam_search(
                 }
             }
         }
+        __syncthreads();
         if (tid == 0) {
             new_elem_count += current_beam_width;
         }
+        __syncthreads();
         // find max fwd val in warp
         for (int offset = warpSize/2; offset > 0; offset >>= 1) {
             warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
