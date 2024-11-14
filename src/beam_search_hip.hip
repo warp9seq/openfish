@@ -151,10 +151,10 @@ __global__ void beam_search(
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-    const uint64_t nthreads = MAX_BEAM_WIDTH;
+    const uint64_t nthreads = MAX_BEAM_WIDTH * NUM_BASES;
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
-    // const unsigned mask = 0xFFFFFFFFU;
+    const unsigned mask = 0xFFFFFFFFU;
     
     if (chunk >= args.N || tid >= nthreads) {
 		return;
@@ -201,20 +201,23 @@ __global__ void beam_search(
         beam_init_threshold = -FLT_MAX;
         current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
     }
+    __syncthreads();
+
+    if (MAX_BEAM_WIDTH < num_states) {
+        // copy the first set of back guides and sort to extract max_beam_width highest elements
+        __shared__ float sorted_back_guides[MAX_STATES];
+        for (size_t i = tid; i < num_states; i += nthreads) {
+            sorted_back_guides[i] = bwd_NTC[i];
+        }
+        __syncthreads();
+
+        // note that we don't need a full sort here to get the max_beam_width highest values
+        if (tid == 0) beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
+    }
+
 
     // find the score a state needs to make it into the first set of beam elements
     if (tid == 0) {
-        if (MAX_BEAM_WIDTH < num_states) {
-            // copy the first set of back guides and sort to extract max_beam_width highest elements
-            float sorted_back_guides[MAX_STATES];
-            for (size_t i = 0; i < num_states; ++i) {
-                sorted_back_guides[i] = bwd_NTC[i];
-            }
-
-            // note that we don't need a full sort here to get the max_beam_width highest values
-            beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
-        }
-
         // initialise all beams
         // go through all state scores in the first block of the back_guide
         for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
@@ -243,10 +246,11 @@ __global__ void beam_search(
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         __shared__ float max_scores[64];
-        __shared__ uint32_t new_elem_count;
-        
         float warp_max = -FLT_MAX;
-        new_elem_count = 0;
+
+        __shared__ uint32_t new_elem_count;
+        if (tid == 0) new_elem_count = 0;
+        
         // reset bloom filter
         for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += nthreads) {
             step_hash_present[i] = false;
@@ -255,60 +259,56 @@ __global__ void beam_search(
         
         // generate list of candidate elements for this timestep (block)
         // update the max score and scores for each possible transition for each beam
-        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
+            const int new_base = tid % NUM_BASES;
 
-            // expand all the possible steps
-            for (int new_base = 0; new_base < NUM_BASES; new_base++) {
+            /*  kmer transitions order:
+            *  N^K , N array
+            *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
+            *  Kmer index is lexicographic with most recent base in the fastest index
+            *
+            *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
+            *  The modifying action is
+            *    0: Remove A from beginning
+            *    1: Remove C from beginning
+            *    2: Remove G from beginning
+            *    3: Remove T from beginning
+            *
+            *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
+            */
 
-                /*  kmer transitions order:
-                *  N^K , N array
-                *  Elements stored as resulting kmer and modifying action (stays have a fixed score and are not computed).
-                *  Kmer index is lexicographic with most recent base in the fastest index
-                *
-                *  E.g.  AGT has index (4^2, 4, 1) . (0, 2, 3) == 11
-                *  The modifying action is
-                *    0: Remove A from beginning
-                *    1: Remove C from beginning
-                *    2: Remove G from beginning
-                *    3: Remove T from beginning
-                *
-                *  Transition (movement) ACGTT (111) -> CGTTG (446) has index 446 * 4 + 0 = 1784
-                */
+            // shift the state (k-mer) left and append the new base to the end of bitset
+            // transition to a new k-mer (see explanation above)
+            state_t new_state = ((state_t)((previous_element->state << NUM_BASE_BITS) & states_mask) | (state_t)(new_base));
 
-                // shift the state (k-mer) left and append the new base to the end of bitset
-                // transition to a new k-mer (see explanation above)
-                state_t new_state = ((state_t)((previous_element->state << NUM_BASE_BITS) & states_mask) | (state_t)(new_base));
+            // get the score of this transition (see explanation above)
+            const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                // get the score of this transition (see explanation above)
-                const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
+            float block_score = __half2float(block_scores[move_idx]) * score_scale;
+            float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
 
-                float block_score = __half2float(block_scores[move_idx]) * score_scale;
-                float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
+            // generate hash from previous element and new state
+            uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
+            step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
 
-                // generate hash from previous element and new state
-                uint32_t new_hash = crc32c(previous_element->hash, new_base, NUM_BASE_BITS);
-                step_hash_present[new_hash & HASH_PRESENT_MASK] = true;
+            uint32_t new_elem_idx = new_elem_count + (prev_elem_idx * NUM_BASES) + new_base;
 
-                uint32_t new_elem_idx = new_elem_count + (tid * NUM_BASES) + new_base;
+            // add new element to candidates
+            beam_front_element_t new_beam_elem = {
+                new_hash,
+                new_state,
+                (uint8_t)prev_elem_idx,
+                false // this is never a stay, these are possible steps
+            };
+            current_beam_front[new_elem_idx] = new_beam_elem;
 
-                // add new element to candidates
-                beam_front_element_t new_beam_elem = {
-                    new_hash,
-                    new_state,
-                    (uint8_t)prev_elem_idx,
-                    false // this is never a stay, these are possible steps
-                };
-                current_beam_front[new_elem_idx] = new_beam_elem;
-
-                // update scores
-                current_scores[new_elem_idx] = new_score;
-                warp_max = max(warp_max, new_score);
-            }
+            // update scores
+            current_scores[new_elem_idx] = new_score;
+            warp_max = max(warp_max, new_score);
         }
-        if (tid == 0) {
-            new_elem_count += current_beam_width * NUM_BASES;
-        }
+        __syncthreads();
+        if (tid == 0) new_elem_count += current_beam_width * NUM_BASES;
         __syncthreads();
 
         // generate stays
@@ -329,10 +329,9 @@ __global__ void beam_search(
         //          p0{state: ATCG, stay: false} -> p1{state: TCGG, stay: false}
         //
         //      note: both must also have stemmed from the same sequence, so we keep a hash to keep track
-        
-        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
-            uint32_t new_elem_idx = new_elem_count + tid;
+            uint32_t new_elem_idx = new_elem_count + prev_elem_idx;
 
             // score for possible stay
             // if it's a stay, it's a kmer that repeats in the sequence
@@ -363,7 +362,7 @@ __global__ void beam_search(
                 int stay_latest_base = (int)(previous_element->state & 3);
 
                 // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
-                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx++) {
+                for (size_t prev_elem_comp_idx = (tid % NUM_BASES); prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx += NUM_BASES) {
 
                     // it's a step if it's a previous kmer with a repeated base
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
@@ -390,23 +389,24 @@ __global__ void beam_search(
                 }
             }
         }
+        __syncthreads();
         if (tid == 0) {
             new_elem_count += current_beam_width;
         }
+        __syncthreads();
         // find max fwd val in warp
-        int warp_size_clamp = min(MAX_BEAM_WIDTH, warpSize);
-        for (int offset = warp_size_clamp/2; offset > 0; offset >>= 1) {
-            warp_max = max(warp_max, __shfl_down(warp_max, offset));
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
         }
         if (lane_id == 0) max_scores[warp_id] = warp_max;
         __syncthreads();
 
         // set max fwd vals in all warps
         if (warp_id == 0) {
-            warp_max = (tid < MAX_BEAM_WIDTH/warp_size_clamp) ? max_scores[lane_id] : 0;
+            warp_max = (tid < nthreads/warpSize) ? max_scores[lane_id] : 0;
 
-            for (int offset = warp_size_clamp/2; offset > 0; offset >>= 1) {
-                warp_max = max(warp_max, __shfl_down(warp_max, offset));
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
             }
             
             if (tid == 0) max_scores[0] = warp_max;
