@@ -154,7 +154,6 @@ __global__ void beam_search(
     const uint64_t nthreads = MAX_BEAM_WIDTH * NUM_BASES;
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
-    const unsigned mask = 0xFFFFFFFFU;
     
     if (chunk >= args.N || tid >= nthreads) {
 		return;
@@ -396,7 +395,7 @@ __global__ void beam_search(
         __syncthreads();
         // find max fwd val in warp
         for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
+            warp_max = max(warp_max, __shfl_down(warp_max, offset));
         }
         if (lane_id == 0) max_scores[warp_id] = warp_max;
         __syncthreads();
@@ -406,7 +405,7 @@ __global__ void beam_search(
             warp_max = (tid < nthreads/warpSize) ? max_scores[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
+                warp_max = max(warp_max, __shfl_down(warp_max, offset));
             }
             
             if (tid == 0) max_scores[0] = warp_max;
