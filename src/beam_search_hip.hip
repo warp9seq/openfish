@@ -152,6 +152,9 @@ __global__ void beam_search(
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = MAX_BEAM_WIDTH;
+    const int lane_id = tid % warpSize;
+    const int warp_id = tid / warpSize;
+    // const unsigned mask = 0xFFFFFFFFU;
     
     if (chunk >= args.N || tid >= nthreads) {
 		return;
@@ -239,10 +242,10 @@ __global__ void beam_search(
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
-        __shared__ float max_score;
+        __shared__ float max_scores[64];
         __shared__ uint32_t new_elem_count;
         
-        max_score = -FLT_MAX;
+        float warp_max = -FLT_MAX;
         new_elem_count = 0;
         // reset bloom filter
         for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += nthreads) {
@@ -300,7 +303,7 @@ __global__ void beam_search(
 
                 // update scores
                 current_scores[new_elem_idx] = new_score;
-                atomicMaxFloat(&max_score, new_score);
+                warp_max = max(warp_max, new_score);
             }
         }
         if (tid == 0) {
@@ -348,7 +351,7 @@ __global__ void beam_search(
             current_beam_front[new_elem_idx] = new_beam_elem;
             current_scores[new_elem_idx] = stay_score;
 
-            atomicMaxFloat(&max_score, stay_score);
+            warp_max = max(warp_max, stay_score);
 
             // determine whether the path including this stay duplicates another sequence ending in a step equal to the state of the stay
             // this "bloom filter" is supposed to help avoid comparing hash against every single step generated before
@@ -382,13 +385,31 @@ __global__ void beam_search(
                             // the stay element will end up last, sorted by score
                             current_scores[stay_elem_idx] = -FLT_MAX;
                         }
-                        atomicMaxFloat(&max_score, folded_score);
+                        warp_max = max(warp_max, folded_score);
                     }
                 }
             }
         }
         if (tid == 0) {
             new_elem_count += current_beam_width;
+        }
+        // find max fwd val in warp
+        int warp_size_clamp = min(MAX_BEAM_WIDTH, warpSize);
+        for (int offset = warp_size_clamp/2; offset > 0; offset >>= 1) {
+            warp_max = max(warp_max, __shfl_down(warp_max, offset));
+        }
+        if (lane_id == 0) max_scores[warp_id] = warp_max;
+        __syncthreads();
+
+        // set max fwd vals in all warps
+        if (warp_id == 0) {
+            warp_max = (tid < MAX_BEAM_WIDTH/warp_size_clamp) ? max_scores[lane_id] : 0;
+
+            for (int offset = warp_size_clamp/2; offset > 0; offset >>= 1) {
+                warp_max = max(warp_max, __shfl_down(warp_max, offset));
+            }
+            
+            if (tid == 0) max_scores[0] = warp_max;
         }
         __syncthreads();
 
@@ -398,7 +419,7 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         if (tid == 0) {
-            float beam_cutoff_score = max_score - log_beam_cut;
+            float beam_cutoff_score = max_scores[0] - log_beam_cut;
             float *score_ptr;
 
             elem_count = 0;
@@ -412,7 +433,7 @@ __global__ void beam_search(
             if (elem_count > MAX_BEAM_WIDTH) {
                 size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
                 float low_score = beam_cutoff_score;
-                float hi_score = max_score;
+                float hi_score = max_scores[0];
                 int num_guesses = 1;
                 const int MAX_GUESSES = 10;
 
