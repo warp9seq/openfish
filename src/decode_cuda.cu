@@ -107,7 +107,7 @@ void decode_cuda(
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
-    dim3 block_size_beam(MAX_BEAM_WIDTH, 1, 1);
+    dim3 block_size_beam(MAX_BEAM_WIDTH * NUM_BASES, 1, 1);
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(grid_len, 1, 1);
 
