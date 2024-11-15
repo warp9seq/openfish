@@ -240,14 +240,14 @@ __global__ void beam_search(
     __syncthreads();
     
     // iterate through blocks, extending each beam
+    __shared__ int elem_count;
+    __shared__ float max_scores[64];
+    __shared__ uint32_t new_elem_count;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
-        __shared__ float max_scores[64];
         float warp_max = -FLT_MAX;
-
-        __shared__ uint32_t new_elem_count;
         if (tid == 0) new_elem_count = 0;
         
         // reset bloom filter
@@ -389,10 +389,9 @@ __global__ void beam_search(
             }
         }
         __syncthreads();
-        if (tid == 0) {
-            new_elem_count += current_beam_width;
-        }
+        if (tid == 0) { new_elem_count += current_beam_width; }
         __syncthreads();
+
         // find max fwd val in warp
         for (int offset = warpSize/2; offset > 0; offset >>= 1) {
             warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
@@ -414,20 +413,21 @@ __global__ void beam_search(
 
         // cut off to fit beam width
         // starting point for finding the cutoff score is the beam cut score
-        __shared__ size_t elem_count;
+        if (tid == 0) elem_count = 0;
+        __syncthreads();
 
         // count the elements which meet the min score
+        float beam_cutoff_score = max_scores[0] - log_beam_cut;
+        float *score_ptr;
+
+        score_ptr = current_scores + tid;
+        for (int i = tid; i > 0 && i <= (int)(new_elem_count); i += nthreads) {
+            if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
+            score_ptr += nthreads;
+        }
+        __syncthreads();
+
         if (tid == 0) {
-            float beam_cutoff_score = max_scores[0] - log_beam_cut;
-            float *score_ptr;
-
-            elem_count = 0;
-            score_ptr = current_scores;
-            for (int i = (int)(new_elem_count); i; --i) {
-                if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                ++score_ptr;
-            }
-
             // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
             if (elem_count > MAX_BEAM_WIDTH) {
                 size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
