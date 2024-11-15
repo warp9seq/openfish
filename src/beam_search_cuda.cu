@@ -243,7 +243,7 @@ __global__ void beam_search(
     __shared__ int elem_count;
     __shared__ float max_scores[64];
     __shared__ uint32_t new_elem_count;
-    __shared__ float hi_score;
+    __shared__ float beam_cutoff_score;
     __shared__ int num_guesses;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
@@ -415,11 +415,13 @@ __global__ void beam_search(
 
         // cut off to fit beam width
         // starting point for finding the cutoff score is the beam cut score
-        if (tid == 0) elem_count = 0;
+        if (tid == 0) {
+            elem_count = 0;
+            beam_cutoff_score = max_scores[0] - log_beam_cut;
+        }
         __syncthreads();
 
         // count the elements which meet the min score
-        float beam_cutoff_score = max_scores[0] - log_beam_cut;
         float *score_ptr = current_scores + tid;
         for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
             if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
@@ -431,10 +433,10 @@ __global__ void beam_search(
         if (elem_count > MAX_BEAM_WIDTH) {
             size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
             float low_score = beam_cutoff_score;
+            float hi_score = max_scores[0];
             const int MAX_GUESSES = 10;
 
             if (tid == 0) {
-                hi_score = max_scores[0];
                 num_guesses = 1;
                 while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                     if (elem_count > MAX_BEAM_WIDTH) {
@@ -466,8 +468,11 @@ __global__ void beam_search(
             // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
             if (num_guesses == MAX_GUESSES) {
-                if (tid == 0) elem_count = 0;
-                beam_cutoff_score = hi_score;
+                if (tid == 0) {
+                    elem_count = 0;
+                    beam_cutoff_score = hi_score;
+                }
+                
                 float *score_ptr = current_scores + tid;
                 for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
                     if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
