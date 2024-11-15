@@ -243,6 +243,8 @@ __global__ void beam_search(
     __shared__ int elem_count;
     __shared__ float max_scores[64];
     __shared__ uint32_t new_elem_count;
+    __shared__ float hi_score;
+    __shared__ int num_guesses;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
@@ -425,15 +427,15 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        if (tid == 0) {
-            // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            if (elem_count > MAX_BEAM_WIDTH) {
-                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
-                float low_score = beam_cutoff_score;
-                float hi_score = max_scores[0];
-                int num_guesses = 1;
-                const int MAX_GUESSES = 10;
+        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
+        if (elem_count > MAX_BEAM_WIDTH) {
+            size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
+            float low_score = beam_cutoff_score;
+            const int MAX_GUESSES = 10;
 
+            if (tid == 0) {
+                hi_score = max_scores[0];
+                num_guesses = 1;
                 while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
                     if (elem_count > MAX_BEAM_WIDTH) {
                         // make a higher guess
@@ -453,40 +455,42 @@ __global__ void beam_search(
 
                     ++num_guesses;
                 }
+            }
+            __syncthreads();
 
-                // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-                // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
-                //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
-                // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
-                //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-                // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
-                //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
-                if (num_guesses == MAX_GUESSES) {
-                    beam_cutoff_score = hi_score;
-                    elem_count = 0;
-                    score_ptr = current_scores;
-                    for (int i = (int)new_elem_count; i; --i) {
-                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                        ++score_ptr;
-                    }
+            // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
+            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
+            //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
+            // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
+            //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
+            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
+            //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
+            if (num_guesses == MAX_GUESSES) {
+                if (tid == 0) elem_count = 0;
+                beam_cutoff_score = hi_score;
+                float *score_ptr = current_scores + tid;
+                for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
+                    if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
+                    score_ptr += nthreads;
                 }
-
-                // clamp the element count to the max beam width in case of failure 2 from above
-                elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
+                __syncthreads();
             }
 
-            // write current scores and beam fronts to prev
-            if (tid == 0) {
-                size_t write_idx = 0;
-                for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
-                    if (current_scores[read_idx] >= beam_cutoff_score) {
-                        if (write_idx < MAX_BEAM_WIDTH) {
-                            prev_beam_front[write_idx] = current_beam_front[read_idx];
-                            prev_scores[write_idx] = current_scores[read_idx];
-                            ++write_idx;
-                        } else {
-                            break;
-                        }
+            // clamp the element count to the max beam width in case of failure 2 from above
+            if (tid == 0) elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
+        }
+
+        // write current scores and beam fronts to prev
+        if (tid == 0) {
+            size_t write_idx = 0;
+            for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
+                if (current_scores[read_idx] >= beam_cutoff_score) {
+                    if (write_idx < MAX_BEAM_WIDTH) {
+                        prev_beam_front[write_idx] = current_beam_front[read_idx];
+                        prev_scores[write_idx] = current_scores[read_idx];
+                        ++write_idx;
+                    } else {
+                        break;
                     }
                 }
             }
