@@ -418,10 +418,8 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         float beam_cutoff_score = max_scores[0] - log_beam_cut;
-        float *score_ptr;
-
-        score_ptr = current_scores + tid;
-        for (int i = tid; i > 0 && i <= (int)(new_elem_count); i += nthreads) {
+        float *score_ptr = current_scores + tid;
+        for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
             if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
             score_ptr += nthreads;
         }
