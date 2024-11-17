@@ -3,8 +3,8 @@
 
 #include "decode.h"
 
-#include <cstddef>
-#include <cstdint>
+// #include <cstddef>
+// #include <cstdint>
 
 #ifdef __cplusplus
 extern "C" {
