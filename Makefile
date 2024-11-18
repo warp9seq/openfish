@@ -39,13 +39,13 @@ ifdef cuda
     CPPFLAGS += -DHAVE_CUDA=1
 else ifdef rocm
 	ROCM_ROOT ?= /opt/rocm
-	HIP_LIB ?= $(ROCM_ROOT)/lib
+	ROCM_LIB ?= $(ROCM_ROOT)/lib
 	HIPCC ?= $(ROCM_ROOT)/bin/hipcc
-	HIP_CFLAGS += -g -Wall $(ROCM_ARCH)
-	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
+	ROCM_CFLAGS += -g -Wall $(ROCM_ARCH)
+	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
-	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
-	CPPFLAGS += -DHAVE_HIP=1
+	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
+	CPPFLAGS += -DHAVE_ROCM=1
 else
 	GPU_LIB = $(BUILD_DIR)/cpu_decoy.a
 endif
@@ -61,7 +61,7 @@ endif
 .PHONY: clean distclean test
 
 $(BINARY): $(BUILD_DIR)/main.o $(STATICLIB)
-	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(HIP_LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(ROCM_LDFLAGS) -o $@
 
 $(STATICLIB): $(OBJ) $(GPU_LIB)
 	cp $(GPU_LIB) $@
@@ -110,17 +110,17 @@ $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 # hip
-$(BUILD_DIR)/hip_code.a: $(HIP_OBJ)
-	$(HIPCC) $(HIP_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
+$(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
+	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
 
 $(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
-	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
-	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
-	$(HIPCC) -x hip $(HIP_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*
