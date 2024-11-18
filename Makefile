@@ -41,7 +41,7 @@ else ifdef rocm
 	ROCM_ROOT ?= /opt/rocm
 	HIP_LIB ?= $(ROCM_ROOT)/lib
 	HIPCC ?= $(ROCM_ROOT)/bin/hipcc
-	HIP_CFLAGS += -g -Wall $(HIP_ARCH)
+	HIP_CFLAGS += -g -Wall $(ROCM_ARCH)
 	HIP_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	HIP_LDFLAGS = -L$(HIP_LIB) -lamdhip64 -lrt -ldl
