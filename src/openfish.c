@@ -6,7 +6,7 @@
 #include "decode_cuda.h"
 #endif
 
-#ifdef HAVE_HIP
+#ifdef HAVE_ROCM
 #include "decode_hip.h"
 #endif
 
@@ -17,7 +17,7 @@ openfish_gpubuf_t *openfish_gpubuf_init(
 ) {
 #ifdef HAVE_CUDA
     return gpubuf_init_cuda(T, N, state_len);
-#elif HAVE_HIP
+#elif HAVE_ROCM
     return gpubuf_init_hip(T, N, state_len);
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
@@ -30,7 +30,7 @@ void openfish_gpubuf_free(
 ) {
 #ifdef HAVE_CUDA
     gpubuf_free_cuda(gpubuf);
-#elif HAVE_HIP
+#elif HAVE_ROCM
     gpubuf_free_hip(gpubuf);
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
@@ -52,7 +52,7 @@ void openfish_decode_gpu(
 ) {
 #ifdef HAVE_CUDA
     decode_cuda(T, N, C, scores_TNC, state_len, options, gpubuf, moves, sequence, qstring);
-#elif HAVE_HIP
+#elif HAVE_ROCM
     decode_hip(T, N, C, scores_TNC, state_len, options, gpubuf, moves, sequence, qstring);
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");

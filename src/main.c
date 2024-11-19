@@ -12,7 +12,7 @@
 #include "decode_cuda.h"
 #endif
 
-#if defined HAVE_HIP
+#if defined HAVE_ROCM
 #include "decode_hip.h"
 #endif
 
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
     set_openfish_log_level(OPENFISH_LOG_DBUG);
 
     size_t scores_len = T * N * C;
-#if defined HAVE_CUDA || defined HAVE_HIP
+#if defined HAVE_CUDA || defined HAVE_ROCM
     const int elem_size = sizeof(uint16_t);
     openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
 #else
@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
 #if defined HAVE_CUDA
     void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
     openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
-#elif defined HAVE_HIP
+#elif defined HAVE_ROCM
     void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
     openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
@@ -117,11 +117,11 @@ int main(int argc, char* argv[]) {
     write_gpubuf_cuda(T, N, state_len, gpubuf);
 #endif
 
-#if defined DEBUG && defined HAVE_HIP
+#if defined DEBUG && defined HAVE_ROCM
     write_gpubuf_hip(T, N, state_len, gpubuf);
 #endif
 
-#if defined HAVE_CUDA || defined HAVE_HIP
+#if defined HAVE_CUDA || defined HAVE_ROCM
     openfish_gpubuf_free(gpubuf);
 #endif
 
