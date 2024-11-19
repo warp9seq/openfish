@@ -460,7 +460,7 @@ __global__ void beam_search(
             }
             __syncthreads();
 
-            // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
+            // if we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
             // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
             //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
             // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)

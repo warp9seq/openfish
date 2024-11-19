@@ -448,8 +448,7 @@ void beam_search_cpu(
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];
 
-        // compute a probability for this block, based on the path kmer. See the following explanation:
-        // https://git.oxfordnanolabs.local/machine-learning/notebooks/-/blob/master/bonito-basecaller-qscores.ipynb
+        // compute a probability for this block, based on the path kmer
         const float *const timestep_posts = post_NTC + ((block_idx + 1) << num_state_bits);
 
         float block_prob = (float)(timestep_posts[state]) * posts_scale;
