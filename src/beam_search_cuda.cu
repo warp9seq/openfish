@@ -455,19 +455,18 @@ __global__ void beam_search(
             //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
             // 2: there is no good score as all the elements from <80% of the beam to >100% have the same score
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
-            if (!found_cutoff) {
-                if (tid == 0) {
-                    elem_count = 0;
-                    beam_cutoff_score = max_scores[0];
-                }
-                
-                float *score_ptr = current_scores + tid;
-                for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
-                    if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
-                    score_ptr += nthreads;
-                }
-                __syncthreads();
+            if (tid == 0) {
+                if (!found_cutoff) beam_cutoff_score = max_scores[0];
+                elem_count = 0;
             }
+            __syncthreads();
+            
+            float *score_ptr = current_scores + tid;
+            for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
+                if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
+                score_ptr += nthreads;
+            }
+            __syncthreads();
 
             // clamp the element count to the max beam width in case of failure 2 from above
             if (tid == 0) elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
