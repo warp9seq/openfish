@@ -443,7 +443,7 @@ __global__ void beam_search(
                     if (*score_ptr >= new_cutoff) ++elem_count_guess;
                     ++score_ptr;
                 }
-                if (elem_count_guess < MAX_BEAM_WIDTH && elem_count_guess > min_beam_width) {
+                if (elem_count_guess < MAX_BEAM_WIDTH && elem_count_guess >= min_beam_width) {
                     atomicMaxFloat(&beam_cutoff_score, new_cutoff);
                     found_cutoff = true;
                 }
