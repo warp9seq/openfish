@@ -244,13 +244,16 @@ __global__ void beam_search(
     __shared__ float max_scores[64];
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
-    __shared__ int num_guesses;
+    __shared__ bool found_cutoff;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -FLT_MAX;
-        if (tid == 0) new_elem_count = 0;
+        if (tid == 0) {
+            found_cutoff = false;
+            new_elem_count = 0;
+        }
         
         // reset bloom filter
         for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += nthreads) {
@@ -436,38 +439,27 @@ __global__ void beam_search(
             float hi_score = max_scores[0];
             const int MAX_GUESSES = 10;
 
-            if (tid == 0) {
-                num_guesses = 1;
-                while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
-                    if (elem_count > MAX_BEAM_WIDTH) {
-                        // make a higher guess
-                        low_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
-                    } else {
-                        // make a lower guess
-                        hi_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;
-                    }
-                    elem_count = 0;
-                    score_ptr = current_scores;
-                    for (int i = (int)new_elem_count; i; --i) {
-                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                        ++score_ptr;
-                    }
-
-                    ++num_guesses;
+            for (int guess = tid; guess < MAX_BEAM_WIDTH; guess += nthreads) {
+                float new_cutoff = score_ptr[guess];
+                int elem_count_guess = 0;
+                score_ptr = current_scores;
+                for (int i = (int)new_elem_count; i; --i) {
+                    if (*score_ptr >= new_cutoff) ++elem_count_guess;
+                    ++score_ptr;
+                }
+                if (elem_count_guess < MAX_BEAM_WIDTH && elem_count_guess > min_beam_width) {
+                    atomicMaxFloat(&beam_cutoff_score, new_cutoff);
+                    found_cutoff = true;
                 }
             }
             __syncthreads();
 
-            // if we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
-            //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
-            // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
+            // if we couldn't find a suitable score, a couple things could have happened:
+            // 1: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
             //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
+            // 2: there is no good score as all the elements from <80% of the beam to >100% have the same score
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
-            if (num_guesses == MAX_GUESSES) {
+            if (!found_cutoff) {
                 if (tid == 0) {
                     elem_count = 0;
                     beam_cutoff_score = hi_score;
