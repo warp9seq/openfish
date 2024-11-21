@@ -435,15 +435,11 @@ __global__ void beam_search(
         // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
         if (elem_count > MAX_BEAM_WIDTH) {
             size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
-            float low_score = beam_cutoff_score;
-            float hi_score = max_scores[0];
-            const int MAX_GUESSES = 10;
-
-            for (int guess = tid; guess < MAX_BEAM_WIDTH; guess += nthreads) {
+            for (int guess = tid; guess < new_elem_count; guess += nthreads) {
                 float new_cutoff = score_ptr[guess];
                 int elem_count_guess = 0;
                 score_ptr = current_scores;
-                for (int i = (int)new_elem_count; i; --i) {
+                for (int i = new_elem_count; i; --i) {
                     if (*score_ptr >= new_cutoff) ++elem_count_guess;
                     ++score_ptr;
                 }
@@ -462,7 +458,7 @@ __global__ void beam_search(
             if (!found_cutoff) {
                 if (tid == 0) {
                     elem_count = 0;
-                    beam_cutoff_score = hi_score;
+                    beam_cutoff_score = max_scores[0];
                 }
                 
                 float *score_ptr = current_scores + tid;
