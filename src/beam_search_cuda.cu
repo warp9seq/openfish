@@ -241,7 +241,7 @@ __global__ void beam_search(
     
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
-    __shared__ float warp_buffer[64];
+    __shared__ float block_buf[64];
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
@@ -402,12 +402,12 @@ __global__ void beam_search(
         for (int offset = warpSize/2; offset > 0; offset >>= 1) {
             warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
         }
-        if (lane_id == 0) warp_buffer[warp_id] = warp_max;
+        if (lane_id == 0) block_buf[warp_id] = warp_max;
         __syncthreads();
 
         // set max val in all warps
         if (warp_id == 0) {
-            warp_max = (tid < nthreads/warpSize) ? warp_buffer[lane_id] : 0;
+            warp_max = (tid < nthreads/warpSize) ? block_buf[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
@@ -427,9 +427,29 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         float *score_ptr = current_scores + tid;
+        int warp_count = 0;
         for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
-            if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
+            if (*score_ptr >= beam_cutoff_score) warp_count += 1;
             score_ptr += nthreads;
+        }
+        __syncthreads();
+
+        // sum vals in warp
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_count += __shfl_down_sync(mask, warp_count, offset);
+        }
+        if (lane_id == 0) block_buf[warp_id] = warp_count;
+        __syncthreads();
+
+        // sum vals in all warps
+        if (warp_id == 0) {
+            warp_count = (tid < nthreads/warpSize) ? block_buf[lane_id] : 0;
+
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_count += __shfl_down_sync(mask, warp_count, offset);
+            }
+            
+            if (tid == 0) elem_count = warp_count;
         }
         __syncthreads();
 
@@ -466,12 +486,12 @@ __global__ void beam_search(
                 for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                     warp_cutoff = max(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
                 }
-                if (lane_id == 0) warp_buffer[warp_id] = warp_cutoff;
+                if (lane_id == 0) block_buf[warp_id] = warp_cutoff;
                 __syncthreads();
 
                 // set max val in all warps
                 if (warp_id == 0) {
-                    warp_cutoff = (tid < nthreads/warpSize) ? warp_buffer[lane_id] : -FLT_MAX;
+                    warp_cutoff = (tid < nthreads/warpSize) ? block_buf[lane_id] : -FLT_MAX;
 
                     for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                         warp_cutoff = max(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
