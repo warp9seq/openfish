@@ -447,7 +447,7 @@ __global__ void beam_search(
                     ++score_ptr;
                 }
                 if (elem_count_guess <= MAX_BEAM_WIDTH && elem_count_guess >= min_beam_width) {
-                    warp_cutoff = max(warp_cutoff, new_cutoff);
+                    warp_cutoff = min(warp_cutoff, new_cutoff);
                     found_cutoff = true;
                 }
             }
@@ -465,17 +465,17 @@ __global__ void beam_search(
             if (found_cutoff) {
                 // find max val in warp
                 for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                    warp_cutoff = max(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
+                    warp_cutoff = min(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
                 }
                 if (lane_id == 0) block_buf[warp_id] = warp_cutoff;
                 __syncthreads();
 
                 // set max val in all warps
                 if (warp_id == 0) {
-                    warp_cutoff = (tid < nthreads/warpSize) ? block_buf[lane_id] : -FLT_MAX;
+                    warp_cutoff = (tid < nthreads/warpSize) ? block_buf[lane_id] : FLT_MAX;
 
                     for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                        warp_cutoff = max(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
+                        warp_cutoff = min(warp_cutoff, __shfl_down_sync(mask, warp_cutoff, offset));
                     }
                     
                     if (tid == 0) beam_cutoff_score = warp_cutoff;
