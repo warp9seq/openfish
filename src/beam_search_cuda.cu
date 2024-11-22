@@ -154,6 +154,7 @@ __global__ void beam_search(
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
     const unsigned mask = 0xFFFFFFFFU;
+    (void)mask;
     
     if (chunk >= args.N || tid >= nthreads) {
 		return;

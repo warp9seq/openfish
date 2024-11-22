@@ -95,22 +95,17 @@ void decode_hip(
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
     int block_width = 2;
-    int grid_len = 2;
     while (block_width < target_block_width) {
         block_width *= 2;
     }
-    while (grid_len < N) {
-        grid_len *= 2;
-    }
 
     OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
-    OPENFISH_LOG_DEBUG("chosen grid_len: %d for batch size %d", grid_len, N);
 
     double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
     dim3 block_size_beam(MAX_BEAM_WIDTH * NUM_BASES, 1, 1);
     dim3 block_size_gen(1, 1, 1);
-	dim3 grid_size(grid_len, 1, 1);
+	dim3 grid_size(N, 1, 1);
 
     OPENFISH_LOG_DEBUG("scores tensor dim: %d, %d, %d", T, N, C);
 
