@@ -427,29 +427,9 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         float *score_ptr = current_scores + tid;
-        int warp_count = 0;
         for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
-            if (*score_ptr >= beam_cutoff_score) warp_count += 1;
+            if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
             score_ptr += nthreads;
-        }
-        __syncthreads();
-
-        // sum vals in warp
-        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            warp_count += __shfl_down_sync(mask, warp_count, offset);
-        }
-        if (lane_id == 0) block_buf[warp_id] = warp_count;
-        __syncthreads();
-
-        // sum vals in all warps
-        if (warp_id == 0) {
-            warp_count = (tid < nthreads/warpSize) ? block_buf[lane_id] : 0;
-
-            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                warp_count += __shfl_down_sync(mask, warp_count, offset);
-            }
-            
-            if (tid == 0) elem_count = warp_count;
         }
         __syncthreads();
 
