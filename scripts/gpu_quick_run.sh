@@ -44,6 +44,7 @@ fi
 
 DATA_DIR=/data/bonwon/slorado_test_data/blobs
 # DATA_DIR=/data/bonson/slorado_test_data/blobs
+# DATA_DIR=/software/projects/pawsey1099/bonwon/slorado_test_data/blobs
 SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
 
 /usr/bin/time  --verbose ./openfish ${SCORES} models/dna_r10.4.1_e8.2_400bps_${MODEL}@v4.2.0 ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
