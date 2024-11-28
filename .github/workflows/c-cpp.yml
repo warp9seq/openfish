@@ -19,7 +19,7 @@ jobs:
       run: apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update -y && apt-get install git -y
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y zlib1g-dev wget datamash unzip bzip2 make g++ apt-transport-https bc
+      run: apt-get update && apt-get install -y make
     - name: build
       run: make -j2
     - name: test
@@ -33,7 +33,7 @@ jobs:
       run: apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update -y && apt-get install git -y
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y zlib1g-dev wget datamash unzip bzip2 make g++ apt-transport-https
+      run: apt-get update && apt-get install -y make
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
@@ -54,7 +54,7 @@ jobs:
       run: apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update -y && apt-get install git -y
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y zlib1g-dev wget datamash unzip bzip2 make g++ apt-transport-https bc
+      run: apt-get update && apt-get install -y make
     - name: build
       run: make -j2
     - name: test
@@ -64,8 +64,6 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
-    - name: install packages
-      run: sudo apt-get update && sudo apt-get install zlib1g-dev wget datamash unzip bzip2
     - name: build
       run: make -j2
     - name: test
@@ -75,8 +73,6 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v2
-    - name: install packages
-      run: sudo apt-get update && sudo apt-get install zlib1g-dev wget datamash unzip bzip2
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
@@ -96,7 +92,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install packages
-      run: sudo apt-get update && sudo apt-get install zlib1g-dev wget datamash unzip bzip2 valgrind
+      run: sudo apt-get update && sudo apt-get install valgrind
     - name: build
       run: make -j2
     - name: test
@@ -108,8 +104,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v2
-    - name: install packages
-      run: sudo apt-get update && sudo apt-get install zlib1g-dev wget datamash unzip bzip2
     - name: rocm
       run: |
         sudo apt update
@@ -123,8 +117,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v2
-    - name: install packages
-      run: sudo apt-get update && sudo apt-get install zlib1g-dev wget datamash unzip bzip2
     - name: build
       run: make -j2
     - name: test
