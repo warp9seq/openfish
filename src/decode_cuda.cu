@@ -90,6 +90,11 @@ void decode_cuda(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+    cudaStream_t stream1, stream2;
+    cudaStreamCreate(&stream1);
+    checkCudaError();
+    cudaStreamCreate(&stream2);
+    checkCudaError();
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
@@ -130,9 +135,9 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+        bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
         checkCudaError();
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(stream1);
         checkCudaError();
     }
 	// end timing
@@ -146,9 +151,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
-        cudaDeviceSynchronize();
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
         checkCudaError();
     }
 	// end timing
@@ -193,7 +196,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        beam_search<<<grid_size,block_size_beam>>>(
+        beam_search<<<grid_size,block_size_beam,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->moves,
@@ -203,7 +206,9 @@ void decode_cuda(
             1.0f
         );
         checkCudaError();
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(stream1);
+        checkCudaError();
+        cudaStreamSynchronize(stream2);
         checkCudaError();
     }
 	// end timing
@@ -216,14 +221,14 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        compute_qual_data<<<grid_size,block_size_gen>>>(
+        compute_qual_data<<<grid_size,block_size_gen,0,stream1>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->qual_data,
             1.0f
         );
         checkCudaError();
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(stream1);
         checkCudaError();
     }
 	// end timing
@@ -236,7 +241,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        generate_sequence<<<grid_size,block_size_gen>>>(
+        generate_sequence<<<grid_size,block_size_gen,0,stream1>>>(
             beam_args,
             gpubuf->moves,
             (state_t *)gpubuf->states,
@@ -249,7 +254,7 @@ void decode_cuda(
             q_scale
         );
         checkCudaError();
-        cudaDeviceSynchronize();
+        cudaStreamSynchronize(stream1);
         checkCudaError();
     }
 	// end timing
@@ -264,6 +269,9 @@ void decode_cuda(
     checkCudaError();
     cudaMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
+
+    cudaStreamDestroy(stream1);
+    cudaStreamDestroy(stream2);
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
