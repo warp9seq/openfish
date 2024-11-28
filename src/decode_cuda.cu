@@ -146,19 +146,6 @@ void decode_cuda(
     OPENFISH_LOG_DEBUG("bwd scan completed in %f secs", elapsed);
 
     // fwd + post scan
-	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs", elapsed);
-
     // beam search
 
     // init results
@@ -196,6 +183,8 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkCudaError();
         beam_search<<<grid_size,block_size_beam,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
