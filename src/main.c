@@ -18,16 +18,16 @@
 
 int main(int argc, char* argv[]) {
 
-    if (argc != 5) {
-        fprintf(stderr,"Usage: %s <scores.blob> <MODEL> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
     const int T = 1666;
-    const int N = strtol(argv[3], NULL, 10);
+    const int N = strtol(argv[2], NULL, 10);
     assert(N > 0);
-    const int state_len = strtol(argv[4], NULL, 10);
+    const int state_len = strtol(argv[3], NULL, 10);
     assert(state_len > 0);
     const int C = pow(4, state_len) * 4;
 

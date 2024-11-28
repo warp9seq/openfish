@@ -46,10 +46,9 @@ DATA_DIR=/data/bonwon/slorado_test_data/blobs
 # DATA_DIR=/data/bonson/slorado_test_data/blobs
 SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
 
-/usr/bin/time  --verbose ./openfish ${SCORES} models/dna_r10.4.1_e8.2_400bps_${MODEL}@v4.2.0 ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+/usr/bin/time  --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
-# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_fwd_NTC.blob fwd_NTC.blob $TENS_LEN
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob $(( 4*(INTENS_LEN) ))
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob $INTENS_LEN
