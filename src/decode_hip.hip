@@ -184,8 +184,6 @@ void decode_hip(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkHipError();
         beam_search<<<grid_size,block_size_beam,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
@@ -196,6 +194,9 @@ void decode_hip(
             1.0f
         );
         checkHipError();
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkHipError();
+        
         hipStreamSynchronize(stream1);
         checkHipError();
         hipStreamSynchronize(stream2);

@@ -183,8 +183,6 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
         beam_search<<<grid_size,block_size_beam,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
@@ -195,6 +193,9 @@ void decode_cuda(
             1.0f
         );
         checkCudaError();
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkCudaError();
+        
         cudaStreamSynchronize(stream1);
         checkCudaError();
         cudaStreamSynchronize(stream2);
