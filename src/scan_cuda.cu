@@ -9,7 +9,7 @@ __global__ void bwd_scan(
 	const scan_args_t args,
 	float *out
 ) {
-	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x) + args.stream_chunk_offset;
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
 	const uint64_t nthreads = blockDim.x * blockDim.y;
 
@@ -65,7 +65,7 @@ __global__ void fwd_post_scan(
     const float *bwd,
     float *out
 ) {
-    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x) + args.stream_chunk_offset;
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = blockDim.x * blockDim.y;
     const int lane_id = tid % warpSize;

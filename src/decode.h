@@ -32,6 +32,7 @@ typedef struct beam_args {
     size_t N;
     size_t C;
     int num_state_bits;
+    uint64_t stream_chunk_offset;
 } beam_args_t;
 
 typedef struct scan_args {
@@ -41,6 +42,7 @@ typedef struct scan_args {
     uint64_t N;
     uint64_t C;
     float fixed_stay_score;
+    uint64_t stream_chunk_offset;
 } scan_args_t;
 
 #define NUM_BASE_BITS (2)
