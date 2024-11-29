@@ -61,7 +61,7 @@ __global__ void generate_sequence(
     const float shift,
     const float scale
 ) {
-    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x) + args.stream_chunk_offset;
 
     if (chunk >= args.N) {
 		return;
@@ -149,7 +149,7 @@ __global__ void beam_search(
     const float fixed_stay_score,
     const float score_scale
 ) {
-    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x) + args.stream_chunk_offset;
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = MAX_BEAM_WIDTH * NUM_BASES;
     const int lane_id = tid % warpSize;
@@ -568,7 +568,7 @@ __global__ void compute_qual_data(
     float *_qual_data,
     const float posts_scale
 ) {
-    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x) + args.stream_chunk_offset;
     if (chunk >= args.N) {
 		return;
 	}

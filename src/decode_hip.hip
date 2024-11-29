@@ -10,7 +10,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
-openfish_gpubuf_t *gpubuf_init_hip(
+openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
     const int N,
     const int state_len
@@ -21,64 +21,64 @@ openfish_gpubuf_t *gpubuf_init_hip(
     const int num_states = pow(NUM_BASES, state_len);
 
     // scan tensors
-    hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
-	checkHipError();
-    hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
-	checkHipError();
+    cudaMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
+	checkCudaError();
+    cudaMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
+	checkCudaError();
 
     // return buffers
-    hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
-    checkHipError();
-    hipMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
-    checkHipError();
-    hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
-    checkHipError();
+    cudaMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
+    checkCudaError();
 
     // beamsearch buffers
-    hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
-    checkHipError();
-    hipMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
-    checkHipError();
-    hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
-    checkHipError();
-    hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
-    checkHipError();
-    hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
-    checkHipError();
+    cudaMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
+    checkCudaError();
 
     return gpubuf;
 }
 
-void gpubuf_free_hip(
+void gpubuf_free_cuda(
     openfish_gpubuf_t *gpubuf
 ) {
-    hipFree(gpubuf->bwd_NTC);
-    checkHipError();
-    hipFree(gpubuf->post_NTC);
-    checkHipError();
+    cudaFree(gpubuf->bwd_NTC);
+    checkCudaError();
+    cudaFree(gpubuf->post_NTC);
+    checkCudaError();
 
-    hipFree(gpubuf->moves);
-    checkHipError();
-    hipFree(gpubuf->sequence);
-    checkHipError();
-    hipFree(gpubuf->qstring);
-    checkHipError();
+    cudaFree(gpubuf->moves);
+    checkCudaError();
+    cudaFree(gpubuf->sequence);
+    checkCudaError();
+    cudaFree(gpubuf->qstring);
+    checkCudaError();
 
-    hipFree(gpubuf->beam_vector);
-    checkHipError();
-    hipFree(gpubuf->states);
-    checkHipError();
-    hipFree(gpubuf->qual_data);
-    checkHipError();
-    hipFree(gpubuf->base_probs);
-    checkHipError();
-    hipFree(gpubuf->total_probs);
-    checkHipError();
+    cudaFree(gpubuf->beam_vector);
+    checkCudaError();
+    cudaFree(gpubuf->states);
+    checkCudaError();
+    cudaFree(gpubuf->qual_data);
+    checkCudaError();
+    cudaFree(gpubuf->base_probs);
+    checkCudaError();
+    cudaFree(gpubuf->total_probs);
+    checkCudaError();
 
     free(gpubuf);
 }
 
-void decode_hip(
+void decode_cuda(
     const int T,
     const int N,
     const int C,
@@ -91,9 +91,12 @@ void decode_hip(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+    const int n_streams = 4;
+    cudaStream_t streams[n_streams];
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
+    const int grid_len = N/n_streams;
     int block_width = 2;
     while (block_width < target_block_width) {
         block_width *= 2;
@@ -101,11 +104,10 @@ void decode_hip(
 
     OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
 
-    double t0, t1, elapsed;
     dim3 block_size(block_width, block_width, 1);
     dim3 block_size_beam(MAX_BEAM_WIDTH * NUM_BASES, 1, 1);
     dim3 block_size_gen(1, 1, 1);
-	dim3 grid_size(N, 1, 1);
+    dim3 grid_size(grid_len, 1, 1);
 
     OPENFISH_LOG_DEBUG("scores tensor dim: %d, %d, %d", T, N, C);
 
@@ -117,64 +119,7 @@ void decode_hip(
     scan_args.num_states = num_states;
     scan_args.fixed_stay_score = options->blank_score;
 
-#ifdef BENCH
-    int n_batch = 140; // simulate 20k reads
-    if (num_states == 64) n_batch = 140; // fast
-    else if (num_states == 256) n_batch = 345; // hac
-    else if (num_states == 1024) n_batch = 685; // sup
-    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
-#endif
-
-    // bwd scan
-	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("bwd scan completed in %f secs", elapsed);
-
-    // fwd + post scan
-	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs", elapsed);
-
-    // beam search
-
-    // init results
-    *moves = (uint8_t *)malloc(N * T * sizeof(uint8_t));
-    MALLOC_CHK(*moves);
-    *sequence = (char *)malloc(N * T * sizeof(char));
-    MALLOC_CHK(*sequence);
-    *qstring = (char *)malloc(N * T * sizeof(char));
-    MALLOC_CHK(*qstring);
-
-    hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
-	checkHipError();
-    hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
-	checkHipError();
-    hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
-	checkHipError();
-
-    const int num_state_bits = (int)log2(num_states);
+    const int num_state_bits = (int)log2((double)num_states);
     const float fixed_stay_score = options->blank_score;
     const float q_scale = options->q_scale;
     const float q_shift = options->q_shift;
@@ -189,86 +134,98 @@ void decode_hip(
     beam_args.C = C;
     beam_args.num_state_bits = num_state_bits;
 
-    t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        beam_search<<<grid_size,block_size_beam>>>(
-            beam_args,
-            (state_t *)gpubuf->states,
-            gpubuf->moves,
-            (beam_element_t *)gpubuf->beam_vector,
-            beam_cut,
-            fixed_stay_score,
-            1.0f
-        );
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("beam search completed in %f secs", elapsed);
+    // init results
+    *moves = (uint8_t *)malloc(N * T * sizeof(uint8_t));
+    MALLOC_CHK(*moves);
+    *sequence = (char *)malloc(N * T * sizeof(char));
+    MALLOC_CHK(*sequence);
+    *qstring = (char *)malloc(N * T * sizeof(char));
+    MALLOC_CHK(*qstring);
 
-    t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        compute_qual_data<<<grid_size,block_size_gen>>>(
-            beam_args,
-            (state_t *)gpubuf->states,
-            gpubuf->qual_data,
-            1.0f
-        );
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("compute quality data completed in %f secs", elapsed);
+    cudaMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
+	checkCudaError();
+    cudaMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
+	checkCudaError();
+    cudaMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
+	checkCudaError();
 
+    #ifdef BENCH
+        int n_batch = 140; // simulate 20k reads
+        if (num_states == 64) n_batch = 140; // fast
+        else if (num_states == 256) n_batch = 345; // hac
+        else if (num_states == 1024) n_batch = 685; // sup
+        OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
+    #endif
+
+    double t0, t1, elapsed;
     t0 = realtime();
 #ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
+    for (int j = 0;  j < n_batch; ++j)
 #endif
     {
-        generate_sequence<<<grid_size,block_size_gen>>>(
-            beam_args,
-            gpubuf->moves,
-            (state_t *)gpubuf->states,
-            gpubuf->qual_data,
-            gpubuf->base_probs,
-            gpubuf->total_probs,
-            gpubuf->sequence,
-            gpubuf->qstring,
-            q_shift,
-            q_scale
-        );
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
+        for (int i = 0; i < n_streams; ++i) {
+            cudaStreamCreate(&streams[i]);
+            checkCudaError();
+            cudaStream_t stream = streams[i];
+
+            scan_args_t stream_scan_args = scan_args;
+            beam_args_t stream_beam_args = beam_args;
+            stream_scan_args.stream_chunk_offset = i * grid_len;
+            stream_beam_args.stream_chunk_offset = i * grid_len;
+            
+            bwd_scan<<<grid_size,block_size,0,stream>>>(stream_scan_args, gpubuf->bwd_NTC);
+            checkCudaError();
+            fwd_post_scan<<<grid_size,block_size,0,stream>>>(stream_scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+            checkCudaError();
+            beam_search<<<grid_size,block_size_beam,0,stream>>>(
+                stream_beam_args,
+                (state_t *)gpubuf->states,
+                gpubuf->moves,
+                (beam_element_t *)gpubuf->beam_vector,
+                beam_cut,
+                fixed_stay_score,
+                1.0f
+            );
+            checkCudaError();
+            compute_qual_data<<<grid_size,block_size_gen,0,stream>>>(
+                stream_beam_args,
+                (state_t *)gpubuf->states,
+                gpubuf->qual_data,
+                1.0f
+            );
+            checkCudaError();
+            generate_sequence<<<grid_size,block_size_gen,0,stream>>>(
+                stream_beam_args,
+                gpubuf->moves,
+                (state_t *)gpubuf->states,
+                gpubuf->qual_data,
+                gpubuf->base_probs,
+                gpubuf->total_probs,
+                gpubuf->sequence,
+                gpubuf->qstring,
+                q_shift,
+                q_scale
+            );
+            checkCudaError();
+        }
+        cudaDeviceSynchronize();
+        checkCudaError();
     }
-	// end timing
-	t1 = realtime();
+    t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("generate sequence completed in %f secs", elapsed);
+    OPENFISH_LOG_DEBUG("decoding completed in %f secs", elapsed);
 
     // copy beam_search results
-    hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
-	hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
-    hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
+    cudaMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
-void *upload_scores_to_hip(
+void *upload_scores_to_cuda(
     const int T,
     const int N,
     const int C,
@@ -276,23 +233,23 @@ void *upload_scores_to_hip(
 ) {
     void *scores_TNC_gpu;
 
-    hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-	checkHipError();
+    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
+	checkCudaError();
 
-	hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice);
-	checkHipError();
+	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
+	checkCudaError();
 
     return scores_TNC_gpu;
 }
 
-void free_scores_hip(
+void free_scores_cuda(
     void *scores_TNC_gpu
 ) {
-    hipFree(scores_TNC_gpu);
-	checkHipError();
+    cudaFree(scores_TNC_gpu);
+	checkCudaError();
 }
 
-void write_gpubuf_hip(
+void write_gpubuf_cuda(
     const uint64_t T,
     const uint64_t N,
     const int state_len,
@@ -314,23 +271,23 @@ void write_gpubuf_hip(
     MALLOC_CHK(total_probs);
 
     // copy scan results
-    hipMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
-    checkHipError();
-	hipMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
+    checkCudaError();
+	cudaMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
     // copy intermediate
-    hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
-    hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
-    hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
-    hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
-    checkHipError();
+    cudaMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
+    checkCudaError();
 
     // write results
     FILE *fp;
