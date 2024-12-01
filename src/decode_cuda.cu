@@ -204,7 +204,7 @@ void decode_cuda(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("beam search completed in %f secs", elapsed);
+    OPENFISH_LOG_DEBUG("post pobs + beam search completed in %f secs", elapsed);
 
     t0 = realtime();
 #ifdef BENCH
