@@ -91,6 +91,11 @@ void decode_hip(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+    hipStream_t stream1, stream2;
+    hipStreamCreate(&stream1);
+    checkHipError();
+    hipStreamCreate(&stream2);
+    checkHipError();
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
@@ -131,9 +136,9 @@ void decode_hip(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+        bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
         checkHipError();
-        hipDeviceSynchronize();
+        hipStreamSynchronize(stream1);
         checkHipError();
     }
 	// end timing
@@ -142,21 +147,6 @@ void decode_hip(
     OPENFISH_LOG_DEBUG("bwd scan completed in %f secs", elapsed);
 
     // fwd + post scan
-	t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkHipError();
-        hipDeviceSynchronize();
-        checkHipError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("fwd scan completed in %f secs", elapsed);
-
     // beam search
 
     // init results
@@ -174,7 +164,7 @@ void decode_hip(
     hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
 	checkHipError();
 
-    const int num_state_bits = (int)log2(num_states);
+    const int num_state_bits = (int)log2((double)num_states);
     const float fixed_stay_score = options->blank_score;
     const float q_scale = options->q_scale;
     const float q_shift = options->q_shift;
@@ -194,7 +184,7 @@ void decode_hip(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        beam_search<<<grid_size,block_size_beam>>>(
+        beam_search<<<grid_size,block_size_beam,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->moves,
@@ -204,7 +194,12 @@ void decode_hip(
             1.0f
         );
         checkHipError();
-        hipDeviceSynchronize();
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkHipError();
+        
+        hipStreamSynchronize(stream1);
+        checkHipError();
+        hipStreamSynchronize(stream2);
         checkHipError();
     }
 	// end timing
@@ -217,14 +212,14 @@ void decode_hip(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        compute_qual_data<<<grid_size,block_size_gen>>>(
+        compute_qual_data<<<grid_size,block_size_gen,0,stream1>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->qual_data,
             1.0f
         );
         checkHipError();
-        hipDeviceSynchronize();
+        hipStreamSynchronize(stream1);
         checkHipError();
     }
 	// end timing
@@ -237,7 +232,7 @@ void decode_hip(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        generate_sequence<<<grid_size,block_size_gen>>>(
+        generate_sequence<<<grid_size,block_size_gen,0,stream1>>>(
             beam_args,
             gpubuf->moves,
             (state_t *)gpubuf->states,
@@ -250,7 +245,7 @@ void decode_hip(
             q_scale
         );
         checkHipError();
-        hipDeviceSynchronize();
+        hipStreamSynchronize(stream1);
         checkHipError();
     }
 	// end timing
@@ -265,6 +260,9 @@ void decode_hip(
     checkHipError();
     hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost);
     checkHipError();
+
+    hipStreamDestroy(stream1);
+    hipStreamDestroy(stream2);
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
