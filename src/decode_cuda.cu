@@ -90,12 +90,13 @@ void decode_cuda(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
-    const int n_streams = 4;
+    const int n_main_streams = 4;
+    const int n_streams = n_main_streams * 2;
     cudaStream_t streams[n_streams];
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
-    const int grid_len = N/n_streams;
+    const int grid_len = N/n_main_streams;
     int block_width = 2;
     while (block_width < target_block_width) {
         block_width *= 2;
@@ -156,27 +157,45 @@ void decode_cuda(
         OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
     #endif
 
+    for (int i = 0; i < n_streams; ++i) {
+        cudaStreamCreate(&streams[i]);
+        checkCudaError();
+    }
+
     double t0, t1, elapsed;
     t0 = realtime();
 #ifdef BENCH
     for (int j = 0;  j < n_batch; ++j)
 #endif
     {
-        for (int i = 0; i < n_streams; ++i) {
-            cudaStreamCreate(&streams[i]);
-            checkCudaError();
-            cudaStream_t stream = streams[i];
+        // bwd scan
+        for (int i = 0; i < n_streams; i += 2) {
+            int main_idx = i/2;
+            cudaStream_t stream_0 = streams[i];
+            scan_args_t stream_scan_args = scan_args;
+            stream_scan_args.stream_chunk_offset = main_idx * grid_len;
 
+            bwd_scan<<<grid_size,block_size,0,stream_0>>>(stream_scan_args, gpubuf->bwd_NTC);
+            checkCudaError();
+        }
+        for (int i = 0; i < n_streams; i += 2) {
+            cudaStreamSynchronize(streams[i]);
+            checkCudaError();
+        }
+
+        // fwd + beam
+        for (int i = 0; i < n_streams; i += 2) {
+            int main_idx = i/2;
+            cudaStream_t stream_0 = streams[i];
+            cudaStream_t stream_1 = streams[i+1];
             scan_args_t stream_scan_args = scan_args;
             beam_args_t stream_beam_args = beam_args;
-            stream_scan_args.stream_chunk_offset = i * grid_len;
-            stream_beam_args.stream_chunk_offset = i * grid_len;
-            
-            bwd_scan<<<grid_size,block_size,0,stream>>>(stream_scan_args, gpubuf->bwd_NTC);
+            stream_scan_args.stream_chunk_offset = main_idx * grid_len;
+            stream_beam_args.stream_chunk_offset = main_idx * grid_len;
+
+            fwd_post_scan<<<grid_size,block_size,0,stream_0>>>(stream_scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
             checkCudaError();
-            fwd_post_scan<<<grid_size,block_size,0,stream>>>(stream_scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-            checkCudaError();
-            beam_search<<<grid_size,block_size_beam,0,stream>>>(
+            beam_search<<<grid_size,block_size_beam,0,stream_1>>>(
                 stream_beam_args,
                 (state_t *)gpubuf->states,
                 gpubuf->moves,
@@ -186,14 +205,27 @@ void decode_cuda(
                 1.0f
             );
             checkCudaError();
-            compute_qual_data<<<grid_size,block_size_gen,0,stream>>>(
+        }
+        for (int i = 0; i < n_streams; ++i) {
+            cudaStreamSynchronize(streams[i]);
+            checkCudaError();
+        }
+
+        // qualt data + gen sequence
+        for (int i = 0; i < n_streams; i += 2) {
+            int main_idx = i/2;
+            cudaStream_t stream_0 = streams[i];
+            beam_args_t stream_beam_args = beam_args;
+            stream_beam_args.stream_chunk_offset = main_idx * grid_len;
+
+            compute_qual_data<<<grid_size,block_size_gen,0,stream_0>>>(
                 stream_beam_args,
                 (state_t *)gpubuf->states,
                 gpubuf->qual_data,
                 1.0f
             );
             checkCudaError();
-            generate_sequence<<<grid_size,block_size_gen,0,stream>>>(
+            generate_sequence<<<grid_size,block_size_gen,0,stream_0>>>(
                 stream_beam_args,
                 gpubuf->moves,
                 (state_t *)gpubuf->states,
@@ -207,8 +239,10 @@ void decode_cuda(
             );
             checkCudaError();
         }
-        cudaDeviceSynchronize();
-        checkCudaError();
+        for (int i = 0; i < n_streams; i += 2) {
+            cudaStreamSynchronize(streams[i]);
+            checkCudaError();
+        }
     }
     t1 = realtime();
     elapsed = t1 - t0;
