@@ -183,7 +183,7 @@ void decode_cuda(
     for (int i = 0; i < n_batch; ++i)
 #endif
     {
-        beam_search<<<grid_size,block_size_beam,0,stream2>>>(
+        beam_search<<<grid_size,block_size_beam,0,stream1>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->moves,
@@ -193,7 +193,7 @@ void decode_cuda(
             1.0f
         );
         checkCudaError();
-        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        fwd_post_scan<<<grid_size,block_size,0,stream2>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
         checkCudaError();
         
         cudaStreamSynchronize(stream1);
@@ -218,19 +218,6 @@ void decode_cuda(
             1.0f
         );
         checkCudaError();
-        cudaStreamSynchronize(stream1);
-        checkCudaError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("compute quality data completed in %f secs", elapsed);
-
-    t0 = realtime();
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
         generate_sequence<<<grid_size,block_size_gen,0,stream1>>>(
             beam_args,
             gpubuf->moves,
@@ -250,7 +237,7 @@ void decode_cuda(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("generate sequence completed in %f secs", elapsed);
+    OPENFISH_LOG_DEBUG("generate sequence + compute quality data completed in %f secs", elapsed);
 
     // copy beam_search results
     cudaMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
