@@ -88,9 +88,9 @@ __global__ void fwd_post_scan(
     const uint64_t ts_states = num_states * NUM_BASES;
 
     __shared__ float fwd_vals[MAX_STATES];
-    __shared__ float fwd_maxs[64]; // threadblock max stored in [0]
+    __shared__ float fwd_maxs[32]; // threadblock max stored in [0]
     __shared__ float exp_vals[MAX_STATES];
-    __shared__ float exp_sums[64]; // threadblock sum stored in [0]
+    __shared__ float exp_sums[32]; // threadblock sum stored in [0]
     float warp_max;
 
     // scores for this batch

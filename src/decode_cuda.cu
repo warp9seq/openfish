@@ -89,6 +89,9 @@ void decode_cuda(
     char **sequence,
     char **qstring
 ) {
+    double t0, t1, elapsed;
+    t0 = realtime();
+
     const int num_states = pow(NUM_BASES, state_len);
     cudaStream_t stream1, stream2;
     cudaStreamCreate(&stream1);
@@ -104,8 +107,7 @@ void decode_cuda(
     }
 
     OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
-
-    double t0, t1, elapsed;
+    
     dim3 block_size(block_width, block_width, 1);
     dim3 block_size_beam(MAX_BEAM_WIDTH * NUM_BASES, 1, 1);
     dim3 block_size_gen(1, 1, 1);
@@ -162,7 +164,6 @@ void decode_cuda(
     // bwd scan
     // fwd + post scan
     // beam search
-    t0 = realtime();
 #ifdef BENCH
     for (int i = 0; i < n_batch; ++i)
 #endif

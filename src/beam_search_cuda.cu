@@ -242,7 +242,7 @@ __global__ void beam_search(
     
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
-    __shared__ float block_buf[64];
+    __shared__ float block_buf[32];
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
