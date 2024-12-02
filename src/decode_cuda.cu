@@ -188,14 +188,14 @@ void decode_cuda(
         checkCudaError();
         cudaStreamSynchronize(stream1);
         checkCudaError();
-        compute_qual_data<<<grid_size,block_size_gen,0,stream1>>>(
+        compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
             beam_args,
             (state_t *)gpubuf->states,
             gpubuf->qual_data,
             1.0f
         );
         checkCudaError();
-        generate_sequence<<<grid_size,block_size_gen,0,stream1>>>(
+        generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
             beam_args,
             gpubuf->moves,
             (state_t *)gpubuf->states,
@@ -208,7 +208,7 @@ void decode_cuda(
             q_scale
         );
         checkCudaError();
-        cudaStreamSynchronize(stream1);
+        cudaStreamSynchronize(stream2);
         checkCudaError();
     }
 	// end timing

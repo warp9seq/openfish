@@ -11,7 +11,6 @@ __global__ void bwd_scan(
 ) {
 	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-	const uint64_t nthreads = blockDim.x * blockDim.y;
     const uint64_t state = tid;
 
     const half *scores_in = (half *)args.scores_in;
@@ -30,9 +29,7 @@ __global__ void bwd_scan(
     const half *const chunk_in = scores_in + chunk * ts_states;
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
-    for (uint64_t state = tid; state < num_states; state += nthreads) {
-        alpha_init[state] = 0.0f;
-    }
+    alpha_init[state] = 0.0f;
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
