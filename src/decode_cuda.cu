@@ -193,8 +193,6 @@ void decode_cuda(
             stream_scan_args.stream_chunk_offset = main_idx * grid_len;
             stream_beam_args.stream_chunk_offset = main_idx * grid_len;
 
-            fwd_post_scan<<<grid_size,block_size,0,stream_0>>>(stream_scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-            checkCudaError();
             beam_search<<<grid_size,block_size_beam,0,stream_1>>>(
                 stream_beam_args,
                 (state_t *)gpubuf->states,
@@ -204,6 +202,8 @@ void decode_cuda(
                 fixed_stay_score,
                 1.0f
             );
+            checkCudaError();
+            fwd_post_scan<<<grid_size,block_size,0,stream_0>>>(stream_scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
             checkCudaError();
         }
         for (int i = 0; i < n_streams; ++i) {
