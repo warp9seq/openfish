@@ -137,7 +137,7 @@ __global__ void fwd_post_scan(
             }
             float fwd_sum = 0.0f;
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                fwd_sum += exp(vals[i] - fwd_max_val);
+                fwd_sum += __expf(vals[i] - fwd_max_val);
             }
             ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
 
