@@ -426,7 +426,7 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         float *score_ptr = current_scores + tid;
-        for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
+        for (int i = 0; i < new_elem_count; i += nthreads) {
             if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
             score_ptr += nthreads;
         }
@@ -440,7 +440,7 @@ __global__ void beam_search(
             }
             __syncthreads();
             score_ptr = current_scores + tid;
-            for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
+            for (int i = 0; i < new_elem_count; i += nthreads) {
                 if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
                 score_ptr += nthreads;
             }
@@ -496,7 +496,7 @@ __global__ void beam_search(
             beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
         }
         // adjust current beam width
-        current_beam_width = elem_count;
+        if (tid == 0) current_beam_width = elem_count;
         __syncthreads();
     }
 
