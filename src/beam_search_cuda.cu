@@ -243,6 +243,7 @@ __global__ void beam_search(
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
     __shared__ float block_buf[32];
+    __shared__ size_t rid[MAX_BEAM_WIDTH];
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
@@ -439,7 +440,7 @@ __global__ void beam_search(
             size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
             float warp_cutoff = beam_cutoff_score;  // 80% of beam width is the minimum we accept
             for (int guess = tid; guess < new_elem_count; guess += nthreads) {
-                float new_cutoff = score_ptr[guess];
+                float new_cutoff = current_scores[guess];
                 int elem_count_guess = 0;
                 score_ptr = current_scores;
                 for (int i = new_elem_count; i; --i) {
@@ -483,28 +484,36 @@ __global__ void beam_search(
             }
             __syncthreads();
             
-            float *score_ptr = current_scores + tid;
-            for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
-                if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
-                score_ptr += nthreads;
+            if (tid == 0) {
+                float *score_ptr = current_scores;
+                for (size_t i = 0; i < (size_t)(new_elem_count); ++i) {
+                    if (*score_ptr >= beam_cutoff_score) {
+                        rid[elem_count] = i;
+                        elem_count += 1;
+                        if (elem_count == MAX_BEAM_WIDTH) break;
+                    }
+                    ++score_ptr;
+                }
             }
             __syncthreads();
 
-            // clamp the element count to the max beam width in case of failure 2 from above
-            if (tid == 0) elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
-        }
-
-        // write current scores and beam fronts to prev
-        if (tid == 0) {
-            size_t write_idx = 0;
-            for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
-                if (current_scores[read_idx] >= beam_cutoff_score) {
-                    if (write_idx < MAX_BEAM_WIDTH) {
-                        prev_beam_front[write_idx] = current_beam_front[read_idx];
-                        prev_scores[write_idx] = current_scores[read_idx];
-                        ++write_idx;
-                    } else {
-                        break;
+            for (size_t i = tid; i < elem_count; i += nthreads) {
+                prev_beam_front[i] = current_beam_front[rid[i]];
+                prev_scores[i] = current_scores[rid[i]];
+            }
+        } else {
+            // write current scores and beam fronts to prev
+            if (tid == 0) {
+                size_t write_idx = 0;
+                for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
+                    if (current_scores[read_idx] >= beam_cutoff_score) {
+                        if (write_idx < MAX_BEAM_WIDTH) {
+                            prev_beam_front[write_idx] = current_beam_front[read_idx];
+                            prev_scores[write_idx] = current_scores[read_idx];
+                            ++write_idx;
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
