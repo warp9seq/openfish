@@ -434,7 +434,7 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
+        // fallback to max_score
         if (elem_count > MAX_BEAM_WIDTH) {
             // if we couldn't find a suitable score, a couple things could have happened:
             // 1: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
