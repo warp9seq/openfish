@@ -439,17 +439,16 @@ __global__ void beam_search(
                 elem_count = 0;
             }
             __syncthreads();
-            float *score_ptr = current_scores + tid;
+            score_ptr = current_scores + tid;
             for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
                 if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
                 score_ptr += nthreads;
             }
             __syncthreads();
-            if (tid == 0) elem_count = min(elem_count, MAX_BEAM_WIDTH);
-            __syncthreads();
         }
         // write current scores and beam fronts to prev
         if (tid == 0) {
+            elem_count = min(elem_count, MAX_BEAM_WIDTH);
             size_t write_idx = 0;
             for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
                 if (current_scores[read_idx] >= beam_cutoff_score) {
