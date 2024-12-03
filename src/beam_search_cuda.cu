@@ -242,16 +242,18 @@ __global__ void beam_search(
     
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
-    __shared__ float block_buf[32];
+    __shared__ float block_buf[64];
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
+    __shared__ bool found_cutoff;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -FLT_MAX;
         if (tid == 0) {
+            found_cutoff = false;
             new_elem_count = 0;
         }
         
@@ -426,29 +428,37 @@ __global__ void beam_search(
 
         // count the elements which meet the min score
         float *score_ptr = current_scores + tid;
-        for (int i = 0; i < new_elem_count; i += nthreads) {
+        for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
             if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
             score_ptr += nthreads;
         }
         __syncthreads();
 
-        // fall back to max score
+        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
         if (elem_count > MAX_BEAM_WIDTH) {
+            // if we couldn't find a suitable score, a couple things could have happened:
+            // 1: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
+            //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
+            // 2: there is no good score as all the elements from <80% of the beam to >100% have the same score
+            //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
+            __syncthreads();
             if (tid == 0) {
                 beam_cutoff_score = max_score;
                 elem_count = 0;
             }
             __syncthreads();
+            
             score_ptr = current_scores + tid;
-            for (int i = 0; i < new_elem_count; i += nthreads) {
+            for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
                 if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
                 score_ptr += nthreads;
             }
             __syncthreads();
         }
+
         // write current scores and beam fronts to prev
         if (tid == 0) {
-            elem_count = min(elem_count, MAX_BEAM_WIDTH);
+            elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
             size_t write_idx = 0;
             for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
                 if (current_scores[read_idx] >= beam_cutoff_score) {
