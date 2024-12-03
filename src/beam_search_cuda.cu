@@ -432,7 +432,7 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
+        // fall back to max score
         if (elem_count > MAX_BEAM_WIDTH) {
             if (tid == 0) {
                 beam_cutoff_score = max_score;
