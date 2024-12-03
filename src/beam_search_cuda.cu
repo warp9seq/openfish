@@ -439,7 +439,7 @@ __global__ void beam_search(
             size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
             float warp_cutoff = beam_cutoff_score;  // 80% of beam width is the minimum we accept
             for (int guess = tid; guess < new_elem_count; guess += nthreads) {
-                float new_cutoff = score_ptr[guess];
+                float new_cutoff = current_scores[guess];
                 int elem_count_guess = 0;
                 score_ptr = current_scores;
                 for (int i = new_elem_count; i; --i) {
