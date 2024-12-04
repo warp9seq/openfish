@@ -28,7 +28,7 @@ jobs:
         tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
     - name: build
       run: make -j2
     - name: test
@@ -51,7 +51,7 @@ jobs:
         tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
@@ -81,7 +81,7 @@ jobs:
         tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
     - name: build
       run: make -j2
     - name: test
