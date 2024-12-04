@@ -435,68 +435,31 @@ __global__ void beam_search(
         }
         __syncthreads();
 
-        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
+        // fallback to max_score
         if (elem_count > MAX_BEAM_WIDTH) {
-            size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
-            float warp_cutoff = beam_cutoff_score;  // 80% of beam width is the minimum we accept
-            for (int guess = tid; guess < new_elem_count; guess += nthreads) {
-                float new_cutoff = score_ptr[guess];
-                int elem_count_guess = 0;
-                score_ptr = current_scores;
-                for (int i = new_elem_count; i; --i) {
-                    if (*score_ptr >= new_cutoff) ++elem_count_guess;
-                    ++score_ptr;
-                }
-                if (elem_count_guess <= MAX_BEAM_WIDTH && elem_count_guess >= min_beam_width) {
-                    warp_cutoff = min(warp_cutoff, new_cutoff);
-                    found_cutoff = true;
-                }
-            }
-            __syncthreads();
-
             // if we couldn't find a suitable score, a couple things could have happened:
             // 1: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
             //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
             // 2: there is no good score as all the elements from <80% of the beam to >100% have the same score
             //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
+            __syncthreads();
             if (tid == 0) {
-                if (!found_cutoff) beam_cutoff_score = max_score;
+                beam_cutoff_score = max_score;
                 elem_count = 0;
-            }
-            if (found_cutoff) {
-                // find max val in warp
-                for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                    warp_cutoff = min(warp_cutoff, __shfl_down(warp_cutoff, offset));
-                }
-                if (lane_id == 0) block_buf[warp_id] = warp_cutoff;
-                __syncthreads();
-
-                // set max val in all warps
-                if (warp_id == 0) {
-                    warp_cutoff = (tid < nthreads/warpSize) ? block_buf[lane_id] : FLT_MAX;
-
-                    for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                        warp_cutoff = min(warp_cutoff, __shfl_down(warp_cutoff, offset));
-                    }
-                    
-                    if (tid == 0) beam_cutoff_score = warp_cutoff;
-                }
             }
             __syncthreads();
             
-            float *score_ptr = current_scores + tid;
+            score_ptr = current_scores + tid;
             for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
                 if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
                 score_ptr += nthreads;
             }
             __syncthreads();
-
-            // clamp the element count to the max beam width in case of failure 2 from above
-            if (tid == 0) elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
         }
 
         // write current scores and beam fronts to prev
         if (tid == 0) {
+            elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
             size_t write_idx = 0;
             for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
                 if (current_scores[read_idx] >= beam_cutoff_score) {
@@ -544,7 +507,7 @@ __global__ void beam_search(
             beam_vector[beam_offset + i].stay = prev_beam_front[i].stay;
         }
         // adjust current beam width
-        current_beam_width = elem_count;
+        if (tid == 0) current_beam_width = elem_count;
         __syncthreads();
     }
 
