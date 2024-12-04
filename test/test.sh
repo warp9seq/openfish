@@ -30,7 +30,7 @@ INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 
 SCORES=test/data/scores.blob
 
-ex /usr/bin/time  --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+ex ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
 diff moves.blob test/data/moves.blob || die "tool failed"
 diff sequence.blob test/data/sequence.blob || die "tool failed"
