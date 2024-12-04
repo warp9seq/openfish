@@ -247,14 +247,12 @@ __global__ void beam_search(
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
-    __shared__ bool found_cutoff;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -FLT_MAX;
         if (tid == 0) {
-            found_cutoff = false;
             new_elem_count = 0;
         }
         
