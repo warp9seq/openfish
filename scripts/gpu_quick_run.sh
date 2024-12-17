@@ -42,8 +42,9 @@ if [ "$MODEL" = "sup" ]; then
     INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 fi
 
-DATA_DIR=/data/bonwon/slorado_test_data/blobs
+# DATA_DIR=/data/bonwon/slorado_test_data/blobs
 # DATA_DIR=/data/bonson/slorado_test_data/blobs
+DATA_DIR=/software/projects/pawsey1099/bonwon/slorado_test_data/blobs
 SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
 
 /usr/bin/time  --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
