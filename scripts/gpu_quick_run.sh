@@ -44,12 +44,15 @@ fi
 
 DATA_DIR=/data/bonwon/slorado_test_data/blobs
 # DATA_DIR=/data/bonson/slorado_test_data/blobs
-SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
+SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_NTC_half.blob
 
 /usr/bin/time  --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob $(( 4*(INTENS_LEN) ))
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob $INTENS_LEN
-# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob $INTENS_LEN
+diff bwd_NTC.blob TNC_results/bwd_NTC.blob
+./compare_blob TNC_results/bwd_NTC.blob bwd_NTC.blob $TENS_LEN
+
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob $(( 4*(INTENS_LEN) ))
+# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob $INTENS_LEN
+# # ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob $INTENS_LEN

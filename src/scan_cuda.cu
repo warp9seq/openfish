@@ -17,6 +17,7 @@ __global__ void bwd_scan(
     const uint64_t num_states = args.num_states;
     const uint64_t T = args.T;
     const uint64_t N = args.N;
+    const uint64_t C = args.C;
 
 	if (chunk >= args.N || tid >= num_states) {
 		return;
@@ -26,7 +27,7 @@ __global__ void bwd_scan(
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const half *const chunk_in = scores_in + (chunk * ts_states * T);
+    const half *const chunk_in = scores_in + (chunk * T * C);
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
     alpha_init[state] = 0.0f;
