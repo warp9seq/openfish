@@ -14,6 +14,9 @@ openfish_gpubuf_t *gpubuf_init_cuda(
     const int N,
     const int state_len
 ) {
+    cudaSetDevice(2);
+    checkCudaError();
+
     openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(malloc(sizeof(openfish_gpubuf_t)));
     MALLOC_CHK(gpubuf);
 
@@ -51,6 +54,9 @@ openfish_gpubuf_t *gpubuf_init_cuda(
 void gpubuf_free_cuda(
     openfish_gpubuf_t *gpubuf
 ) {
+    cudaSetDevice(2);
+    checkCudaError();
+
     cudaFree(gpubuf->bwd_NTC);
     checkCudaError();
     cudaFree(gpubuf->post_NTC);
@@ -89,6 +95,9 @@ void decode_cuda(
     char **sequence,
     char **qstring
 ) {
+    cudaSetDevice(2);
+    checkCudaError();
+
     double t0, t1, elapsed;
     t0 = realtime();
 
@@ -171,7 +180,8 @@ void decode_cuda(
         bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
         checkCudaError();
         cudaStreamSynchronize(stream1);
-        // checkCudaError();
+        checkCudaError();
+
         // beam_search<<<grid_size,block_size_beam,0,stream2>>>(
         //     beam_args,
         //     (state_t *)gpubuf->states,
@@ -182,12 +192,15 @@ void decode_cuda(
         //     1.0f
         // );
         // checkCudaError();
-        // fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        // checkCudaError();
-        // cudaStreamSynchronize(stream2);
-        // checkCudaError();
-        // cudaStreamSynchronize(stream1);
-        // checkCudaError();
+
+        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkCudaError();
+        
+        cudaStreamSynchronize(stream2);
+        checkCudaError();
+        cudaStreamSynchronize(stream1);
+        checkCudaError();
+
         // compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
         //     beam_args,
         //     (state_t *)gpubuf->states,

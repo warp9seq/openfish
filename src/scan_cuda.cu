@@ -16,7 +16,6 @@ __global__ void bwd_scan(
     const half *scores_in = (half *)args.scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t T = args.T;
-    const uint64_t N = args.N;
     const uint64_t C = args.C;
 
 	if (chunk >= args.N || tid >= num_states) {
@@ -24,8 +23,6 @@ __global__ void bwd_scan(
 	}
 
     const float fixed_stay_score = args.fixed_stay_score;
-
-    const uint64_t ts_states = num_states * NUM_BASES;
 
     const half *const chunk_in = scores_in + (chunk * T * C);
     float* const chunk_out = out + chunk * (T+1) * num_states;
@@ -75,6 +72,7 @@ __global__ void fwd_post_scan(
     const uint64_t _T = args.T;
     const uint64_t T = args.T + 1;
     const uint64_t N = args.N;
+    const uint64_t C = args.C;
 
 	if (chunk >= N || tid >= num_states) {
 		return;
@@ -83,7 +81,6 @@ __global__ void fwd_post_scan(
     const float fixed_stay_score = args.fixed_stay_score;
     
     const uint64_t msb = num_states / NUM_BASES;
-    const uint64_t ts_states = num_states * NUM_BASES;
 
     __shared__ float fwd_vals[MAX_STATES];
     __shared__ float fwd_maxs[32]; // threadblock max stored in [0]
@@ -92,7 +89,7 @@ __global__ void fwd_post_scan(
     float warp_max;
 
     // scores for this batch
-    const half *const chunk_scores = scores_in + chunk * ts_states;
+    const half *const chunk_scores = scores_in + chunk * C;
 
     // alternating forward guide buffers used for successive time steps
     __shared__ float ts_fwd[2][MAX_STATES];
@@ -110,7 +107,7 @@ __global__ void fwd_post_scan(
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
         // this time step's scores
-        const half *const ts_scores = chunk_scores + N * ts_states * ts;
+        const half *const ts_scores = chunk_scores + N * C * ts;
 
         // alternating TG buffer twiddling
         const float* const ts_alpha_in = ts_fwd[ts & 1];
