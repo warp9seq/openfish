@@ -34,7 +34,7 @@ __global__ void bwd_scan(
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
-        const half *const ts_in = chunk_in + (T - ts - 1);
+        const half *const ts_in = chunk_in + C * (T - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
