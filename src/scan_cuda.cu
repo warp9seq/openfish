@@ -26,14 +26,14 @@ __global__ void bwd_scan(
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const half *const chunk_in = scores_in + chunk * ts_states;
+    const half *const chunk_in = scores_in + (chunk * ts_states * T);
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
     alpha_init[state] = 0.0f;
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
-        const half *const ts_in = chunk_in + N * ts_states * (T - ts - 1);
+        const half *const ts_in = chunk_in + (T - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
