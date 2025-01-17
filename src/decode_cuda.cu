@@ -182,16 +182,16 @@ void decode_cuda(
         cudaStreamSynchronize(stream1);
         checkCudaError();
 
-        // beam_search<<<grid_size,block_size_beam,0,stream2>>>(
-        //     beam_args,
-        //     (state_t *)gpubuf->states,
-        //     gpubuf->moves,
-        //     (beam_element_t *)gpubuf->beam_vector,
-        //     beam_cut,
-        //     fixed_stay_score,
-        //     1.0f
-        // );
-        // checkCudaError();
+        beam_search<<<grid_size,block_size_beam,0,stream2>>>(
+            beam_args,
+            (state_t *)gpubuf->states,
+            gpubuf->moves,
+            (beam_element_t *)gpubuf->beam_vector,
+            beam_cut,
+            fixed_stay_score,
+            1.0f
+        );
+        checkCudaError();
 
         fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
         checkCudaError();
@@ -201,28 +201,30 @@ void decode_cuda(
         cudaStreamSynchronize(stream1);
         checkCudaError();
 
-        // compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
-        //     beam_args,
-        //     (state_t *)gpubuf->states,
-        //     gpubuf->qual_data,
-        //     1.0f
-        // );
-        // checkCudaError();
-        // generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
-        //     beam_args,
-        //     gpubuf->moves,
-        //     (state_t *)gpubuf->states,
-        //     gpubuf->qual_data,
-        //     gpubuf->base_probs,
-        //     gpubuf->total_probs,
-        //     gpubuf->sequence,
-        //     gpubuf->qstring,
-        //     q_shift,
-        //     q_scale
-        // );
-        // checkCudaError();
-        // cudaStreamSynchronize(stream2);
-        // checkCudaError();
+        compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
+            beam_args,
+            (state_t *)gpubuf->states,
+            gpubuf->qual_data,
+            1.0f
+        );
+        checkCudaError();
+
+        generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
+            beam_args,
+            gpubuf->moves,
+            (state_t *)gpubuf->states,
+            gpubuf->qual_data,
+            gpubuf->base_probs,
+            gpubuf->total_probs,
+            gpubuf->sequence,
+            gpubuf->qstring,
+            q_shift,
+            q_scale
+        );
+        checkCudaError();
+        
+        cudaStreamSynchronize(stream2);
+        checkCudaError();
     }
 	// end timing
 	t1 = realtime();

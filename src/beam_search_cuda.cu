@@ -161,16 +161,14 @@ __global__ void beam_search(
 	}
 
     const uint64_t T = args.T;
-    const uint64_t N = args.N;
     const uint64_t C = args.C;
 
     const int num_state_bits = args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
     const state_t states_mask = (state_t)(num_states - 1);
-    const size_t scores_block_stride = N * C;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
-    const half *scores_TNC = (half *)args.scores_TNC + chunk * (num_states * NUM_BASES);
+    const half *scores_TNC = (half *)args.scores_TNC + chunk * T * C;
     const float *bwd_NTC = args.bwd_NTC + chunk * num_states * (T + 1);
     state_t *states = _states + chunk * T;
     uint8_t *moves = _moves + chunk * T;
@@ -247,7 +245,7 @@ __global__ void beam_search(
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
-        const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const half *const block_scores = scores_TNC + (block_idx * C);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -FLT_MAX;
