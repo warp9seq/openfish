@@ -33,7 +33,7 @@ ifdef cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
     CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o
     NVCC ?= $(CUDA_ROOT)/bin/nvcc
-    CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
+    CUDA_CFLAGS += -g -O2 -lineinfo $$CUDA_ARCH -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
     GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
