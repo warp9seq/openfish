@@ -67,6 +67,7 @@ __global__ void fwd_post_scan(
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
     const unsigned mask = 0xFFFFFFFFU;
+    (void)mask;
     const uint64_t state = tid;
 
     const half *scores_in = (half *)args.scores_in;

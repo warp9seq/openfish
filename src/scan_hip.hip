@@ -12,7 +12,7 @@ __global__ void bwd_scan(
 ) {
 	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-	const uint64_t nthreads = blockDim.x * blockDim.y;
+    const uint64_t state = tid;
 
     const half *scores_in = (half *)args.scores_in;
     const uint64_t num_states = args.num_states;
@@ -30,9 +30,7 @@ __global__ void bwd_scan(
     const half *const chunk_in = scores_in + chunk * ts_states;
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
-    for (uint64_t state = tid; state < num_states; state += nthreads) {
-        alpha_init[state] = 0.0f;
-    }
+    alpha_init[state] = 0.0f;
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         __syncthreads();
@@ -40,24 +38,22 @@ __global__ void bwd_scan(
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
-        for (uint64_t state = tid; state < num_states; state += nthreads) {
-            const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
-            const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES + ((state * NUM_BASES) / num_states);
+        const uint64_t stay_state_idx = state;
+        const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
+        const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES + ((state * NUM_BASES) / num_states);
 
-            float vals[NUM_TRANSITIONS];
-            vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
-            float max_val = vals[0];
-            for (uint64_t base = 0; base < NUM_BASES; ++base) {
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base] + __half2float(ts_in[step_trans_idx_a + base * NUM_BASES]);
-                max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
-            }
-            float sum = 0.0f;
-            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                sum += __expf(vals[i] - max_val);
-            }
-            ts_alpha_out[state] = max_val + __logf(sum);
+        float vals[NUM_TRANSITIONS];
+        vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
+        float max_val = vals[0];
+        for (uint64_t base = 0; base < NUM_BASES; ++base) {
+            vals[base + 1] = ts_alpha_in[step_state_idx_a + base] + __half2float(ts_in[step_trans_idx_a + base * NUM_BASES]);
+            max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
         }
+        float sum = 0.0f;
+        for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+            sum += __expf(vals[i] - max_val);
+        }
+        ts_alpha_out[state] = max_val + __logf(sum);
     }
 }
 
@@ -71,7 +67,9 @@ __global__ void fwd_post_scan(
     const uint64_t nthreads = blockDim.x * blockDim.y;
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
-    // const unsigned mask = 0xFFFFFFFFU;
+    const unsigned mask = 0xFFFFFFFFU;
+    (void)mask;
+    const uint64_t state = tid;
 
     const half *scores_in = (half *)args.scores_in;
     const uint64_t num_states = args.num_states;
@@ -121,36 +119,34 @@ __global__ void fwd_post_scan(
 
         // calculate the next time step's forward guide from this time step's scores and forward guide
         // it's written to threadgroup memory for use in the next iteration
-        for (uint64_t state = tid; state < num_states; state += nthreads) {
-            const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / NUM_BASES;
-            const uint64_t step_trans_idx_a = state * NUM_BASES;
-            float vals[NUM_TRANSITIONS];
-            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
-            for (uint64_t base = 0; base < NUM_BASES; ++base) {
-                // todo: this is a bandaid for indexing past the actual T dimension of scores
-                // need to verify with actual MetalTxCaller impl output,
-                // otherwise output remains exactly the same for this impl whether it indexes past or not
-                float ts_score = ts < _T ? __half2float(ts_scores[step_trans_idx_a + base]) : 0.0f;
+        const uint64_t stay_state_idx = state;
+        const uint64_t step_state_idx_a = state / NUM_BASES;
+        const uint64_t step_trans_idx_a = state * NUM_BASES;
+        float vals[NUM_TRANSITIONS];
+        float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
+        for (uint64_t base = 0; base < NUM_BASES; ++base) {
+            // todo: this is a bandaid for indexing past the actual T dimension of scores
+            // need to verify with actual MetalTxCaller impl output,
+            // otherwise output remains exactly the same for this impl whether it indexes past or not
+            float ts_score = ts < _T ? __half2float(ts_scores[step_trans_idx_a + base]) : 0.0f;
 
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
-                fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
-            }
-            float fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                fwd_sum += __expf(vals[i] - fwd_max_val);
-            }
-            ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
-
-            // load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
-            const float fwd_val = ts_alpha_in[state];
-
-            // calculate fwd/bwd guide product in log space
-            const float val = fwd_val + bwd[ts_idx + state];
-
-            fwd_vals[state] = val;
-            warp_max = max(warp_max, val);
+            vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
+            fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
         }
+        float fwd_sum = 0.0f;
+        for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+            fwd_sum += __expf(vals[i] - fwd_max_val);
+        }
+        ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
+
+        // load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
+        const float fwd_val = ts_alpha_in[state];
+
+        // calculate fwd/bwd guide product in log space
+        const float val = fwd_val + bwd[ts_idx + state];
+
+        fwd_vals[state] = val;
+        warp_max = max(warp_max, val);
         __syncthreads();
 
         // find max fwd val in warp
@@ -174,10 +170,8 @@ __global__ void fwd_post_scan(
         
         // enter exp vals
         float warp_sum = 0.0f;
-        for (uint64_t state = tid; state < num_states; state += nthreads) {
-            exp_vals[state] = __expf(fwd_vals[state] - fwd_maxs[0]);
-            warp_sum += exp_vals[state];
-        }
+        exp_vals[state] = __expf(fwd_vals[state] - fwd_maxs[0]);
+        warp_sum += exp_vals[state];
         __syncthreads();
         
         // sum exp vals in warp
@@ -200,9 +194,7 @@ __global__ void fwd_post_scan(
         __syncthreads();
         
         // calculate posterior probability
-        for (uint64_t state = tid; state < num_states; state += nthreads) {
-            out[ts_idx + state] = exp_vals[state] / exp_sums[0];
-        }
+        out[ts_idx + state] = exp_vals[state] / exp_sums[0];
         __syncthreads();
     }
 }
