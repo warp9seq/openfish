@@ -119,8 +119,6 @@ __global__ void generate_sequence(
         if (qscore < 1.0f) qscore = 1.0f;
         qstring[i] = (char)(33.5f + qscore);
     }
-    sequence[seq_len] = '\0';
-    qstring[seq_len] = '\0';
 }
 
 // incorporates NUM_NEW_BITS into a Castagnoli CRC32, aka CRC32C
