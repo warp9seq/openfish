@@ -107,14 +107,14 @@ void decode_hip(
         block_width *= 2;
     }
 
-    OPENFISH_LOG_DEBUG("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
+    OPENFISH_LOG_TRACE("chosen block_dims: %d x %d for num_states %d", block_width, block_width, num_states);
     
     dim3 block_size(block_width, block_width, 1);
     dim3 block_size_beam(MAX_BEAM_WIDTH * NUM_BASES, 1, 1);
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(N, 1, 1);
 
-    OPENFISH_LOG_DEBUG("scores tensor dim: %d, %d, %d", T, N, C);
+    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
     scan_args_t scan_args = {0};
     scan_args.scores_in = scores_TNC;
@@ -159,7 +159,7 @@ void decode_hip(
     if (num_states == 64) n_batch = 140; // fast
     else if (num_states == 256) n_batch = 345; // hac
     else if (num_states == 1024) n_batch = 685; // sup
-    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
+    OPENFISH_LOG_TRACE("simulating %d batches...", n_batch);
 #endif
 
     // bwd scan
@@ -215,7 +215,7 @@ void decode_hip(
 	// end timing
 	t1 = realtime();
     elapsed = t1 - t0;
-    OPENFISH_LOG_DEBUG("decode completed in %f secs", elapsed);
+    OPENFISH_LOG_TRACE("decode completed in %f secs", elapsed);
 
     // copy beam_search results
     hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost);

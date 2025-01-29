@@ -279,7 +279,7 @@ void openfish_decode_cpu(
     const int chunks_per_thread = N / nthreads;
     const int num_threads_with_one_more_chunk = N % nthreads;
 
-    OPENFISH_LOG_DEBUG("dispatching %d threads for cpu decoding", nthreads);
+    OPENFISH_LOG_TRACE("dispatching %d threads for cpu decoding", nthreads);
 
     pthread_t tids[nthreads];
     decode_thread_arg_t pt_args[nthreads];
