@@ -31,6 +31,10 @@ void decode_hip(
     char **qstring
 );
 
+void set_device_hip(
+    int device
+);
+
 void *upload_scores_to_hip(
     const int T,
     const int N,

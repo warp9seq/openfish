@@ -18,10 +18,19 @@
 
 int main(int argc, char* argv[]) {
 
-    if (argc != 4) {
+    if (argc < 4) {
         fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
         exit(EXIT_FAILURE);
+    }
+
+    if (argc == 5) {
+    const int deivce = strtol(argv[4], NULL, 10);
+#if defined HAVE_CUDA
+    set_device_cuda(deivce);
+#elif defined HAVE_ROCM
+    set_device_rocm(deivce);
+#endif
     }
 
     const int T = 1666;

@@ -53,3 +53,7 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob $(( 4*(INTENS_LEN) ))
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob $INTENS_LEN
 # ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob $INTENS_LEN
+
+# ./openfish /data/bonwon/slorado_test_data/blobs/fast_1000c_scores_TNC_half.blob 1000 3 1
+# ./openfish /data/bonwon/slorado_test_data/blobs/hac_400c_scores_TNC_half.blob 400 3 1
+# ./openfish /data/bonwon/slorado_test_data/blobs/sup_200c_scores_TNC_half.blob 200 3 1

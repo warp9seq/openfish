@@ -32,6 +32,10 @@ void decode_cuda(
     char **qstring
 );
 
+void set_device_cuda(
+    int device
+);
+
 void *upload_scores_to_cuda(
     const int T,
     const int N,

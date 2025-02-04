@@ -232,6 +232,13 @@ void decode_hip(
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
+void set_device_hip(
+    int device
+) {
+    hipSetDevice(device);
+	checkHipError();
+}
+
 void *upload_scores_to_hip(
     const int T,
     const int N,

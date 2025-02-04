@@ -231,6 +231,13 @@ void decode_cuda(
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
+void set_device_cuda(
+    int device
+) {
+    cudaSetDevice(device);
+	checkCudaError();
+}
+
 void *upload_scores_to_cuda(
     const int T,
     const int N,
