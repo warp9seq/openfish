@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 #if defined HAVE_CUDA
     set_device_cuda(deivce);
 #elif defined HAVE_ROCM
-    set_device_rocm(deivce);
+    set_device_hip(deivce);
 #endif
     }
 
