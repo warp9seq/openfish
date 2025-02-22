@@ -3,7 +3,6 @@
 #include "beam_search_cuda.cuh"
 #include "error.h"
 #include "cuda_utils.cuh"
-#include "misc.h"
 
 #include <openfish/openfish_error.h>
 
@@ -89,15 +88,17 @@ void decode_cuda(
     char **sequence,
     char **qstring
 ) {
-    double t0, t1, elapsed;
-    t0 = realtime();
-
     const int num_states = pow(NUM_BASES, state_len);
-    cudaStream_t stream1, stream2;
+
+    // init streams
+    cudaStream_t stream1 = NULL;
+    cudaStream_t stream2 = NULL;
     cudaStreamCreate(&stream1);
     checkCudaError();
     cudaStreamCreate(&stream2);
     checkCudaError();
+    NULL_CHK(stream1);
+    NULL_CHK(stream2);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
@@ -153,68 +154,57 @@ void decode_cuda(
     beam_args.C = C;
     beam_args.num_state_bits = num_state_bits;
 
-#ifdef BENCH
-    int n_batch = 140; // simulate 20k reads
-    if (num_states == 64) n_batch = 140; // fast
-    else if (num_states == 256) n_batch = 345; // hac
-    else if (num_states == 1024) n_batch = 685; // sup
-    OPENFISH_LOG_TRACE("simulating %d batches...", n_batch);
-#endif
-
     // bwd scan
     // fwd + post scan
     // beam search
-#ifdef BENCH
-    for (int i = 0; i < n_batch; ++i)
-#endif
-    {
-        bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
-        checkCudaError();
-        cudaStreamSynchronize(stream1);
-        checkCudaError();
-        beam_search<<<grid_size,block_size_beam,0,stream2>>>(
-            beam_args,
-            (state_t *)gpubuf->states,
-            gpubuf->moves,
-            (beam_element_t *)gpubuf->beam_vector,
-            beam_cut,
-            fixed_stay_score,
-            1.0f
-        );
-        checkCudaError();
-        fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
-        cudaStreamSynchronize(stream2);
-        checkCudaError();
-        cudaStreamSynchronize(stream1);
-        checkCudaError();
-        compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
-            beam_args,
-            (state_t *)gpubuf->states,
-            gpubuf->qual_data,
-            1.0f
-        );
-        checkCudaError();
-        generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
-            beam_args,
-            gpubuf->moves,
-            (state_t *)gpubuf->states,
-            gpubuf->qual_data,
-            gpubuf->base_probs,
-            gpubuf->total_probs,
-            gpubuf->sequence,
-            gpubuf->qstring,
-            q_shift,
-            q_scale
-        );
-        checkCudaError();
-        cudaStreamSynchronize(stream2);
-        checkCudaError();
-    }
-	// end timing
-	t1 = realtime();
-    elapsed = t1 - t0;
-    OPENFISH_LOG_TRACE("decode completed in %f secs", elapsed);
+    bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
+    checkCudaError();
+
+    cudaStreamSynchronize(stream1);
+    checkCudaError();
+
+    beam_search<<<grid_size,block_size_beam,0,stream2>>>(
+        beam_args,
+        (state_t *)gpubuf->states,
+        gpubuf->moves,
+        (beam_element_t *)gpubuf->beam_vector,
+        beam_cut,
+        fixed_stay_score,
+        1.0f
+    );
+    checkCudaError();
+
+    fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    checkCudaError();
+
+    cudaStreamSynchronize(stream2);
+    checkCudaError();
+    cudaStreamSynchronize(stream1);
+    checkCudaError();
+
+    compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
+        beam_args,
+        (state_t *)gpubuf->states,
+        gpubuf->qual_data,
+        1.0f
+    );
+    checkCudaError();
+    
+    generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
+        beam_args,
+        gpubuf->moves,
+        (state_t *)gpubuf->states,
+        gpubuf->qual_data,
+        gpubuf->base_probs,
+        gpubuf->total_probs,
+        gpubuf->sequence,
+        gpubuf->qstring,
+        q_shift,
+        q_scale
+    );
+    checkCudaError();
+    cudaStreamSynchronize(stream2);
+    checkCudaError();
 
     // copy beam_search results
     cudaMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);

@@ -1,4 +1,5 @@
 #include "error.h"
+#include "misc.h"
 
 #include <openfish/openfish.h>
 #include <openfish/openfish_error.h>
@@ -25,11 +26,11 @@ int main(int argc, char* argv[]) {
     }
 
     if (argc == 5) {
-    const int deivce = strtol(argv[4], NULL, 10);
+        const int deivce = strtol(argv[4], NULL, 10);
 #if defined HAVE_CUDA
-    set_device_cuda(deivce);
+        set_device_cuda(deivce);
 #elif defined HAVE_ROCM
-    set_device_hip(deivce);
+        set_device_hip(deivce);
 #endif
     }
 
@@ -42,10 +43,10 @@ int main(int argc, char* argv[]) {
 
     set_openfish_log_level(OPENFISH_LOG_DBUG);
 
+    // read scores from file
     size_t scores_len = T * N * C;
 #if defined HAVE_CUDA || defined HAVE_ROCM
     const int elem_size = sizeof(uint16_t);
-    openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
 #else
     const int elem_size = sizeof(float);
 #endif
@@ -62,7 +63,16 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
 
+    // upload scores to gpu
+#if defined HAVE_CUDA
+    void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
+#elif defined HAVE_ROCM
+    void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
+#endif
 
+#if defined HAVE_CUDA || defined HAVE_ROCM
+    openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
+#endif
     openfish_opt_t options = DECODER_INIT;
 
     // config mods from 4.2.0 models
@@ -81,17 +91,36 @@ int main(int argc, char* argv[]) {
     char *sequence;
     char *qstring;
 
-#if defined HAVE_CUDA
-    void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
-    openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
-#elif defined HAVE_ROCM
-    void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
+    double t0, t1, elapsed;
+    t0 = realtime();
+    
+#ifdef BENCH
+    int n_batch = 140; // simulate 20k reads
+    if (state_len == 3) n_batch = 140; // fast
+    else if (state_len == 4) n_batch = 345; // hac
+    else if (state_len == 5) n_batch = 685; // sup
+    OPENFISH_LOG_TRACE("simulating %d batches...", n_batch);
+    for (int i = 0; i < n_batch; ++i) {
+#endif
+
+    // decode scores
+#if defined HAVE_CUDA || defined HAVE_ROCM
     openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
     int nthreads = 40;
     openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
+#ifdef BENCH
+    }
+#endif
+
+    // end timing
+    t1 = realtime();
+    elapsed = t1 - t0;
+    OPENFISH_LOG_DEBUG("decode completed in %f secs", elapsed);
+
+    // write results to file
     fp = fopen("moves.blob", "w");
     F_CHK(fp, "moves.blob");
     if (fwrite(moves, sizeof(uint8_t), N * T, fp) != N * T) {
@@ -136,6 +165,8 @@ int main(int argc, char* argv[]) {
 
 #if defined HAVE_CUDA
     free_scores_cuda(scores_gpu);
+#elif defined HAVE_ROCM
+    free_scores_hip(scores_gpu);
 #endif
 
     return 0;
