@@ -56,6 +56,7 @@ endif
 
 ifdef debug
 	CPPFLAGS += -DDEBUG=1
+	CFLAGS += -fopenmp
 endif
 
 .PHONY: clean distclean test

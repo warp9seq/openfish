@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <omp.h>
 
 #if defined HAVE_CUDA
 #include "decode_cuda.h"
@@ -18,21 +19,23 @@
 #endif
 
 int main(int argc, char* argv[]) {
-
+#pragma omp parallel
+{
     if (argc < 4) {
         fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+    set_openfish_log_level(OPENFISH_LOG_DBUG);
 
-    if (argc == 5) {
-        const int deivce = strtol(argv[4], NULL, 10);
+    const int device = omp_get_thread_num();
 #if defined HAVE_CUDA
-        set_device_cuda(deivce);
+    set_device_cuda(device);
 #elif defined HAVE_ROCM
-        set_device_hip(deivce);
+    set_device_hip(device);
 #endif
-    }
+
+    OPENFISH_LOG_DEBUG("simulating batches on device %d", device);
 
     const int T = 1666;
     const int N = strtol(argv[2], NULL, 10);
@@ -40,8 +43,6 @@ int main(int argc, char* argv[]) {
     const int state_len = strtol(argv[3], NULL, 10);
     assert(state_len > 0);
     const int C = pow(4, state_len) * 4;
-
-    set_openfish_log_level(OPENFISH_LOG_DBUG);
 
     // read scores from file
     size_t scores_len = T * N * C;
@@ -96,10 +97,10 @@ int main(int argc, char* argv[]) {
     
 #ifdef BENCH
     int n_batch = 140; // simulate 20k reads
-    if (state_len == 3) n_batch = 140; // fast
-    else if (state_len == 4) n_batch = 345; // hac
-    else if (state_len == 5) n_batch = 685; // sup
-    OPENFISH_LOG_TRACE("simulating %d batches...", n_batch);
+    if (state_len == 3)      n_batch = 14000; // fast
+    else if (state_len == 4) n_batch = 34500; // hac
+    else if (state_len == 5) n_batch = 68500; // sup
+    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
     for (int i = 0; i < n_batch; ++i) {
 #endif
 
@@ -107,7 +108,7 @@ int main(int argc, char* argv[]) {
 #if defined HAVE_CUDA || defined HAVE_ROCM
     openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
-    int nthreads = 40;
+    int nthreads = 8;
     openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
@@ -168,6 +169,6 @@ int main(int argc, char* argv[]) {
 #elif defined HAVE_ROCM
     free_scores_hip(scores_gpu);
 #endif
-
+}
     return 0;
 }
