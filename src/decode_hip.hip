@@ -10,7 +10,7 @@
 #include <hip/hip_fp16.h>
 
 
-openfish_gpubuf_t *gpubuf_init_cuda(
+openfish_gpubuf_t *gpubuf_init_hip(
     const int T,
     const int N,
     const int state_len
@@ -21,64 +21,64 @@ openfish_gpubuf_t *gpubuf_init_cuda(
     const int num_states = pow(NUM_BASES, state_len);
 
     // scan tensors
-    cudaMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
-	checkCudaError();
-    cudaMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
-	checkCudaError();
+    hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states);
+	checkHipError();
+    hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states);
+	checkHipError();
 
     // return buffers
-    cudaMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
-    checkCudaError();
+    hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->sequence, sizeof(char) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->qstring, sizeof(char) * N * T);
+    checkHipError();
 
     // beamsearch buffers
-    cudaMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
-    checkCudaError();
-    cudaMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
-    checkCudaError();
+    hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * N * MAX_BEAM_WIDTH * (T + 1));
+    checkHipError();
+    hipMalloc((void **)&gpubuf->states, sizeof(state_t) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * N * T);
+    checkHipError();
+    hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * N * T);
+    checkHipError();
 
     return gpubuf;
 }
 
-void gpubuf_free_cuda(
+void gpubuf_free_hip(
     openfish_gpubuf_t *gpubuf
 ) {
-    cudaFree(gpubuf->bwd_NTC);
-    checkCudaError();
-    cudaFree(gpubuf->post_NTC);
-    checkCudaError();
+    hipFree(gpubuf->bwd_NTC);
+    checkHipError();
+    hipFree(gpubuf->post_NTC);
+    checkHipError();
 
-    cudaFree(gpubuf->moves);
-    checkCudaError();
-    cudaFree(gpubuf->sequence);
-    checkCudaError();
-    cudaFree(gpubuf->qstring);
-    checkCudaError();
+    hipFree(gpubuf->moves);
+    checkHipError();
+    hipFree(gpubuf->sequence);
+    checkHipError();
+    hipFree(gpubuf->qstring);
+    checkHipError();
 
-    cudaFree(gpubuf->beam_vector);
-    checkCudaError();
-    cudaFree(gpubuf->states);
-    checkCudaError();
-    cudaFree(gpubuf->qual_data);
-    checkCudaError();
-    cudaFree(gpubuf->base_probs);
-    checkCudaError();
-    cudaFree(gpubuf->total_probs);
-    checkCudaError();
+    hipFree(gpubuf->beam_vector);
+    checkHipError();
+    hipFree(gpubuf->states);
+    checkHipError();
+    hipFree(gpubuf->qual_data);
+    checkHipError();
+    hipFree(gpubuf->base_probs);
+    checkHipError();
+    hipFree(gpubuf->total_probs);
+    checkHipError();
 
     free(gpubuf);
 }
 
-void decode_cuda(
+void decode_hip(
     const int T,
     const int N,
     const int C,
@@ -124,12 +124,12 @@ void decode_cuda(
     *qstring = (char *)malloc(N * T * sizeof(char));
     MALLOC_CHK(*qstring);
 
-    cudaMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
-	checkCudaError();
-    cudaMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
-	checkCudaError();
-    cudaMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
-	checkCudaError();
+    hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * N * T);
+	checkHipError();
+    hipMemset(gpubuf->sequence, 0, sizeof(char) * N * T);
+	checkHipError();
+    hipMemset(gpubuf->qstring, 0, sizeof(char) * N * T);
+	checkHipError();
 
     const int num_state_bits = (int)log2((double)num_states);
     const float fixed_stay_score = options->blank_score;
@@ -150,9 +150,9 @@ void decode_cuda(
     // fwd + post scan
     // beam search
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    hipDeviceSynchronize();
+    checkHipError();
 
     beam_search<<<grid_size,block_size_beam>>>(
         beam_args,
@@ -163,14 +163,14 @@ void decode_cuda(
         fixed_stay_score,
         1.0f
     );
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    hipDeviceSynchronize();
+    checkHipError();
 
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    hipDeviceSynchronize();
+    checkHipError();
 
     compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
@@ -178,9 +178,9 @@ void decode_cuda(
         gpubuf->qual_data,
         1.0f
     );
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    hipDeviceSynchronize();
+    checkHipError();
     
     generate_sequence<<<grid_size,block_size_gen>>>(
         beam_args,
@@ -194,28 +194,28 @@ void decode_cuda(
         q_shift,
         q_scale
     );
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    hipDeviceSynchronize();
+    checkHipError();
 
     // copy beam_search results
-    cudaMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-    cudaMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+	hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
+    hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 }
 
 // misc stuff for testing //////////////////////////////////////////////////////
-void set_device_cuda(
+void set_device_hip(
     int device
 ) {
-    cudaSetDevice(device);
-	checkCudaError();
+    hipSetDevice(device);
+	checkHipError();
 }
 
-void *upload_scores_to_cuda(
+void *upload_scores_to_hip(
     const int T,
     const int N,
     const int C,
@@ -223,23 +223,23 @@ void *upload_scores_to_cuda(
 ) {
     void *scores_TNC_gpu;
 
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-	checkCudaError();
+    hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
+	checkHipError();
 
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
-	checkCudaError();
+	hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, hipMemcpyHostToDevice);
+	checkHipError();
 
     return scores_TNC_gpu;
 }
 
-void free_scores_cuda(
+void free_scores_hip(
     void *scores_TNC_gpu
 ) {
-    cudaFree(scores_TNC_gpu);
-	checkCudaError();
+    hipFree(scores_TNC_gpu);
+	checkHipError();
 }
 
-void write_gpubuf_cuda(
+void write_gpubuf_hip(
     const uint64_t T,
     const uint64_t N,
     const int state_len,
@@ -261,23 +261,23 @@ void write_gpubuf_cuda(
     MALLOC_CHK(total_probs);
 
     // copy scan results
-    cudaMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
+    checkHipError();
+	hipMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, hipMemcpyDeviceToHost);
+    checkHipError();
 
     // copy intermediate
-    cudaMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 
-    cudaMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 
-    cudaMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, hipMemcpyDeviceToHost);
+    checkHipError();
 
-    cudaMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    hipMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, hipMemcpyDeviceToHost);
+    checkHipError();
 
     // write results
     FILE *fp;
