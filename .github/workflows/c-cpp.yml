@@ -28,7 +28,7 @@ jobs:
         tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc libomp-dev
     - name: build
       run: make -j2
     - name: test
