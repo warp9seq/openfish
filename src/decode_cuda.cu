@@ -90,16 +90,6 @@ void decode_cuda(
 ) {
     const int num_states = pow(NUM_BASES, state_len);
 
-    // init streams
-    cudaStream_t stream1 = NULL;
-    cudaStream_t stream2 = NULL;
-    cudaStreamCreate(&stream1);
-    checkCudaError();
-    cudaStreamCreate(&stream2);
-    checkCudaError();
-    NULL_CHK(stream1);
-    NULL_CHK(stream2);
-
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
     int block_width = 2;
@@ -157,13 +147,12 @@ void decode_cuda(
     // bwd scan
     // fwd + post scan
     // beam search
-    bwd_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC);
+    bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+    checkCudaError();
+    cudaDeviceSynchronize();
     checkCudaError();
 
-    cudaStreamSynchronize(stream1);
-    checkCudaError();
-
-    beam_search<<<grid_size,block_size_beam,0,stream2>>>(
+    beam_search<<<grid_size,block_size_beam>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->moves,
@@ -173,24 +162,25 @@ void decode_cuda(
         1.0f
     );
     checkCudaError();
-
-    fwd_post_scan<<<grid_size,block_size,0,stream1>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    cudaDeviceSynchronize();
     checkCudaError();
 
-    cudaStreamSynchronize(stream2);
+    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkCudaError();
-    cudaStreamSynchronize(stream1);
+    cudaDeviceSynchronize();
     checkCudaError();
 
-    compute_qual_data<<<grid_size,block_size_gen,0,stream2>>>(
+    compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->qual_data,
         1.0f
     );
     checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
     
-    generate_sequence<<<grid_size,block_size_gen,0,stream2>>>(
+    generate_sequence<<<grid_size,block_size_gen>>>(
         beam_args,
         gpubuf->moves,
         (state_t *)gpubuf->states,
@@ -203,7 +193,7 @@ void decode_cuda(
         q_scale
     );
     checkCudaError();
-    cudaStreamSynchronize(stream2);
+    cudaDeviceSynchronize();
     checkCudaError();
 
     // copy beam_search results
@@ -212,11 +202,6 @@ void decode_cuda(
 	cudaMemcpy(*sequence, gpubuf->sequence, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
     checkCudaError();
     cudaMemcpy(*qstring, gpubuf->qstring, sizeof(char) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaStreamDestroy(stream1);
-    checkCudaError();
-    cudaStreamDestroy(stream2);
     checkCudaError();
 }
 
