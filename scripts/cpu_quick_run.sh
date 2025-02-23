@@ -45,7 +45,7 @@ fi
 DATA_DIR=/data/bonwon/slorado_test_data/blobs
 SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 
-/usr/bin/time --verbose OMP_NUM_THREADS=2 ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+OMP_NUM_THREADS=2 /usr/bin/time --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_fwd_NTC.blob fwd_NTC.blob $TENS_LEN
