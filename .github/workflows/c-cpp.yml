@@ -62,7 +62,7 @@ jobs:
         apt-get update
         apt-get -y --allow-unauthenticated install cuda
     - name: build cuda=1
-      run: make cuda=1 -j2
+      run: make cuda=1 -j2 debug=1
   ubuntu_18:
     name: Ubuntu 18
     runs-on: ubuntu-20.04
