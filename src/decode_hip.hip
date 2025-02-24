@@ -92,14 +92,11 @@ void decode_hip(
     const int num_states = pow(NUM_BASES, state_len);
 
     // init streams
-    hipStream_t stream1 = NULL;
-    hipStream_t stream2 = NULL;
+    hipStream_t stream1, stream2;
     hipStreamCreate(&stream1);
     checkHipError();
     hipStreamCreate(&stream2);
     checkHipError();
-    NULL_CHK(stream1);
-    NULL_CHK(stream2);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));

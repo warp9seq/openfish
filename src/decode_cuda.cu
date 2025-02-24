@@ -91,14 +91,11 @@ void decode_cuda(
     const int num_states = pow(NUM_BASES, state_len);
 
     // init streams
-    cudaStream_t stream1 = NULL;
-    cudaStream_t stream2 = NULL;
+    cudaStream_t stream1, stream2;
     cudaStreamCreate(&stream1);
     checkCudaError();
     cudaStreamCreate(&stream2);
     checkCudaError();
-    NULL_CHK(stream1);
-    NULL_CHK(stream2);
 
     // calculate grid / block dims
     const int target_block_width = (int)ceil(sqrt((float)num_states));
