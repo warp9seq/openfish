@@ -12,9 +12,7 @@ if [ "$#" -ne 1 ]; then
     die "usage: ./cpu_quick_run.sh <model>"
 fi
 
-if [ ! -f "compare_blob" ]; then
-    g++ -o compare_blob test/compare_blob.cpp
-fi
+./scripts/create_test_deps.sh
 
 MODEL=$1
 
