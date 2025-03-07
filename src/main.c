@@ -106,13 +106,18 @@ int main(int argc, char* argv[]) {
 
     // decode scores
 #if defined HAVE_CUDA || defined HAVE_ROCM
-    openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
+        openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
-    int nthreads = 8;
-    openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+        int nthreads = 8;
+        openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
 #ifdef BENCH
+        if (i + 1 != n_batch) {
+            free(moves);
+            free(sequence);
+            free(qstring);
+        }
     }
 #endif
 
