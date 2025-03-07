@@ -8,6 +8,15 @@
 extern "C" {
 #endif
 
+#define HIP_CHECK(error) { gpuAssert2((error),__FILE__, __LINE__); }
+
+static inline void gpuAssert2(hipError_t error, const char *file, int line) {
+     if (error != hipSuccess) { \
+        fprintf(stderr,"HIP error: %s, in file: %s, line number: %d\n", hipGetErrorString(error), file, line); \
+        exit(1); \
+     } \
+}
+
 #define checkHipError() { gpuAssert(__FILE__, __LINE__); }
 
 static inline void gpuAssert(const char *file, int line){
