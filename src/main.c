@@ -19,6 +19,7 @@
 #endif
 
 int main(int argc, char* argv[]) {
+#if defined DEBUG
 #pragma omp parallel
 {
     if (argc < 4) {
@@ -175,5 +176,6 @@ int main(int argc, char* argv[]) {
     free_scores_hip(scores_gpu);
 #endif
 }
+#endif
     return 0;
 }
