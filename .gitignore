@@ -1,5 +1,5 @@
 compare_blob
-thirdparty/torch
+thirdparty/libflash_attn
 *.pt
 *.blob
 *.gpu_ref

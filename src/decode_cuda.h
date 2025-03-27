@@ -54,6 +54,13 @@ void write_gpubuf_cuda(
     const openfish_gpubuf_t *gpubuf
 );
 
+void run_flash(
+    void *q,
+    void *k,
+    void *v,
+    void **o
+);
+
 #ifdef __cplusplus
 }
 #endif

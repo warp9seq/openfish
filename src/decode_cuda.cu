@@ -6,7 +6,95 @@
 
 #include <openfish/openfish_error.h>
 
-#include <cuda_fp16.h>
+#include <flash.h>
+
+void run_flash(
+    void *q,
+    void *k,
+    void *v,
+    void **o
+) {
+    int batch_stride = 426496;
+    int head_stride = 53312;
+    int row_stride = 64;
+    int batch_size = 512;
+    int seqlen = 833;
+    int num_heads = 8;
+    int head_dim = 64;
+    size_t numel = batch_size * seqlen * num_heads * head_dim;
+
+    half * q_gpu;
+    half * k_gpu;
+    half * v_gpu;
+    half * o_gpu;
+    cudaMalloc((void **)&q_gpu, sizeof(half) * numel);
+	checkCudaError();
+    cudaMalloc((void **)&k_gpu, sizeof(half) * numel);
+	checkCudaError();
+    cudaMalloc((void **)&v_gpu, sizeof(half) * numel);
+	checkCudaError();
+
+    cudaMemcpy(q_gpu, q, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    checkCudaError();
+    cudaMemcpy(k_gpu, k, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    checkCudaError();
+    cudaMemcpy(v_gpu, v, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    cudaMalloc((void **)&o_gpu, sizeof(half) * numel);
+	checkCudaError();
+
+    int seqlen_q = seqlen;
+    int seqlen_k = seqlen;
+    int num_heads_k = num_heads;
+    
+    int q_batch_stride = batch_stride;
+    int k_batch_stride = batch_stride;
+    int v_batch_stride = batch_stride;
+    int o_batch_stride = batch_stride;
+    int q_head_stride = head_stride;
+    int k_head_stride = head_stride;
+    int v_head_stride = head_stride;
+    int o_head_stride = head_stride;
+    int q_row_stride = row_stride;
+    int k_row_stride = row_stride;
+    int v_row_stride = row_stride;
+    int o_row_stride = row_stride;
+    float softmax_scale = 1.0 / std::sqrt(num_heads);
+    int window_size_left = 127;
+    int window_size_right = 128;
+    bool casual = false;
+
+    // upload qkv
+    flash_attention_forward(
+        q_gpu,
+        k_gpu,
+        v_gpu,
+        o_gpu,
+        batch_size,
+        seqlen_q,
+        seqlen_k,
+        num_heads,
+        num_heads_k,
+        head_dim,
+        q_batch_stride,
+        k_batch_stride,
+        v_batch_stride,
+        o_batch_stride,
+        q_head_stride,
+        k_head_stride,
+        v_head_stride,
+        o_head_stride,
+        q_row_stride,
+        k_row_stride,
+        v_row_stride,
+        o_row_stride,
+        softmax_scale,
+        casual,
+        window_size_left,
+        window_size_right
+    );
+}
 
 openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
