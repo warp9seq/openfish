@@ -40,6 +40,9 @@ void run_flash(
     checkCudaError();
     cudaMemcpy(v_gpu, v, sizeof(half) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
+    
+    *o = (uint8_t *)malloc(sizeof(half) * numel);
+    MALLOC_CHK(*o);
 
     cudaMalloc((void **)&o_gpu, sizeof(half) * numel);
 	checkCudaError();
@@ -94,6 +97,9 @@ void run_flash(
         window_size_left,
         window_size_right
     );
+
+    cudaMemcpy(*o, o_gpu, sizeof(half) * numel, cudaMemcpyDeviceToHost);
+    checkCudaError();
 }
 
 openfish_gpubuf_t *gpubuf_init_cuda(
