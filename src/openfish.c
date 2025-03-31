@@ -72,7 +72,7 @@ void openfish_flash_fwd(
     int win_upper,
     int win_lower
 ) {
-    openfish_flash_fwd(
+    flash_fwd(
         q_gpu,
         k_gpu,
         v_gpu,
