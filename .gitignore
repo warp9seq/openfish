@@ -1,5 +1,4 @@
 compare_blob
-thirdparty/libflash_attn
 *.pt
 *.blob
 *.gpu_ref

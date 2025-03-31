@@ -1,9 +1,10 @@
 CC = g++
 AR = ar
 CPPFLAGS +=	-I include/ \
-			-I libflash_attn/cutlass/include \
+			-I cutlass/include \
 			-I libflash_attn/include
-LIBS +=	-Wl,libflash_attn/build/src/libflash_attn.so
+LIBS +=	-Wl,-rpath,libflash_attn/lib \
+		-Wl,--as-needed,libflash_attn/lib/libflash_attn.so
 CFLAGS += -g -Wall -O2
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
