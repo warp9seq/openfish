@@ -72,6 +72,17 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
+void openfish_flash_fwd(
+    void *q_gpu,
+    void *k_gpu,
+    void *v_gpu,
+    void *o_gpu,
+    int batch_size,
+    int seqlen,
+    int num_heads,
+    int head_dim
+);
+
 #ifdef __cplusplus
 }
 #endif

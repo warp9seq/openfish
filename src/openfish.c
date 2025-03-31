@@ -59,3 +59,16 @@ void openfish_decode_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void openfish_flash_fwd(
+    void *q_gpu,
+    void *k_gpu,
+    void *v_gpu,
+    void *o_gpu,
+    int batch_size,
+    int seqlen,
+    int num_heads,
+    int head_dim
+) {
+    flash_fwd(q_gpu, k_gpu, v_gpu, o_gpu, batch_size, seqlen, num_heads, head_dim);
+}
