@@ -68,7 +68,20 @@ void openfish_flash_fwd(
     int batch_size,
     int seqlen,
     int num_heads,
-    int head_dim
+    int head_dim,
+    int win_upper,
+    int win_lower
 ) {
-    flash_fwd(q_gpu, k_gpu, v_gpu, o_gpu, batch_size, seqlen, num_heads, head_dim);
+    openfish_flash_fwd(
+        q_gpu,
+        k_gpu,
+        v_gpu,
+        o_gpu,
+        batch_size,
+        seqlen,
+        num_heads,
+        head_dim,
+        win_upper,
+        win_lower
+    );
 }

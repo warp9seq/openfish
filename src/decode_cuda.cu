@@ -16,7 +16,9 @@ void flash_fwd(
     int batch_size,
     int seqlen,
     int num_heads,
-    int head_dim
+    int head_dim,
+    int win_upper,
+    int win_lower
 ) {
     int batch_stride = seqlen * num_heads * head_dim;
     int row_stride = num_heads * head_dim;
@@ -39,8 +41,6 @@ void flash_fwd(
     int v_row_stride = row_stride;
     int o_row_stride = row_stride;
     float softmax_scale = 1.0 / std::sqrt(num_heads);
-    int window_size_left = 127;
-    int window_size_right = 128;
     bool casual = false;
 
     // upload qkv
@@ -69,8 +69,8 @@ void flash_fwd(
         o_row_stride,
         softmax_scale,
         casual,
-        window_size_left,
-        window_size_right
+        win_upper,
+        win_lower
     );
 }
 
@@ -84,6 +84,8 @@ void run_flash(
     size_t seqlen = 833;
     size_t num_heads = 8;
     size_t head_dim = 64;
+    int window_size_left = 127;
+    int window_size_right = 128;
     size_t numel = batch_size * seqlen * num_heads * head_dim;
 
     cutlass::half_t *q_gpu;
@@ -119,7 +121,9 @@ void run_flash(
         batch_size,
         seqlen,
         num_heads,
-        head_dim
+        head_dim,
+        window_size_left,
+        window_size_right
     );
 
     cudaMemcpy(*o, o_gpu, sizeof(cutlass::half_t) * numel, cudaMemcpyDeviceToHost);

@@ -62,7 +62,9 @@ void flash_fwd(
     int batch_size,
     int seqlen,
     int num_heads,
-    int head_dim
+    int head_dim,
+    int win_upper,
+    int win_lower
 );
 
 void run_flash(
