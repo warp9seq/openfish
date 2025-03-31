@@ -20,8 +20,8 @@
 
 int main(int argc, char* argv[]) {
 #if defined DEBUG
-#pragma omp parallel
-{
+// #pragma omp parallel
+// {
     FILE *fp;
     size_t result;
 
@@ -231,7 +231,7 @@ int main(int argc, char* argv[]) {
 // #elif defined HAVE_ROCM
 //     free_scores_hip(scores_gpu);
 // #endif
-}
+// }
 #endif
     return 0;
 }

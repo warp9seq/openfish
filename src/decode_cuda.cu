@@ -17,34 +17,34 @@ void run_flash(
     int batch_stride = 426496;
     int head_stride = 53312;
     int row_stride = 64;
-    int batch_size = 512;
-    int seqlen = 833;
-    int num_heads = 8;
-    int head_dim = 64;
+    size_t batch_size = 512;
+    size_t seqlen = 833;
+    size_t num_heads = 8;
+    size_t head_dim = 64;
     size_t numel = batch_size * seqlen * num_heads * head_dim;
 
-    half * q_gpu;
-    half * k_gpu;
-    half * v_gpu;
-    half * o_gpu;
-    cudaMalloc((void **)&q_gpu, sizeof(half) * numel);
+    cutlass::half_t *q_gpu;
+    cutlass::half_t *k_gpu;
+    cutlass::half_t *v_gpu;
+    cutlass::half_t *o_gpu;
+    cudaMalloc((void **)&q_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
-    cudaMalloc((void **)&k_gpu, sizeof(half) * numel);
+    cudaMalloc((void **)&k_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
-    cudaMalloc((void **)&v_gpu, sizeof(half) * numel);
+    cudaMalloc((void **)&v_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
 
-    cudaMemcpy(q_gpu, q, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(q_gpu, q, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
-    cudaMemcpy(k_gpu, k, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(k_gpu, k, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
-    cudaMemcpy(v_gpu, v, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(v_gpu, v, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
     
-    *o = (uint8_t *)malloc(sizeof(half) * numel);
+    *o = (uint8_t *)malloc(sizeof(cutlass::half_t) * numel);
     MALLOC_CHK(*o);
 
-    cudaMalloc((void **)&o_gpu, sizeof(half) * numel);
+    cudaMalloc((void **)&o_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
 
     int seqlen_q = seqlen;
@@ -69,7 +69,7 @@ void run_flash(
     bool casual = false;
 
     // upload qkv
-    flash_attention_forward(
+    flash_attn::flash_attention_forward(
         q_gpu,
         k_gpu,
         v_gpu,
@@ -98,7 +98,7 @@ void run_flash(
         window_size_right
     );
 
-    cudaMemcpy(*o, o_gpu, sizeof(half) * numel, cudaMemcpyDeviceToHost);
+    cudaMemcpy(*o, o_gpu, sizeof(cutlass::half_t) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
 }
 
