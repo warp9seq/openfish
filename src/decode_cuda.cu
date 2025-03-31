@@ -8,15 +8,78 @@
 
 #include <flash.h>
 
+void flash_fwd(
+    void *q_gpu,
+    void *k_gpu,
+    void *v_gpu,
+    void *o_gpu,
+    int batch_size,
+    int seqlen,
+    int num_heads,
+    int head_dim
+) {
+    int batch_stride = seqlen * num_heads * head_dim;
+    int row_stride = num_heads * head_dim;
+    int head_stride = head_dim;
+
+    int seqlen_q = seqlen;
+    int seqlen_k = seqlen;
+    int num_heads_k = num_heads;
+    
+    int q_batch_stride = batch_stride;
+    int k_batch_stride = batch_stride;
+    int v_batch_stride = batch_stride;
+    int o_batch_stride = batch_stride;
+    int q_head_stride = head_stride;
+    int k_head_stride = head_stride;
+    int v_head_stride = head_stride;
+    int o_head_stride = head_stride;
+    int q_row_stride = row_stride;
+    int k_row_stride = row_stride;
+    int v_row_stride = row_stride;
+    int o_row_stride = row_stride;
+    float softmax_scale = 1.0 / std::sqrt(num_heads);
+    int window_size_left = 127;
+    int window_size_right = 128;
+    bool casual = false;
+
+    // upload qkv
+    flash_attn::flash_attention_forward(
+        (cutlass::half_t *)q_gpu,
+        (cutlass::half_t *)k_gpu,
+        (cutlass::half_t *)v_gpu,
+        (cutlass::half_t *)o_gpu,
+        batch_size,
+        seqlen_q,
+        seqlen_k,
+        num_heads,
+        num_heads_k,
+        head_dim,
+        q_batch_stride,
+        k_batch_stride,
+        v_batch_stride,
+        o_batch_stride,
+        q_head_stride,
+        k_head_stride,
+        v_head_stride,
+        o_head_stride,
+        q_row_stride,
+        k_row_stride,
+        v_row_stride,
+        o_row_stride,
+        softmax_scale,
+        casual,
+        window_size_left,
+        window_size_right
+    );
+}
+
 void run_flash(
     void *q,
     void *k,
     void *v,
     void **o
 ) {
-    int batch_stride = 426496;
-    int head_stride = 53312;
-    int row_stride = 64;
     size_t batch_size = 512;
     size_t seqlen = 833;
     size_t num_heads = 8;
@@ -47,55 +110,16 @@ void run_flash(
     cudaMalloc((void **)&o_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
 
-    int seqlen_q = seqlen;
-    int seqlen_k = seqlen;
-    int num_heads_k = num_heads;
-    
-    int q_batch_stride = batch_stride;
-    int k_batch_stride = batch_stride;
-    int v_batch_stride = batch_stride;
-    int o_batch_stride = batch_stride;
-    int q_head_stride = head_stride;
-    int k_head_stride = head_stride;
-    int v_head_stride = head_stride;
-    int o_head_stride = head_stride;
-    int q_row_stride = row_stride;
-    int k_row_stride = row_stride;
-    int v_row_stride = row_stride;
-    int o_row_stride = row_stride;
-    float softmax_scale = 1.0 / std::sqrt(num_heads);
-    int window_size_left = 127;
-    int window_size_right = 128;
-    bool casual = false;
-
     // upload qkv
-    flash_attn::flash_attention_forward(
+    flash_fwd(
         q_gpu,
         k_gpu,
         v_gpu,
         o_gpu,
         batch_size,
-        seqlen_q,
-        seqlen_k,
+        seqlen,
         num_heads,
-        num_heads_k,
-        head_dim,
-        q_batch_stride,
-        k_batch_stride,
-        v_batch_stride,
-        o_batch_stride,
-        q_head_stride,
-        k_head_stride,
-        v_head_stride,
-        o_head_stride,
-        q_row_stride,
-        k_row_stride,
-        v_row_stride,
-        o_row_stride,
-        softmax_scale,
-        casual,
-        window_size_left,
-        window_size_right
+        head_dim
     );
 
     cudaMemcpy(*o, o_gpu, sizeof(cutlass::half_t) * numel, cudaMemcpyDeviceToHost);
