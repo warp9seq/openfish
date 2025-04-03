@@ -40,7 +40,7 @@ void flash_fwd(
     int k_row_stride = row_stride;
     int v_row_stride = row_stride;
     int o_row_stride = row_stride;
-    float softmax_scale = 1.0 / std::sqrt(num_heads);
+    float softmax_scale = 1.0 / std::sqrt(head_dim);
     bool casual = false;
 
     // upload qkv
