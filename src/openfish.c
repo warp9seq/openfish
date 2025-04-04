@@ -61,26 +61,28 @@ void openfish_decode_gpu(
 }
 
 void openfish_flash_fwd(
-    void *q_gpu,
-    void *k_gpu,
-    void *v_gpu,
+    void *qkv_gpu,
     void *o_gpu,
     int batch_size,
     int seqlen,
     int num_heads,
     int head_dim,
+    int batch_stride,
+    int row_stride,
+    int head_stride,
     int win_upper,
     int win_lower
 ) {
     flash_fwd(
-        q_gpu,
-        k_gpu,
-        v_gpu,
+        qkv_gpu,
         o_gpu,
         batch_size,
         seqlen,
         num_heads,
         head_dim,
+        batch_stride,
+        row_stride,
+        head_stride,
         win_upper,
         win_lower
     );

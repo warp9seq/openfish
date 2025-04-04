@@ -9,20 +9,26 @@
 #include <flash.h>
 
 void flash_fwd(
-    void *q_gpu,
-    void *k_gpu,
-    void *v_gpu,
+    void *qkv_gpu,
     void *o_gpu,
     int batch_size,
     int seqlen,
     int num_heads,
     int head_dim,
+    int batch_stride,
+    int row_stride,
+    int head_stride,
     int win_upper,
     int win_lower
 ) {
-    int batch_stride = seqlen * num_heads * head_dim;
-    int row_stride = num_heads * head_dim;
-    int head_stride = head_dim;
+    int tens_stride = batch_size * seqlen * num_heads * head_dim;
+    void *q_gpu = qkv_gpu + 0 * tens_stride;
+    void *k_gpu = qkv_gpu + 1 * tens_stride;
+    void *v_gpu = qkv_gpu + 2 * tens_stride;
+
+    int o_batch_stride = seqlen * num_heads * head_dim;
+    int o_row_stride = num_heads * head_dim;
+    int o_head_stride = head_dim;
 
     int seqlen_q = seqlen;
     int seqlen_k = seqlen;
@@ -31,15 +37,15 @@ void flash_fwd(
     int q_batch_stride = batch_stride;
     int k_batch_stride = batch_stride;
     int v_batch_stride = batch_stride;
-    int o_batch_stride = batch_stride;
+
     int q_head_stride = head_stride;
     int k_head_stride = head_stride;
     int v_head_stride = head_stride;
-    int o_head_stride = head_stride;
+
     int q_row_stride = row_stride;
     int k_row_stride = row_stride;
     int v_row_stride = row_stride;
-    int o_row_stride = row_stride;
+
     float softmax_scale = 1.0 / std::sqrt(head_dim);
     bool casual = false;
 

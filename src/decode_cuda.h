@@ -55,14 +55,15 @@ void write_gpubuf_cuda(
 );
 
 void flash_fwd(
-    void *q_gpu,
-    void *k_gpu,
-    void *v_gpu,
+    void *qkv_gpu,
     void *o_gpu,
     int batch_size,
     int seqlen,
     int num_heads,
     int head_dim,
+    int batch_stride,
+    int row_stride,
+    int head_stride,
     int win_upper,
     int win_lower
 );
