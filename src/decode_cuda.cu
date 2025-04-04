@@ -21,10 +21,10 @@ void flash_fwd(
     int win_upper,
     int win_lower
 ) {
-    int tens_stride = batch_size * seqlen * num_heads * head_dim;
-    void *q_gpu = qkv_gpu + 0 * tens_stride;
-    void *k_gpu = qkv_gpu + 1 * tens_stride;
-    void *v_gpu = qkv_gpu + 2 * tens_stride;
+    size_t tens_stride = batch_size * seqlen * num_heads * head_dim;
+    void *q_gpu = (cutlass::half_t *)qkv_gpu + (0 * tens_stride);
+    void *k_gpu = (cutlass::half_t *)qkv_gpu + (1 * tens_stride);
+    void *v_gpu = (cutlass::half_t *)qkv_gpu + (2 * tens_stride);
 
     int o_batch_stride = seqlen * num_heads * head_dim;
     int o_row_stride = num_heads * head_dim;
@@ -94,22 +94,12 @@ void run_flash(
     int window_size_right = 128;
     size_t numel = batch_size * seqlen * num_heads * head_dim;
 
-    cutlass::half_t *q_gpu;
-    cutlass::half_t *k_gpu;
-    cutlass::half_t *v_gpu;
+    cutlass::half_t *qkv_gpu;
     cutlass::half_t *o_gpu;
-    cudaMalloc((void **)&q_gpu, sizeof(cutlass::half_t) * numel);
-	checkCudaError();
-    cudaMalloc((void **)&k_gpu, sizeof(cutlass::half_t) * numel);
-	checkCudaError();
-    cudaMalloc((void **)&v_gpu, sizeof(cutlass::half_t) * numel);
+    cudaMalloc((void **)&qkv_gpu, sizeof(cutlass::half_t) * numel * 3);
 	checkCudaError();
 
-    cudaMemcpy(q_gpu, q, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
-    checkCudaError();
-    cudaMemcpy(k_gpu, k, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
-    checkCudaError();
-    cudaMemcpy(v_gpu, v, sizeof(cutlass::half_t) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(qkv_gpu, q, sizeof(cutlass::half_t) * numel * 3, cudaMemcpyHostToDevice);
     checkCudaError();
     
     *o = (uint8_t *)malloc(sizeof(cutlass::half_t) * numel);
@@ -118,19 +108,17 @@ void run_flash(
     cudaMalloc((void **)&o_gpu, sizeof(cutlass::half_t) * numel);
 	checkCudaError();
 
-    // upload qkv
-    flash_fwd(
-        q_gpu,
-        k_gpu,
-        v_gpu,
-        o_gpu,
-        batch_size,
-        seqlen,
-        num_heads,
-        head_dim,
-        window_size_left,
-        window_size_right
-    );
+    // upload qkv todo
+    // flash_fwd(
+    //     qkv_gpu,
+    //     o_gpu,
+    //     batch_size,
+    //     seqlen,
+    //     num_heads,
+    //     head_dim,
+    //     window_size_left,
+    //     window_size_right
+    // );
 
     cudaMemcpy(*o, o_gpu, sizeof(cutlass::half_t) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
