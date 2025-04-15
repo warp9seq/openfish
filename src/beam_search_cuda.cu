@@ -13,20 +13,18 @@ __device__ static __forceinline__ void swapf(float *a, float *b) {
 }
 
 __device__ static __forceinline__ int partitionf(float *nums, int left, int right) {
-	float pivot = nums[left];
-    int l = left+1;
-    int r = right;
-	while (l <= r) {
-		if (nums[l] < pivot && nums[r] > pivot) {
-            swapf(&nums[l], &nums[r]);
-            l += 1;
-            r -= 1;
+	int pivot = left;
+    swapf(&nums[pivot], &nums[right]);
+
+    for (int i = left; i < right; ++i) {
+        if (nums[i] > nums[right]) {
+            swapf(&nums[pivot], &nums[i]);
+            ++pivot;
         }
-		if (nums[l] >= pivot) ++l;
-		if (nums[r] <= pivot) --r;
-	}
-	swapf(&nums[left], &nums[r]);
-	return r;
+    }
+    
+    swapf(&nums[pivot], &nums[right]);
+    return pivot;
 }
 
 __device__ static __forceinline__ float kth_largestf(float *nums, int k, int n) {

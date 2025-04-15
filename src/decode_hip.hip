@@ -140,12 +140,6 @@ void decode_hip(
     const float q_shift = options->q_shift;
     const float beam_cut = options->beam_cut;
 
-    OPENFISH_LOG_TRACE("num_state_bits %d", num_state_bits);
-    OPENFISH_LOG_TRACE("fixed_stay_score %f", fixed_stay_score);
-    OPENFISH_LOG_TRACE("q_scale %f", q_scale);
-    OPENFISH_LOG_TRACE("q_shift %f", q_shift);
-    OPENFISH_LOG_TRACE("beam_cut %f", beam_cut);
-
     beam_args_t beam_args = {0};
     beam_args.scores_TNC = (half *)scores_TNC;
     beam_args.bwd_NTC = gpubuf->bwd_NTC;
