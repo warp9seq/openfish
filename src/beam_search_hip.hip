@@ -33,14 +33,17 @@ __device__ static __forceinline__ int partitionf(float *nums, int left, int righ
 __device__ static __forceinline__ float kth_largestf(float *nums, int k, int n) {
 	int left = 0;
     int right = n-1;
-    int idx = 0;
-	while (true) {
-		idx = partitionf(nums, left, right);
-		if (idx == k) break;
-		else if (idx < k) left = idx+1;
-		else right = idx-1;
+	while (left <= right) {
+        int pivot = partitionf(nums, left, right);
+        if (pivot < k) {
+            left = pivot+1;
+        } else if (pivot > k) {
+            right = pivot-1;
+        } else {
+            return nums[pivot];
+        }
 	}
-	return nums[idx];
+	return -FLT_MAX;
 }
 
 __device__ static __forceinline__ float log_sum_exp(float x, float y) {
