@@ -147,11 +147,14 @@ void decode_cuda(
     // bwd scan
     // fwd + post scan
     // beam search
+
+    OPENFISH_LOG_TRACE("%s", "bwd scan...");
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 
+    OPENFISH_LOG_TRACE("%s", "beam search...");
     beam_search<<<grid_size,block_size_beam>>>(
         beam_args,
         (state_t *)gpubuf->states,
@@ -165,11 +168,13 @@ void decode_cuda(
     cudaDeviceSynchronize();
     checkCudaError();
 
+    OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
 
+    OPENFISH_LOG_TRACE("%s", "compute qual data...");
     compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
         (state_t *)gpubuf->states,
@@ -180,6 +185,7 @@ void decode_cuda(
     cudaDeviceSynchronize();
     checkCudaError();
     
+    OPENFISH_LOG_TRACE("%s", "gen sequence...");
     generate_sequence<<<grid_size,block_size_gen>>>(
         beam_args,
         gpubuf->moves,
