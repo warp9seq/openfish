@@ -214,7 +214,7 @@ __global__ void beam_search(
         __syncthreads();
 
         // note that we don't need a full sort here to get the max_beam_width highest values
-        if (tid == 0) beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
+        // if (tid == 0) beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
     }
 
 
