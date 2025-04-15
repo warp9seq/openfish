@@ -227,6 +227,7 @@ __global__ void beam_search(
                 prev_beam_front[beam_element] = new_elem;
                 prev_scores[beam_element] = 0.0f;
                 ++beam_element;
+                current_beam_width = beam_element;
             }
         }
     }
