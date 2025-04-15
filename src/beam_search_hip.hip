@@ -197,6 +197,14 @@ __global__ void beam_search(
 
     __shared__ size_t current_beam_width;
     __shared__ float beam_init_threshold;
+
+    for (size_t beam_element = tid; beam_element < MAX_BEAM_CANDIDATES; beam_element += nthreads) {
+        current_beam_front[beam_element] = {0};
+        prev_beam_front[beam_element] = {0};
+        current_scores[beam_element] = 0.0f;
+        prev_scores[beam_element] = 0.0f;
+    }
+
     if (tid == 0) {
         beam_init_threshold = -FLT_MAX;
         current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
