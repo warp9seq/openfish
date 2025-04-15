@@ -124,6 +124,90 @@ void run_flash(
     checkCudaError();
 }
 
+
+void run_rotary(
+    void *qk,
+    void *sin,
+    void *cos,
+    void **o
+) {
+    int seqlen_offt = 0;
+    int batch_size = 512;
+    int seqlen = 833;
+    int num_heads = 8;
+    int head_dim = 64;
+    size_t numel = batch_size * seqlen * num_heads * head_dim;
+
+    int seqlen_ro = 0; // cos.shape[0]
+    int rotary_dim = 0; // cos.shape[1]
+
+    ASSERT(rotary_dim * 2 <= head_dim);
+    ASSERT(head_dim <= 256);
+    ASSERT(seqlen_ro >= seqlen);
+
+    int stride_batch = seqlen * num_heads * head_dim;
+    int stride_seqlen = num_heads * head_dim;
+    int stride_nheads = head_dim;
+    int stride_headdim = 1;
+
+    int block_m = 8;
+    int block_k = 32;
+    if (rotary_dim <= 64) {
+        block_k = 64;
+    } else if (rotary_dim <= 128) {
+        block_k = 128;
+    } else {
+        block_k = 256;
+        block_m = 4;
+    }
+
+    half *cos_gpu;
+    cudaMalloc((void **)&cos_gpu, sizeof(half) * seqlen_ro * rotary_dim);
+	checkCudaError();
+    cudaMemcpy(cos_gpu, cos, sizeof(half) * seqlen_ro * rotary_dim, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    half *sin_gpu;
+    cudaMalloc((void **)&sin_gpu, sizeof(half) * seqlen_ro * rotary_dim);
+	checkCudaError();
+    cudaMemcpy(sin_gpu, sin, sizeof(half) * seqlen_ro * rotary_dim, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    half *qk_gpu;
+    cudaMalloc((void **)&qk_gpu, sizeof(half) * numel * 2);
+	checkCudaError();
+
+    cudaMemcpy(qk_gpu, qk, sizeof(half) * numel * 2, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    *o = malloc(sizeof(half) * numel * 2);
+    MALLOC_CHK(*o);
+
+    rotary(
+        qk_gpu,
+        qk_gpu,
+        cos_gpu,
+        sin_gpu,
+        seqlen_offt,
+        seqlen,
+        rotary_dim * 2,
+        seqlen_ro,
+        stride_batch,
+        stride_seqlen,
+        stride_nheads,
+        stride_headdim,
+        block_k,
+        stride_batch,
+        stride_seqlen,
+        stride_nheads,
+        stride_headdim,
+        block_m
+    );
+
+    cudaMemcpy(*o, qk_gpu, sizeof(half) * numel * 2, cudaMemcpyDeviceToHost);
+    checkCudaError();
+}
+
 openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
     const int N,

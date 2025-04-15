@@ -3,7 +3,9 @@
 
 #include <math.h>
 #include <float.h>
-#include <cuda_fp16.h>
+
+#define BLOCK_M_MAX (8)
+#define BLOCK_K_MAX (256)
 
 __global__ void bwd_scan(
 	const scan_args_t args,
@@ -195,5 +197,85 @@ __global__ void fwd_post_scan(
         // calculate posterior probability
         out[ts_idx + state] = exp_vals[state] / exp_sums[0];
         __syncthreads();
+    }
+}
+
+__global__ void rotary(
+	half *_OUT,
+    half *_X,
+    half *_COS,
+    half *_SIN,
+    const uint64_t seqlen_offt,
+    const uint64_t seqlen,
+    const uint64_t rotary_dim,
+    const uint64_t seqlen_ro,
+    const uint64_t stride_out_batch,
+    const uint64_t stride_out_seqlen,
+    const uint64_t stride_out_nheads,
+    const uint64_t stride_out_headdim,
+    const uint64_t block_k,
+    const uint64_t stride_x_batch,
+    const uint64_t stride_x_seqlen,
+    const uint64_t stride_x_nheads,
+    const uint64_t stride_x_headdim,
+    const uint64_t block_m
+) {
+	const uint64_t pid_m = blockIdx.x;
+    const uint64_t pid_head = blockIdx.y;
+    const uint64_t pid_batch = blockIdx.z;
+    const uint64_t rotary_dim_half = rotary_dim / 2;
+    const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+    const uint64_t k = threadIdx.x;
+    const uint64_t m = threadIdx.y;
+    const uint64_t nthreads = blockDim.x * blockDim.y;
+
+    if (pid_m * block_m >= seqlen) { return; }
+    if (k >= (block_k / 2)) { return; }
+    if (m >= block_m) { return; }
+
+    half *X = _X + (pid_batch * stride_x_batch) + (pid_head * stride_x_nheads);
+    half *OUT = _OUT + (pid_batch * stride_out_batch) + (pid_head * stride_out_nheads);
+
+    __shared__ uint64_t rm[BLOCK_M_MAX];
+    __shared__ uint64_t rm_cs[BLOCK_M_MAX];
+    __shared__ uint64_t rk_half[BLOCK_K_MAX / 2];
+
+    for (uint64_t i = tid; i < block_m; i += nthreads) {
+        uint64_t val = (pid_m * block_m) + i;
+        rm[i] = val;
+        rm_cs[i] = val + seqlen_offt;
+    }
+    for (uint64_t i = tid; i < (block_k / 2); i += nthreads) {
+        rk_half[i] = i;
+    }
+    __syncthreads();
+
+    // Load the 1st and 2nd halves of X, do calculation, then store to 1st and 2nd halves of OUT
+    X = X + (rm[m] * stride_x_seqlen + rk_half[k] * stride_x_headdim);
+    half *COS = _COS + (rm_cs[m] * rotary_dim_half + rk_half[k]);
+    half *SIN = _SIN + (rm_cs[m] * rotary_dim_half + rk_half[k]);
+
+    float cos = __half2float(*COS);
+    float sin = __half2float(*SIN);
+    if (!(rm_cs[m] < seqlen_ro && rk_half[k] < rotary_dim_half)) {
+        cos = 1.0;
+        sin = 0.0;
+    }
+
+    float x0 = __half2float(*X);
+    float x1 = __half2float(*(X + (rotary_dim_half * stride_x_headdim)));
+    if (!(rm[m] < seqlen && rk_half[k] < rotary_dim_half)) {
+        x0 = 0.0;
+        x1 = 0.0;
+    }
+
+    half o0 = __float2half(x0 * cos - x1 * sin);
+    half o1 = __float2half(x0 * sin + x1 * cos);
+
+    // write back result
+    OUT = OUT + (rm[m] * stride_out_seqlen + rk_half[k] * stride_out_headdim);
+    if (rm[m] < seqlen && rk_half[k] < rotary_dim_half) {
+        *OUT = o0;
+        *(OUT + rotary_dim_half * stride_out_headdim) = o1;
     }
 }
