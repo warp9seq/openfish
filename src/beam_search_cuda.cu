@@ -114,11 +114,9 @@ __global__ void generate_sequence(
     for (size_t i = 0; i < seq_len; ++i) {
         sequence[i] = alphabet[(int)sequence[i]];
         base_probs[i] = 1.0f - (base_probs[i] / total_probs[i]);
-        base_probs[i] = -10.0f * __log10f(base_probs[i]);
-        float qscore = base_probs[i] * scale + shift;
-        if (qscore > 50.0f) qscore = 50.0f;
-        if (qscore < 1.0f) qscore = 1.0f;
-        qstring[i] = (char)(33.5f + qscore);
+        base_probs[i] = -10.0f * __log10f(base_probs[i]);=
+        float qscore = fminf(fmaxf(base_probs[i] * scale + shift, 1.0f), 50.0f);
+        qstring[i] = (char)((int)(33.5f + qscore));
     }
 }
 
