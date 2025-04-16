@@ -114,7 +114,7 @@ __global__ void generate_sequence(
     for (size_t i = 0; i < seq_len; ++i) {
         sequence[i] = alphabet[(int)sequence[i]];
         base_probs[i] = 1.0f - (base_probs[i] / total_probs[i]);
-        base_probs[i] = -10.0f * __log10f(base_probs[i]);=
+        base_probs[i] = -10.0f * __log10f(base_probs[i]);
         float qscore = fminf(fmaxf(base_probs[i] * scale + shift, 1.0f), 50.0f);
         qstring[i] = (char)((int)(33.5f + qscore));
     }
@@ -592,8 +592,7 @@ __global__ void compute_qual_data(
                 block_prob += (float)(timestep_posts[candidate_state]) * posts_scale;
             }
         }
-        if (block_prob > 1.0f) block_prob = 1.0f;
-        else if (block_prob < 0.0f) block_prob = 0.0f;
+        block_prob = fminf(fmaxf(block_prob, 0.0f), 1.0f);
         block_prob = __powf(block_prob, 0.4f); // power fudge factor
 
         // calculate a placeholder qscore for the "wrong" bases

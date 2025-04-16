@@ -594,8 +594,7 @@ __global__ void compute_qual_data(
                 block_prob += (float)(timestep_posts[candidate_state]) * posts_scale;
             }
         }
-        if (block_prob > 1.0f) block_prob = 1.0f;
-        else if (block_prob < 0.0f) block_prob = 0.0f;
+        block_prob = fminf(fmaxf(block_prob, 0.0f), 1.0f);
         block_prob = __powf(block_prob, 0.4f); // power fudge factor
 
         // calculate a placeholder qscore for the "wrong" bases
