@@ -68,12 +68,19 @@ void flash_fwd(
     int win_lower
 );
 
-void run_flash(
-    void *q,
-    void *k,
-    void *v,
-    void **o
+void run_rotary(
+    void *x0,
+    void *x1,
+    void *sin,
+    void *cos
 );
+
+// void run_flash(
+//     void *q,
+//     void *k,
+//     void *v,
+//     void **o
+// );
 
 #ifdef __cplusplus
 }

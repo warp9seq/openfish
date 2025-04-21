@@ -25,58 +25,129 @@ int main(int argc, char* argv[]) {
     FILE *fp;
     size_t result;
 
-    const int elem_size = sizeof(uint16_t);
+    const int elem_size = sizeof(uint32_t);
 
-    int batch_size = 512;
+    int batch_size = 500;
     int seqlen = 833;
     int num_heads = 8;
-    int head_dim = 64;
-    size_t numel = batch_size * seqlen * num_heads * head_dim;
-    
-    void *q = calloc(numel, elem_size);
-    MALLOC_CHK(q);
-    void *k = calloc(numel, elem_size);
-    MALLOC_CHK(k);
-    void *v = calloc(numel, elem_size);
-    MALLOC_CHK(v);
+    int rotary_dim = 32;
 
-    fp = fopen("q.blob", "rb");
-    F_CHK(fp, "q.blob");
-    result = fread(q, elem_size, numel, fp);
+    size_t numel = batch_size * seqlen * num_heads * rotary_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    size_t numel_ro = seqlen * rotary_dim;
+
+    void *x0 = calloc(numel, elem_size);
+    MALLOC_CHK(x0);
+    void *x1 = calloc(numel, elem_size);
+    MALLOC_CHK(x1);
+
+    void *sin = calloc(numel_ro, elem_size);
+    MALLOC_CHK(sin);
+    void *cos = calloc(numel_ro, elem_size);
+    MALLOC_CHK(cos);
+
+    fp = fopen("../slorado/q1.blob", "rb");
+    F_CHK(fp, "../slorado/q1.blob");
+    result = fread(x0, elem_size, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    fp = fopen("k.blob", "rb");
-    F_CHK(fp, "k.blob");
-    result = fread(k, elem_size, numel, fp);
+    fp = fopen("../slorado/q2.blob", "rb");
+    F_CHK(fp, "../slorado/q2.blob");
+    result = fread(x1, elem_size, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    fp = fopen("v.blob", "rb");
-    F_CHK(fp, "v.blob");
-    result = fread(v, elem_size, numel, fp);
-    if (result != numel) {
+    fp = fopen("../slorado/sin.blob", "rb");
+    F_CHK(fp, "../slorado/sin.blob");
+    result = fread(sin, elem_size, numel_ro, fp);
+    if (result != numel_ro) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    void *o;
-    run_flash(q, k, v, &o);
+    fp = fopen("../slorado/cos.blob", "rb");
+    F_CHK(fp, "../slorado/cos.blob");
+    result = fread(cos, elem_size, numel_ro, fp);
+    if (result != numel_ro) {
+        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
 
-    fp = fopen("o.blob", "w");
-    F_CHK(fp, "o.blob");
-    if (fwrite(o, elem_size, numel, fp) != numel) {
+    run_rotary(
+        x0,
+        x1,
+        sin,
+        cos
+    );
+
+    fp = fopen("q1_out.blob", "w");
+    F_CHK(fp, "q1_out.blob");
+    if (fwrite(x0, elem_size, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
+
+    fp = fopen("q2_out.blob", "w");
+    F_CHK(fp, "q2_out.blob");
+    if (fwrite(x1, elem_size, numel, fp) != numel) {
+        fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+    
+    // void *q = calloc(numel, elem_size);
+    // MALLOC_CHK(q);
+    // void *k = calloc(numel, elem_size);
+    // MALLOC_CHK(k);
+    // void *v = calloc(numel, elem_size);
+    // MALLOC_CHK(v);
+
+    // fp = fopen("q.blob", "rb");
+    // F_CHK(fp, "q.blob");
+    // result = fread(q, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("k.blob", "rb");
+    // F_CHK(fp, "k.blob");
+    // result = fread(k, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("v.blob", "rb");
+    // F_CHK(fp, "v.blob");
+    // result = fread(v, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // void *o;
+    // run_flash(q, k, v, &o);
+
+    // fp = fopen("o.blob", "w");
+    // F_CHK(fp, "o.blob");
+    // if (fwrite(o, elem_size, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
 //     if (argc < 4) {
 //         fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);

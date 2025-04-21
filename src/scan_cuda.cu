@@ -201,6 +201,42 @@ __global__ void fwd_post_scan(
 }
 
 __global__ void rotary(
+	float *_x0,
+    float *_x1,
+    float *_o0,
+    float *_o1,
+    float *_cos,
+    float *_sin,
+    const uint64_t rotary_dim,
+    const uint64_t seqlen,
+    const uint64_t stride_batch,
+    const uint64_t stride_seqlen,
+    const uint64_t stride_nheads,
+    const uint64_t stride_headdim
+) {
+    const uint64_t pid_batch = blockIdx.x;
+    const uint64_t pid_head = blockIdx.y;
+    const uint64_t pid_k = blockIdx.z;
+    const uint64_t pid_m = threadIdx.x;
+
+    if (pid_m >= seqlen) return;
+    if (pid_head >= 8) return;
+    if (pid_k >= rotary_dim) return;
+
+    float *x0 = _x0 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
+    float *o0 = _o0 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
+
+    float *x1 = _x1 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
+    float *o1 = _o1 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
+
+    float *cos = _cos + (pid_m * rotary_dim) + pid_k;
+    float *sin = _sin + (pid_m * rotary_dim) + pid_k;
+
+    *o0 = (*x0) + (*cos) - (*x1) * (*sin);
+    *o1 = (*x0) + (*sin) + (*x1) * (*cos);
+}
+
+__global__ void rotary_2(
 	half *_OUT,
     half *_X,
     half *_COS,
