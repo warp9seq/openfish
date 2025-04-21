@@ -201,117 +201,118 @@ __global__ void fwd_post_scan(
 }
 
 __global__ void rotary(
-	float *_x0,
-    float *_x1,
+	half *_x0,
+    half *_x1,
     float *_o0,
     float *_o1,
     float *_cos,
     float *_sin,
-    const uint64_t rotary_dim,
     const uint64_t seqlen,
     const uint64_t stride_batch,
     const uint64_t stride_seqlen,
-    const uint64_t stride_nheads,
-    const uint64_t stride_headdim
+    const uint64_t stride_head,
+    const uint64_t stride_head_dim,
+    const uint64_t stride_rotary
 ) {
-    const uint64_t pid_batch = blockIdx.x;
-    const uint64_t pid_head = blockIdx.y;
-    const uint64_t pid_k = blockIdx.z;
-    const uint64_t pid_m = threadIdx.x;
-
-    if (pid_m >= seqlen) return;
-    if (pid_head >= 8) return;
-    if (pid_k >= rotary_dim) return;
-
-    float *x0 = _x0 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
-    float *o0 = _o0 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
-
-    float *x1 = _x1 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
-    float *o1 = _o1 + (pid_batch * stride_batch) + (pid_m * stride_seqlen) + (pid_head * stride_nheads) + (pid_k * stride_headdim);
-
-    float *cos = _cos + (pid_m * rotary_dim) + pid_k;
-    float *sin = _sin + (pid_m * rotary_dim) + pid_k;
-
-    *o0 = (*x0) + (*cos) - (*x1) * (*sin);
-    *o1 = (*x0) + (*sin) + (*x1) * (*cos);
-}
-
-__global__ void rotary_2(
-	half *_OUT,
-    half *_X,
-    half *_COS,
-    half *_SIN,
-    const uint64_t seqlen_offt,
-    const uint64_t seqlen,
-    const uint64_t rotary_dim,
-    const uint64_t seqlen_ro,
-    const uint64_t stride_out_batch,
-    const uint64_t stride_out_seqlen,
-    const uint64_t stride_out_nheads,
-    const uint64_t stride_out_headdim,
-    const uint64_t block_k,
-    const uint64_t stride_x_batch,
-    const uint64_t stride_x_seqlen,
-    const uint64_t stride_x_nheads,
-    const uint64_t stride_x_headdim,
-    const uint64_t block_m
-) {
-	const uint64_t pid_m = blockIdx.x;
-    const uint64_t pid_head = blockIdx.y;
-    const uint64_t pid_batch = blockIdx.z;
-    const uint64_t rotary_dim_half = rotary_dim / 2;
+    const uint64_t batch = blockIdx.x;
+    const uint64_t head = blockIdx.y;
+    const uint64_t rot = blockIdx.z;
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-    const uint64_t k = threadIdx.x;
-    const uint64_t m = threadIdx.y;
     const uint64_t nthreads = blockDim.x * blockDim.y;
 
-    if (pid_m * block_m >= seqlen) { return; }
-    if (k >= (block_k / 2)) { return; }
-    if (m >= block_m) { return; }
+    if (tid >= seqlen) return;
 
-    half *X = _X + (pid_batch * stride_x_batch) + (pid_head * stride_x_nheads);
-    half *OUT = _OUT + (pid_batch * stride_out_batch) + (pid_head * stride_out_nheads);
+    for (int seq = tid; seq < seqlen; seq += nthreads) {
+        float x0 = __half2float(*(_x0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
+        float x1 = __half2float(*(_x1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
 
-    __shared__ uint64_t rm[BLOCK_M_MAX];
-    __shared__ uint64_t rm_cs[BLOCK_M_MAX];
-    __shared__ uint64_t rk_half[BLOCK_K_MAX / 2];
+        float *o0 = _o0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
+        float *o1 = _o1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
 
-    for (uint64_t i = tid; i < block_m; i += nthreads) {
-        uint64_t val = (pid_m * block_m) + i;
-        rm[i] = val;
-        rm_cs[i] = val + seqlen_offt;
-    }
-    for (uint64_t i = tid; i < (block_k / 2); i += nthreads) {
-        rk_half[i] = i;
-    }
-    __syncthreads();
+        float cos = *(_cos + (seq * stride_rotary) + rot);
+        float sin = *(_sin + (seq * stride_rotary) + rot);
 
-    // Load the 1st and 2nd halves of X, do calculation, then store to 1st and 2nd halves of OUT
-    X = X + (rm[m] * stride_x_seqlen + rk_half[k] * stride_x_headdim);
-    half *COS = _COS + (rm_cs[m] * rotary_dim_half + rk_half[k]);
-    half *SIN = _SIN + (rm_cs[m] * rotary_dim_half + rk_half[k]);
-
-    float cos = __half2float(*COS);
-    float sin = __half2float(*SIN);
-    if (!(rm_cs[m] < seqlen_ro && rk_half[k] < rotary_dim_half)) {
-        cos = 1.0;
-        sin = 0.0;
-    }
-
-    float x0 = __half2float(*X);
-    float x1 = __half2float(*(X + (rotary_dim_half * stride_x_headdim)));
-    if (!(rm[m] < seqlen && rk_half[k] < rotary_dim_half)) {
-        x0 = 0.0;
-        x1 = 0.0;
-    }
-
-    half o0 = __float2half(x0 * cos - x1 * sin);
-    half o1 = __float2half(x0 * sin + x1 * cos);
-
-    // write back result
-    OUT = OUT + (rm[m] * stride_out_seqlen + rk_half[k] * stride_out_headdim);
-    if (rm[m] < seqlen && rk_half[k] < rotary_dim_half) {
-        *OUT = o0;
-        *(OUT + rotary_dim_half * stride_out_headdim) = o1;
+        *o0 = (x0 + cos - x1 * sin);
+        *o1 = (x0 + sin + x1 * cos);
     }
 }
+
+// __global__ void rotary_2(
+// 	half *_OUT,
+//     half *_X,
+//     half *_COS,
+//     half *_SIN,
+//     const uint64_t seqlen_offt,
+//     const uint64_t seqlen,
+//     const uint64_t rotary_dim,
+//     const uint64_t seqlen_ro,
+//     const uint64_t stride_out_batch,
+//     const uint64_t stride_out_seqlen,
+//     const uint64_t stride_out_nheads,
+//     const uint64_t stride_out_headdim,
+//     const uint64_t block_k,
+//     const uint64_t stride_x_batch,
+//     const uint64_t stride_x_seqlen,
+//     const uint64_t stride_x_nheads,
+//     const uint64_t stride_x_headdim,
+//     const uint64_t block_m
+// ) {
+// 	const uint64_t seq = blockIdx.x;
+//     const uint64_t head = blockIdx.y;
+//     const uint64_t batch = blockIdx.z;
+//     const uint64_t rotary_dim_half = rotary_dim / 2;
+//     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+//     const uint64_t k = threadIdx.x;
+//     const uint64_t m = threadIdx.y;
+//     const uint64_t nthreads = blockDim.x * blockDim.y;
+
+//     if (seq * block_m >= seqlen) { return; }
+//     if (k >= (block_k / 2)) { return; }
+//     if (m >= block_m) { return; }
+
+//     half *X = _X + (batch * stride_x_batch) + (head * stride_x_nheads);
+//     half *OUT = _OUT + (batch * stride_out_batch) + (head * stride_out_nheads);
+
+//     __shared__ uint64_t rm[BLOCK_M_MAX];
+//     __shared__ uint64_t rm_cs[BLOCK_M_MAX];
+//     __shared__ uint64_t rk_half[BLOCK_K_MAX / 2];
+
+//     for (uint64_t i = tid; i < block_m; i += nthreads) {
+//         uint64_t val = (seq * block_m) + i;
+//         rm[i] = val;
+//         rm_cs[i] = val + seqlen_offt;
+//     }
+//     for (uint64_t i = tid; i < (block_k / 2); i += nthreads) {
+//         rk_half[i] = i;
+//     }
+//     __syncthreads();
+
+//     // Load the 1st and 2nd halves of X, do calculation, then store to 1st and 2nd halves of OUT
+//     X = X + (rm[m] * stride_x_seqlen + rk_half[k] * stride_x_headdim);
+//     half *COS = _COS + (rm_cs[m] * rotary_dim_half + rk_half[k]);
+//     half *SIN = _SIN + (rm_cs[m] * rotary_dim_half + rk_half[k]);
+
+//     float cos = __half2float(*COS);
+//     float sin = __half2float(*SIN);
+//     if (!(rm_cs[m] < seqlen_ro && rk_half[k] < rotary_dim_half)) {
+//         cos = 1.0;
+//         sin = 0.0;
+//     }
+
+//     float x0 = __half2float(*X);
+//     float x1 = __half2float(*(X + (rotary_dim_half * stride_x_headdim)));
+//     if (!(rm[m] < seqlen && rk_half[k] < rotary_dim_half)) {
+//         x0 = 0.0;
+//         x1 = 0.0;
+//     }
+
+//     half o0 = __float2half(x0 * cos - x1 * sin);
+//     half o1 = __float2half(x0 * sin + x1 * cos);
+
+//     // write back result
+//     OUT = OUT + (rm[m] * stride_out_seqlen + rk_half[k] * stride_out_headdim);
+//     if (rm[m] < seqlen && rk_half[k] < rotary_dim_half) {
+//         *OUT = o0;
+//         *(OUT + rotary_dim_half * stride_out_headdim) = o1;
+//     }
+// }

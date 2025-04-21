@@ -13,7 +13,7 @@ void flash_fwd(
     void *o_gpu,
     int batch_size,
     int seqlen,
-    int num_heads,
+    int nheads,
     int head_dim,
     int batch_stride,
     int row_stride,
@@ -21,18 +21,18 @@ void flash_fwd(
     int win_upper,
     int win_lower
 ) {
-    size_t tens_stride = batch_size * seqlen * num_heads * head_dim;
+    size_t tens_stride = batch_size * seqlen * nheads * head_dim;
     void *q_gpu = (cutlass::half_t *)qkv_gpu + (0 * tens_stride);
     void *k_gpu = (cutlass::half_t *)qkv_gpu + (1 * tens_stride);
     void *v_gpu = (cutlass::half_t *)qkv_gpu + (2 * tens_stride);
 
-    int o_batch_stride = seqlen * num_heads * head_dim;
-    int o_row_stride = num_heads * head_dim;
+    int o_batch_stride = seqlen * nheads * head_dim;
+    int o_row_stride = nheads * head_dim;
     int o_head_stride = head_dim;
 
     int seqlen_q = seqlen;
     int seqlen_k = seqlen;
-    int num_heads_k = num_heads;
+    int nheads_k = nheads;
     
     int q_batch_stride = batch_stride;
     int k_batch_stride = batch_stride;
@@ -58,8 +58,8 @@ void flash_fwd(
         batch_size,
         seqlen_q,
         seqlen_k,
-        num_heads,
-        num_heads_k,
+        nheads,
+        nheads_k,
         head_dim,
         q_batch_stride,
         k_batch_stride,
@@ -88,11 +88,11 @@ void run_flash(
 ) {
     size_t batch_size = 512;
     size_t seqlen = 833;
-    size_t num_heads = 8;
+    size_t nheads = 8;
     size_t head_dim = 64;
     int window_size_left = 127;
     int window_size_right = 128;
-    size_t numel = batch_size * seqlen * num_heads * head_dim;
+    size_t numel = batch_size * seqlen * nheads * head_dim;
 
     cutlass::half_t *qkv_gpu;
     cutlass::half_t *o_gpu;
@@ -114,7 +114,7 @@ void run_flash(
     //     o_gpu,
     //     batch_size,
     //     seqlen,
-    //     num_heads,
+    //     nheads,
     //     head_dim,
     //     window_size_left,
     //     window_size_right
@@ -124,27 +124,73 @@ void run_flash(
     checkCudaError();
 }
 
+void rotary_fwd(
+    void *x0_gpu,
+    void *x1_gpu,
+    void *o0_gpu,
+    void *o1_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
+) {
+    int block_width = 32;
+    dim3 block_size(block_width, block_width, 1);
+	dim3 grid_size(batch_size, nheads, rotary_dim);
+
+    rotary<<<grid_size, block_size>>>(
+        (half *)x0_gpu,
+        (half *)x1_gpu,
+        (float *)o0_gpu,
+        (float *)o1_gpu,
+        (float *)cos_gpu,
+        (float *)sin_gpu,
+        seqlen,
+        stride_batch,
+        stride_seq,
+        stride_head,
+        stride_head_dim,
+        stride_rotary
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
 void run_rotary(
     void *x0,
     void *x1,
+    void **o0,
+    void **o1,
     void *sin,
     void *cos
 ) {
     int batch_size = 500;
     int seqlen = 833;
-    int num_heads = 8;
+    int nheads = 8;
+    int head_dim = 32;
     int rotary_dim = 32;
 
-    size_t numel = batch_size * seqlen * num_heads * rotary_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    size_t numel = batch_size * seqlen * nheads * head_dim;
     size_t numel_ro = seqlen * rotary_dim;
 
-    dim3 block_size(seqlen, 1, 1);
-	dim3 grid_size(batch_size, num_heads, rotary_dim);
+    int stride_batch = seqlen * nheads * head_dim;
+    int stride_seq = nheads * head_dim;
+    int stride_head = head_dim;
+    int stride_head_dim = 1;
 
-    int stride_batch = seqlen * num_heads * rotary_dim;
-    int stride_seqlen = num_heads * rotary_dim;
-    int stride_nheads = rotary_dim;
-    int stride_headdim = 1;
+    *o0 = (float *)malloc(sizeof(float) * numel);
+    MALLOC_CHK(*o0);
+    *o1 = (float *)malloc(sizeof(float) * numel);
+    MALLOC_CHK(*o1);
 
     float *cos_gpu;
     cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
@@ -158,41 +204,63 @@ void run_rotary(
     cudaMemcpy(sin_gpu, sin, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    float *x0_gpu;
-    cudaMalloc((void **)&x0_gpu, sizeof(float) * numel);
+    half *x0_gpu;
+    cudaMalloc((void **)&x0_gpu, sizeof(half) * numel);
 	checkCudaError();
-    cudaMemcpy(x0_gpu, x0, sizeof(float) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(x0_gpu, x0, sizeof(half) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    float *x1_gpu;
-    cudaMalloc((void **)&x1_gpu, sizeof(float) * numel);
+    half *x1_gpu;
+    cudaMalloc((void **)&x1_gpu, sizeof(half) * numel);
 	checkCudaError();
-    cudaMemcpy(x1_gpu, x1, sizeof(float) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(x1_gpu, x1, sizeof(half) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    rotary<<<grid_size, block_size>>>(
+    float *o0_gpu;
+    cudaMalloc((void **)&o0_gpu, sizeof(float) * numel);
+	checkCudaError();
+
+    float *o1_gpu;
+    cudaMalloc((void **)&o1_gpu, sizeof(float) * numel);
+	checkCudaError();
+
+    rotary_fwd(
         x0_gpu,
         x1_gpu,
-        x0_gpu,
-        x1_gpu,
-        cos_gpu,
+        o0_gpu,
+        o1_gpu,
         sin_gpu,
-        rotary_dim,
+        cos_gpu,
+        batch_size,
         seqlen,
+        nheads,
+        head_dim,
+        rotary_dim,
         stride_batch,
-        stride_seqlen,
-        stride_nheads,
-        stride_headdim
+        stride_seq,
+        stride_head,
+        stride_head_dim,
+        rotary_dim
     );
-    checkCudaError();
-    cudaDeviceSynchronize();
+
+    cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(x0, x0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
+    cudaMemcpy(*o1, o1_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(x1, x1_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
-    checkCudaError();
+    cudaFree(cos_gpu);
+	checkCudaError();
+    cudaFree(sin_gpu);
+	checkCudaError();
+    cudaFree(x0_gpu);
+	checkCudaError();
+    cudaFree(x1_gpu);
+	checkCudaError();
+    cudaFree(o0_gpu);
+	checkCudaError();
+    cudaFree(o1_gpu);
+	checkCudaError();
 }
 
 // void run_rotary(
@@ -204,9 +272,9 @@ void run_rotary(
 //     int seqlen_offt = 0;
 //     int batch_size = 500;
 //     int seqlen = 833;
-//     int num_heads = 8;
+//     int nheads = 8;
 //     int head_dim = 64;
-//     size_t numel = batch_size * seqlen * num_heads * head_dim;
+//     size_t numel = batch_size * seqlen * nheads * head_dim;
 
 //     int seqlen_ro = 0; // cos.shape[0]
 //     int rotary_dim = 0; // cos.shape[1]
@@ -215,10 +283,10 @@ void run_rotary(
 //     ASSERT(head_dim <= 256);
 //     ASSERT(seqlen_ro >= seqlen);
 
-//     int stride_batch = seqlen * num_heads * head_dim;
-//     int stride_seqlen = num_heads * head_dim;
-//     int stride_nheads = head_dim;
-//     int stride_headdim = 1;
+//     int stride_batch = seqlen * nheads * head_dim;
+//     int stride_seq = nheads * head_dim;
+//     int stride_head = head_dim;
+//     int stride_head_dim = 1;
 
 //     int block_m = 8;
 //     int block_k = 32;
@@ -263,14 +331,14 @@ void run_rotary(
 //         rotary_dim * 2,
 //         seqlen_ro,
 //         stride_batch,
-//         stride_seqlen,
-//         stride_nheads,
-//         stride_headdim,
+//         stride_seq,
+//         stride_head,
+//         stride_head_dim,
 //         block_k,
 //         stride_batch,
-//         stride_seqlen,
-//         stride_nheads,
-//         stride_headdim,
+//         stride_seq,
+//         stride_head,
+//         stride_head_dim,
 //         block_m
 //     );
 

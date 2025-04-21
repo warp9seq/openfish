@@ -25,7 +25,8 @@ int main(int argc, char* argv[]) {
     FILE *fp;
     size_t result;
 
-    const int elem_size = sizeof(uint32_t);
+    const int elem_size = sizeof(uint16_t);
+    const int elem_size_full = sizeof(uint32_t);
 
     int batch_size = 500;
     int seqlen = 833;
@@ -40,10 +41,13 @@ int main(int argc, char* argv[]) {
     void *x1 = calloc(numel, elem_size);
     MALLOC_CHK(x1);
 
-    void *sin = calloc(numel_ro, elem_size);
+    void *sin = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(sin);
-    void *cos = calloc(numel_ro, elem_size);
+    void *cos = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(cos);
+
+    void *o0;
+    void *o1;
 
     fp = fopen("../slorado/q1.blob", "rb");
     F_CHK(fp, "../slorado/q1.blob");
@@ -65,7 +69,7 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("../slorado/sin.blob", "rb");
     F_CHK(fp, "../slorado/sin.blob");
-    result = fread(sin, elem_size, numel_ro, fp);
+    result = fread(sin, elem_size_full, numel_ro, fp);
     if (result != numel_ro) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -74,7 +78,7 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("../slorado/cos.blob", "rb");
     F_CHK(fp, "../slorado/cos.blob");
-    result = fread(cos, elem_size, numel_ro, fp);
+    result = fread(cos, elem_size_full, numel_ro, fp);
     if (result != numel_ro) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -84,13 +88,15 @@ int main(int argc, char* argv[]) {
     run_rotary(
         x0,
         x1,
+        &o0,
+        &o1,
         sin,
         cos
     );
 
     fp = fopen("q1_out.blob", "w");
     F_CHK(fp, "q1_out.blob");
-    if (fwrite(x0, elem_size, numel, fp) != numel) {
+    if (fwrite(o0, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -98,11 +104,14 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("q2_out.blob", "w");
     F_CHK(fp, "q2_out.blob");
-    if (fwrite(x1, elem_size, numel, fp) != numel) {
+    if (fwrite(o1, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
+
+    free(o0);
+    free(o1);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);

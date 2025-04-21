@@ -71,6 +71,8 @@ void flash_fwd(
 void run_rotary(
     void *x0,
     void *x1,
+    void **o0,
+    void **o1,
     void *sin,
     void *cos
 );
