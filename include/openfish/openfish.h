@@ -72,7 +72,7 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
-void openfish_flash_fwd(
+void openfish_flash(
     void *qkv_gpu,
     void *o_gpu,
     int batch_size,
@@ -84,6 +84,23 @@ void openfish_flash_fwd(
     int head_stride,
     int win_upper,
     int win_lower
+);
+
+void openfish_rotary(
+    void *x0_gpu,
+    void *x1_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
 );
 
 #ifdef __cplusplus

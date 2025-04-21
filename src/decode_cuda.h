@@ -54,7 +54,7 @@ void write_gpubuf_cuda(
     const openfish_gpubuf_t *gpubuf
 );
 
-void flash_fwd(
+void flash_cuda(
     void *qkv_gpu,
     void *o_gpu,
     int batch_size,
@@ -68,14 +68,33 @@ void flash_fwd(
     int win_lower
 );
 
-void run_rotary(
-    void *x0,
-    void *x1,
-    void **o0,
-    void **o1,
-    void *sin,
-    void *cos
+void rotary_cuda(
+    void *x0_gpu,
+    void *x1_gpu,
+    void *o0_gpu,
+    void *o1_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
 );
+
+// void run_rotary(
+//     void *x0,
+//     void *x1,
+//     void **o0,
+//     void **o1,
+//     void *sin,
+//     void *cos
+// );
 
 // void run_flash(
 //     void *q,

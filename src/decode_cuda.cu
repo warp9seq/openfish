@@ -8,7 +8,7 @@
 
 #include <flash.h>
 
-void flash_fwd(
+void flash_cuda(
     void *qkv_gpu,
     void *o_gpu,
     int batch_size,
@@ -124,7 +124,7 @@ void run_flash(
     checkCudaError();
 }
 
-void rotary_fwd(
+void rotary_cuda(
     void *x0_gpu,
     void *x1_gpu,
     void *o0_gpu,
@@ -149,8 +149,8 @@ void rotary_fwd(
     rotary<<<grid_size, block_size>>>(
         (half *)x0_gpu,
         (half *)x1_gpu,
-        (float *)o0_gpu,
-        (float *)o1_gpu,
+        (half *)o0_gpu,
+        (half *)o1_gpu,
         (float *)cos_gpu,
         (float *)sin_gpu,
         seqlen,
@@ -224,24 +224,24 @@ void run_rotary(
     cudaMalloc((void **)&o1_gpu, sizeof(float) * numel);
 	checkCudaError();
 
-    rotary_fwd(
-        x0_gpu,
-        x1_gpu,
-        o0_gpu,
-        o1_gpu,
-        sin_gpu,
-        cos_gpu,
-        batch_size,
-        seqlen,
-        nheads,
-        head_dim,
-        rotary_dim,
-        stride_batch,
-        stride_seq,
-        stride_head,
-        stride_head_dim,
-        rotary_dim
-    );
+    // rotary_cuda(
+    //     x0_gpu,
+    //     x1_gpu,
+    //     o0_gpu,
+    //     o1_gpu,
+    //     sin_gpu,
+    //     cos_gpu,
+    //     batch_size,
+    //     seqlen,
+    //     nheads,
+    //     head_dim,
+    //     rotary_dim,
+    //     stride_batch,
+    //     stride_seq,
+    //     stride_head,
+    //     stride_head_dim,
+    //     rotary_dim
+    // );
 
     cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();

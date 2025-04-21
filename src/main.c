@@ -22,96 +22,96 @@ int main(int argc, char* argv[]) {
 #if defined DEBUG
 // #pragma omp parallel
 // {
-    FILE *fp;
-    size_t result;
+    // FILE *fp;
+    // size_t result;
 
-    const int elem_size = sizeof(uint16_t);
-    const int elem_size_full = sizeof(uint32_t);
+    // const int elem_size = sizeof(uint16_t);
+    // const int elem_size_full = sizeof(uint32_t);
 
-    int batch_size = 500;
-    int seqlen = 833;
-    int num_heads = 8;
-    int rotary_dim = 32;
+    // int batch_size = 500;
+    // int seqlen = 833;
+    // int num_heads = 8;
+    // int rotary_dim = 32;
 
-    size_t numel = batch_size * seqlen * num_heads * rotary_dim; // todo: for it to be inplace, make the stride independent of rotary dim
-    size_t numel_ro = seqlen * rotary_dim;
+    // size_t numel = batch_size * seqlen * num_heads * rotary_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    // size_t numel_ro = seqlen * rotary_dim;
 
-    void *x0 = calloc(numel, elem_size);
-    MALLOC_CHK(x0);
-    void *x1 = calloc(numel, elem_size);
-    MALLOC_CHK(x1);
+    // void *x0 = calloc(numel, elem_size);
+    // MALLOC_CHK(x0);
+    // void *x1 = calloc(numel, elem_size);
+    // MALLOC_CHK(x1);
 
-    void *sin = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(sin);
-    void *cos = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(cos);
+    // void *sin = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(sin);
+    // void *cos = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(cos);
 
-    void *o0;
-    void *o1;
+    // void *o0;
+    // void *o1;
 
-    fp = fopen("../slorado/q1.blob", "rb");
-    F_CHK(fp, "../slorado/q1.blob");
-    result = fread(x0, elem_size, numel, fp);
-    if (result != numel) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/q1.blob", "rb");
+    // F_CHK(fp, "../slorado/q1.blob");
+    // result = fread(x0, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("../slorado/q2.blob", "rb");
-    F_CHK(fp, "../slorado/q2.blob");
-    result = fread(x1, elem_size, numel, fp);
-    if (result != numel) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/q2.blob", "rb");
+    // F_CHK(fp, "../slorado/q2.blob");
+    // result = fread(x1, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("../slorado/sin.blob", "rb");
-    F_CHK(fp, "../slorado/sin.blob");
-    result = fread(sin, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/sin.blob", "rb");
+    // F_CHK(fp, "../slorado/sin.blob");
+    // result = fread(sin, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("../slorado/cos.blob", "rb");
-    F_CHK(fp, "../slorado/cos.blob");
-    result = fread(cos, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/cos.blob", "rb");
+    // F_CHK(fp, "../slorado/cos.blob");
+    // result = fread(cos, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    run_rotary(
-        x0,
-        x1,
-        &o0,
-        &o1,
-        sin,
-        cos
-    );
+    // run_rotary(
+    //     x0,
+    //     x1,
+    //     &o0,
+    //     &o1,
+    //     sin,
+    //     cos
+    // );
 
-    fp = fopen("q1_out.blob", "w");
-    F_CHK(fp, "q1_out.blob");
-    if (fwrite(o0, elem_size_full, numel, fp) != numel) {
-        fprintf(stderr, "error writing o file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("q1_out.blob", "w");
+    // F_CHK(fp, "q1_out.blob");
+    // if (fwrite(o0, elem_size_full, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("q2_out.blob", "w");
-    F_CHK(fp, "q2_out.blob");
-    if (fwrite(o1, elem_size_full, numel, fp) != numel) {
-        fprintf(stderr, "error writing o file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("q2_out.blob", "w");
+    // F_CHK(fp, "q2_out.blob");
+    // if (fwrite(o1, elem_size_full, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    free(o0);
-    free(o1);
+    // free(o0);
+    // free(o1);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);

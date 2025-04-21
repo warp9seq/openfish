@@ -203,8 +203,8 @@ __global__ void fwd_post_scan(
 __global__ void rotary(
 	half *_x0,
     half *_x1,
-    float *_o0,
-    float *_o1,
+    half *_o0,
+    half *_o1,
     float *_cos,
     float *_sin,
     const uint64_t seqlen,
@@ -226,14 +226,14 @@ __global__ void rotary(
         float x0 = __half2float(*(_x0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
         float x1 = __half2float(*(_x1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
 
-        float *o0 = _o0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
-        float *o1 = _o1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
+        half *o0 = _o0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
+        half *o1 = _o1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
 
         float cos = *(_cos + (seq * stride_rotary) + rot);
         float sin = *(_sin + (seq * stride_rotary) + rot);
 
-        *o0 = (x0 + cos - x1 * sin);
-        *o1 = (x0 + sin + x1 * cos);
+        *o0 = __float2half(x0 + cos - x1 * sin);
+        *o1 = __float2half(x0 + sin + x1 * cos);
     }
 }
 

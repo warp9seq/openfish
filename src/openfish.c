@@ -60,7 +60,7 @@ void openfish_decode_gpu(
 #endif
 }
 
-void openfish_flash_fwd(
+void openfish_flash(
     void *qkv_gpu,
     void *o_gpu,
     int batch_size,
@@ -73,7 +73,7 @@ void openfish_flash_fwd(
     int win_upper,
     int win_lower
 ) {
-    flash_fwd(
+    flash_cuda(
         qkv_gpu,
         o_gpu,
         batch_size,
@@ -85,5 +85,41 @@ void openfish_flash_fwd(
         head_stride,
         win_upper,
         win_lower
+    );
+}
+
+void openfish_rotary(
+    void *x0_gpu,
+    void *x1_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
+) {
+    rotary_cuda(
+        x0_gpu,
+        x1_gpu,
+        x0_gpu,
+        x1_gpu,
+        sin_gpu,
+        cos_gpu,
+        batch_size,
+        seqlen,
+        nheads,
+        head_dim,
+        rotary_dim,
+        stride_batch,
+        stride_seq,
+        stride_head,
+        stride_head_dim,
+        stride_rotary
     );
 }
