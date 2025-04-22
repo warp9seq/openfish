@@ -126,9 +126,7 @@ void run_flash(
 
 void rotary_cuda(
     void *x0_gpu,
-    void *x1_gpu,
     void *o0_gpu,
-    void *o1_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
@@ -138,6 +136,7 @@ void rotary_cuda(
     int rotary_dim,
     int stride_batch,
     int stride_seq,
+    int stride_c,
     int stride_head,
     int stride_head_dim,
     int stride_rotary
@@ -148,14 +147,13 @@ void rotary_cuda(
 
     rotary<<<grid_size, block_size>>>(
         (half *)x0_gpu,
-        (half *)x1_gpu,
         (half *)o0_gpu,
-        (half *)o1_gpu,
         (float *)cos_gpu,
         (float *)sin_gpu,
         seqlen,
         stride_batch,
         stride_seq,
+        stride_c,
         stride_head,
         stride_head_dim,
         stride_rotary
@@ -165,103 +163,103 @@ void rotary_cuda(
     checkCudaError();
 }
 
-void run_rotary(
-    void *x0,
-    void *x1,
-    void **o0,
-    void **o1,
-    void *sin,
-    void *cos
-) {
-    int batch_size = 500;
-    int seqlen = 833;
-    int nheads = 8;
-    int head_dim = 32;
-    int rotary_dim = 32;
+// void run_rotary(
+//     void *x0,
+//     void *x1,
+//     void **o0,
+//     void **o1,
+//     void *sin,
+//     void *cos
+// ) {
+//     int batch_size = 500;
+//     int seqlen = 833;
+//     int nheads = 8;
+//     int head_dim = 32;
+//     int rotary_dim = 32;
 
-    size_t numel = batch_size * seqlen * nheads * head_dim;
-    size_t numel_ro = seqlen * rotary_dim;
+//     size_t numel = batch_size * seqlen * nheads * head_dim;
+//     size_t numel_ro = seqlen * rotary_dim;
 
-    int stride_batch = seqlen * nheads * head_dim;
-    int stride_seq = nheads * head_dim;
-    int stride_head = head_dim;
-    int stride_head_dim = 1;
+//     int stride_batch = seqlen * nheads * head_dim;
+//     int stride_seq = nheads * head_dim;
+//     int stride_head = head_dim;
+//     int stride_head_dim = 1;
 
-    *o0 = (float *)malloc(sizeof(float) * numel);
-    MALLOC_CHK(*o0);
-    *o1 = (float *)malloc(sizeof(float) * numel);
-    MALLOC_CHK(*o1);
+//     *o0 = (float *)malloc(sizeof(float) * numel);
+//     MALLOC_CHK(*o0);
+//     *o1 = (float *)malloc(sizeof(float) * numel);
+//     MALLOC_CHK(*o1);
 
-    float *cos_gpu;
-    cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
-	checkCudaError();
-    cudaMemcpy(cos_gpu, cos, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
-    checkCudaError();
+//     float *cos_gpu;
+//     cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
+// 	checkCudaError();
+//     cudaMemcpy(cos_gpu, cos, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
+//     checkCudaError();
 
-    float *sin_gpu;
-    cudaMalloc((void **)&sin_gpu, sizeof(float) * numel_ro);
-	checkCudaError();
-    cudaMemcpy(sin_gpu, sin, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
-    checkCudaError();
+//     float *sin_gpu;
+//     cudaMalloc((void **)&sin_gpu, sizeof(float) * numel_ro);
+// 	checkCudaError();
+//     cudaMemcpy(sin_gpu, sin, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
+//     checkCudaError();
 
-    half *x0_gpu;
-    cudaMalloc((void **)&x0_gpu, sizeof(half) * numel);
-	checkCudaError();
-    cudaMemcpy(x0_gpu, x0, sizeof(half) * numel, cudaMemcpyHostToDevice);
-    checkCudaError();
+//     half *x0_gpu;
+//     cudaMalloc((void **)&x0_gpu, sizeof(half) * numel);
+// 	checkCudaError();
+//     cudaMemcpy(x0_gpu, x0, sizeof(half) * numel, cudaMemcpyHostToDevice);
+//     checkCudaError();
 
-    half *x1_gpu;
-    cudaMalloc((void **)&x1_gpu, sizeof(half) * numel);
-	checkCudaError();
-    cudaMemcpy(x1_gpu, x1, sizeof(half) * numel, cudaMemcpyHostToDevice);
-    checkCudaError();
+//     half *x1_gpu;
+//     cudaMalloc((void **)&x1_gpu, sizeof(half) * numel);
+// 	checkCudaError();
+//     cudaMemcpy(x1_gpu, x1, sizeof(half) * numel, cudaMemcpyHostToDevice);
+//     checkCudaError();
 
-    float *o0_gpu;
-    cudaMalloc((void **)&o0_gpu, sizeof(float) * numel);
-	checkCudaError();
+//     float *o0_gpu;
+//     cudaMalloc((void **)&o0_gpu, sizeof(float) * numel);
+// 	checkCudaError();
 
-    float *o1_gpu;
-    cudaMalloc((void **)&o1_gpu, sizeof(float) * numel);
-	checkCudaError();
+//     float *o1_gpu;
+//     cudaMalloc((void **)&o1_gpu, sizeof(float) * numel);
+// 	checkCudaError();
 
-    // rotary_cuda(
-    //     x0_gpu,
-    //     x1_gpu,
-    //     o0_gpu,
-    //     o1_gpu,
-    //     sin_gpu,
-    //     cos_gpu,
-    //     batch_size,
-    //     seqlen,
-    //     nheads,
-    //     head_dim,
-    //     rotary_dim,
-    //     stride_batch,
-    //     stride_seq,
-    //     stride_head,
-    //     stride_head_dim,
-    //     rotary_dim
-    // );
+//     // rotary_cuda(
+//     //     x0_gpu,
+//     //     x1_gpu,
+//     //     o0_gpu,
+//     //     o1_gpu,
+//     //     sin_gpu,
+//     //     cos_gpu,
+//     //     batch_size,
+//     //     seqlen,
+//     //     nheads,
+//     //     head_dim,
+//     //     rotary_dim,
+//     //     stride_batch,
+//     //     stride_seq,
+//     //     stride_head,
+//     //     stride_head_dim,
+//     //     rotary_dim
+//     // );
 
-    cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
-    checkCudaError();
+//     cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
+//     checkCudaError();
 
-    cudaMemcpy(*o1, o1_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
-    checkCudaError();
+//     cudaMemcpy(*o1, o1_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
+//     checkCudaError();
 
-    cudaFree(cos_gpu);
-	checkCudaError();
-    cudaFree(sin_gpu);
-	checkCudaError();
-    cudaFree(x0_gpu);
-	checkCudaError();
-    cudaFree(x1_gpu);
-	checkCudaError();
-    cudaFree(o0_gpu);
-	checkCudaError();
-    cudaFree(o1_gpu);
-	checkCudaError();
-}
+//     cudaFree(cos_gpu);
+// 	checkCudaError();
+//     cudaFree(sin_gpu);
+// 	checkCudaError();
+//     cudaFree(x0_gpu);
+// 	checkCudaError();
+//     cudaFree(x1_gpu);
+// 	checkCudaError();
+//     cudaFree(o0_gpu);
+// 	checkCudaError();
+//     cudaFree(o1_gpu);
+// 	checkCudaError();
+// }
 
 // void run_rotary(
 //     void *qk,

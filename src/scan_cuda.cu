@@ -201,15 +201,14 @@ __global__ void fwd_post_scan(
 }
 
 __global__ void rotary(
-	half *_x0,
-    half *_x1,
-    half *_o0,
-    half *_o1,
+	half *x,
+    half *o,
     float *_cos,
     float *_sin,
     const uint64_t seqlen,
     const uint64_t stride_batch,
     const uint64_t stride_seqlen,
+    const uint64_t stride_c,
     const uint64_t stride_head,
     const uint64_t stride_head_dim,
     const uint64_t stride_rotary
@@ -219,21 +218,37 @@ __global__ void rotary(
     const uint64_t rot = blockIdx.z;
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t nthreads = blockDim.x * blockDim.y;
+    const uint64_t q = 0;
+    const uint64_t k = 1;
 
     if (tid >= seqlen) return;
 
     for (int seq = tid; seq < seqlen; seq += nthreads) {
-        float x0 = __half2float(*(_x0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
-        float x1 = __half2float(*(_x1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim)));
+        float x0 = __half2float(*(x + (batch * stride_batch) + (seq * stride_seqlen) + (q * stride_c) + (head * stride_head) + (rot * stride_head_dim)));
+        float x1 = __half2float(*(x + (batch * stride_batch) + (seq * stride_seqlen) + (q * stride_c) + (head * stride_head) + stride_rotary + (rot * stride_head_dim)));
 
-        half *o0 = _o0 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
-        half *o1 = _o1 + (batch * stride_batch) + (seq * stride_seqlen) + (head * stride_head) + (rot * stride_head_dim);
+        half *o0 = o + (batch * stride_batch) + (seq * stride_seqlen) + (q * stride_c) + (head * stride_head) + (rot * stride_head_dim);
+        half *o1 = o + (batch * stride_batch) + (seq * stride_seqlen) + (q * stride_c) + (head * stride_head) + stride_rotary + (rot * stride_head_dim);
 
         float cos = *(_cos + (seq * stride_rotary) + rot);
         float sin = *(_sin + (seq * stride_rotary) + rot);
 
-        *o0 = __float2half(x0 + cos - x1 * sin);
-        *o1 = __float2half(x0 + sin + x1 * cos);
+        *o0 = __float2half(x0 * cos - x1 * sin);
+        *o1 = __float2half(x0 * sin + x1 * cos);
+    }
+
+    for (int seq = tid; seq < seqlen; seq += nthreads) {
+        float x0 = __half2float(*(x + (batch * stride_batch) + (seq * stride_seqlen) + (k * stride_c) + (head * stride_head) + (rot * stride_head_dim)));
+        float x1 = __half2float(*(x + (batch * stride_batch) + (seq * stride_seqlen) + (k * stride_c) + (head * stride_head) + stride_rotary + (rot * stride_head_dim)));
+
+        half *o0 = o + (batch * stride_batch) + (seq * stride_seqlen) + (k * stride_c) + (head * stride_head) + (rot * stride_head_dim);
+        half *o1 = o + (batch * stride_batch) + (seq * stride_seqlen) + (k * stride_c) + (head * stride_head) + stride_rotary + (rot * stride_head_dim);
+
+        float cos = *(_cos + (seq * stride_rotary) + rot);
+        float sin = *(_sin + (seq * stride_rotary) + rot);
+
+        *o0 = __float2half(x0 * cos - x1 * sin);
+        *o1 = __float2half(x0 * sin + x1 * cos);
     }
 }
 

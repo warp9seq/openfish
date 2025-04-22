@@ -70,9 +70,7 @@ void flash_cuda(
 
 void rotary_cuda(
     void *x0_gpu,
-    void *x1_gpu,
     void *o0_gpu,
-    void *o1_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
@@ -82,6 +80,7 @@ void rotary_cuda(
     int rotary_dim,
     int stride_batch,
     int stride_seq,
+    int stride_c,
     int stride_head,
     int stride_head_dim,
     int stride_rotary

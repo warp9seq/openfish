@@ -90,7 +90,6 @@ void openfish_flash(
 
 void openfish_rotary(
     void *x0_gpu,
-    void *x1_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
@@ -100,15 +99,14 @@ void openfish_rotary(
     int rotary_dim,
     int stride_batch,
     int stride_seq,
+    int stride_c,
     int stride_head,
     int stride_head_dim,
     int stride_rotary
 ) {
     rotary_cuda(
         x0_gpu,
-        x1_gpu,
         x0_gpu,
-        x1_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,
@@ -118,6 +116,7 @@ void openfish_rotary(
         rotary_dim,
         stride_batch,
         stride_seq,
+        stride_c,
         stride_head,
         stride_head_dim,
         stride_rotary
