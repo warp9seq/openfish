@@ -136,6 +136,7 @@ void rotary_fwd(
     int rotary_dim,
     int stride_batch,
     int stride_seq,
+    int stride_c,
     int stride_head,
     int stride_head_dim,
     int stride_rotary
@@ -152,6 +153,7 @@ void rotary_fwd(
         seqlen,
         stride_batch,
         stride_seq,
+        stride_c,
         stride_head,
         stride_head_dim,
         stride_rotary
@@ -169,15 +171,17 @@ void run_rotary(
 ) {
     int batch_size = 500;
     int seqlen = 833;
+    int c = 3;
     int nheads = 8;
     int head_dim = 64;
     int rotary_dim = 32;
 
-    size_t numel = batch_size * seqlen * nheads * head_dim;
+    size_t numel = batch_size * seqlen * c * nheads * head_dim;
     size_t numel_ro = seqlen * rotary_dim;
 
-    int stride_batch = seqlen * nheads * head_dim;
-    int stride_seq = nheads * head_dim;
+    int stride_batch = seqlen * c * nheads * head_dim;
+    int stride_seq = c * nheads * head_dim;
+    int stride_c = nheads * head_dim;
     int stride_head = head_dim;
     int stride_head_dim = 1;
 
@@ -218,6 +222,7 @@ void run_rotary(
         rotary_dim,
         stride_batch,
         stride_seq,
+        stride_c,
         stride_head,
         stride_head_dim,
         rotary_dim

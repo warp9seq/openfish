@@ -28,6 +28,7 @@ __global__ void rotary(
     const uint64_t seqlen,
     const uint64_t stride_batch,
     const uint64_t stride_seqlen,
+    const uint64_t stride_c,
     const uint64_t stride_head,
     const uint64_t stride_head_dim,
     const uint64_t stride_rotary

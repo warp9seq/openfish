@@ -30,11 +30,12 @@ int main(int argc, char* argv[]) {
 
     int batch_size = 500;
     int seqlen = 833;
+    int c = 3;
     int num_heads = 8;
     int rotary_dim = 32;
     int head_dim = 64;
 
-    size_t numel = batch_size * seqlen * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    size_t numel = batch_size * seqlen * c * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
     size_t numel_ro = seqlen * rotary_dim;
 
     void *x0 = calloc(numel, elem_size);
@@ -47,8 +48,8 @@ int main(int argc, char* argv[]) {
 
     void *o0;
 
-    fp = fopen("../slorado/q_ro.blob", "rb");
-    F_CHK(fp, "../slorado/q_ro.blob");
+    fp = fopen("../slorado/qkv.blob", "rb");
+    F_CHK(fp, "../slorado/qkv.blob");
     result = fread(x0, elem_size, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
@@ -81,8 +82,8 @@ int main(int argc, char* argv[]) {
         cos
     );
 
-    fp = fopen("q_ro_out.blob", "w");
-    F_CHK(fp, "q_ro_out.blob");
+    fp = fopen("qkv_out.blob", "w");
+    F_CHK(fp, "qkv_out.blob");
     if (fwrite(o0, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
