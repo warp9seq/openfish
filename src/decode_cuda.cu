@@ -126,9 +126,7 @@ void run_flash(
 
 void rotary_fwd(
     void *x0_gpu,
-    void *x1_gpu,
     void *o0_gpu,
-    void *o1_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
@@ -148,9 +146,7 @@ void rotary_fwd(
 
     rotary<<<grid_size, block_size>>>(
         (half *)x0_gpu,
-        (half *)x1_gpu,
         (float *)o0_gpu,
-        (float *)o1_gpu,
         (float *)cos_gpu,
         (float *)sin_gpu,
         seqlen,
@@ -167,16 +163,14 @@ void rotary_fwd(
 
 void run_rotary(
     void *x0,
-    void *x1,
     void **o0,
-    void **o1,
     void *sin,
     void *cos
 ) {
     int batch_size = 500;
     int seqlen = 833;
     int nheads = 8;
-    int head_dim = 32;
+    int head_dim = 64;
     int rotary_dim = 32;
 
     size_t numel = batch_size * seqlen * nheads * head_dim;
@@ -189,8 +183,6 @@ void run_rotary(
 
     *o0 = (float *)malloc(sizeof(float) * numel);
     MALLOC_CHK(*o0);
-    *o1 = (float *)malloc(sizeof(float) * numel);
-    MALLOC_CHK(*o1);
 
     float *cos_gpu;
     cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
@@ -210,25 +202,13 @@ void run_rotary(
     cudaMemcpy(x0_gpu, x0, sizeof(half) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    half *x1_gpu;
-    cudaMalloc((void **)&x1_gpu, sizeof(half) * numel);
-	checkCudaError();
-    cudaMemcpy(x1_gpu, x1, sizeof(half) * numel, cudaMemcpyHostToDevice);
-    checkCudaError();
-
     float *o0_gpu;
     cudaMalloc((void **)&o0_gpu, sizeof(float) * numel);
 	checkCudaError();
 
-    float *o1_gpu;
-    cudaMalloc((void **)&o1_gpu, sizeof(float) * numel);
-	checkCudaError();
-
     rotary_fwd(
         x0_gpu,
-        x1_gpu,
         o0_gpu,
-        o1_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,
@@ -246,20 +226,13 @@ void run_rotary(
     cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
 
-    cudaMemcpy(*o1, o1_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
     cudaFree(cos_gpu);
 	checkCudaError();
     cudaFree(sin_gpu);
 	checkCudaError();
     cudaFree(x0_gpu);
 	checkCudaError();
-    cudaFree(x1_gpu);
-	checkCudaError();
     cudaFree(o0_gpu);
-	checkCudaError();
-    cudaFree(o1_gpu);
 	checkCudaError();
 }
 

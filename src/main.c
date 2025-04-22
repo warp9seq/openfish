@@ -32,14 +32,13 @@ int main(int argc, char* argv[]) {
     int seqlen = 833;
     int num_heads = 8;
     int rotary_dim = 32;
+    int head_dim = 64;
 
-    size_t numel = batch_size * seqlen * num_heads * rotary_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    size_t numel = batch_size * seqlen * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
     size_t numel_ro = seqlen * rotary_dim;
 
     void *x0 = calloc(numel, elem_size);
     MALLOC_CHK(x0);
-    void *x1 = calloc(numel, elem_size);
-    MALLOC_CHK(x1);
 
     void *sin = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(sin);
@@ -47,20 +46,10 @@ int main(int argc, char* argv[]) {
     MALLOC_CHK(cos);
 
     void *o0;
-    void *o1;
 
-    fp = fopen("../slorado/q1.blob", "rb");
-    F_CHK(fp, "../slorado/q1.blob");
+    fp = fopen("../slorado/q_ro.blob", "rb");
+    F_CHK(fp, "../slorado/q_ro.blob");
     result = fread(x0, elem_size, numel, fp);
-    if (result != numel) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("../slorado/q2.blob", "rb");
-    F_CHK(fp, "../slorado/q2.blob");
-    result = fread(x1, elem_size, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -87,31 +76,20 @@ int main(int argc, char* argv[]) {
 
     run_rotary(
         x0,
-        x1,
         &o0,
-        &o1,
         sin,
         cos
     );
 
-    fp = fopen("q1_out.blob", "w");
-    F_CHK(fp, "q1_out.blob");
+    fp = fopen("q_ro_out.blob", "w");
+    F_CHK(fp, "q_ro_out.blob");
     if (fwrite(o0, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    fp = fopen("q2_out.blob", "w");
-    F_CHK(fp, "q2_out.blob");
-    if (fwrite(o1, elem_size_full, numel, fp) != numel) {
-        fprintf(stderr, "error writing o file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
     free(o0);
-    free(o1);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);

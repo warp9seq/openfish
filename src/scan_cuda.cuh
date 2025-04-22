@@ -22,9 +22,7 @@ __global__ void fwd_post_scan(
 
 __global__ void rotary(
 	half *_x0,
-    half *_x1,
     float *_o0,
-    float *_o1,
     float *_cos,
     float *_sin,
     const uint64_t seqlen,
