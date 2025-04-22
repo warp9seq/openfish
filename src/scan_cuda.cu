@@ -232,8 +232,8 @@ __global__ void rotary(
         float cos = *(_cos + (seq * stride_rotary) + rot);
         float sin = *(_sin + (seq * stride_rotary) + rot);
 
-        *o0 = (x0 + cos - x1 * sin);
-        *o1 = (x0 + sin + x1 * cos);
+        *o0 = (x0 * cos - x1 * sin);
+        *o1 = (x0 * sin + x1 * cos);
     }
 }
 
