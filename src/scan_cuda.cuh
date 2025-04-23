@@ -22,16 +22,13 @@ __global__ void fwd_post_scan(
 
 __global__ void rotary(
 	float *_x0,
-    float *_o0,
     float *_cos,
     float *_sin,
     const uint64_t seqlen,
     const uint64_t stride_batch,
     const uint64_t stride_seqlen,
-    const uint64_t stride_c,
     const uint64_t stride_head,
-    const uint64_t stride_head_dim,
-    const uint64_t stride_rotary
+    const uint64_t rotary_half
 );
 
 // __global__ void rotary(

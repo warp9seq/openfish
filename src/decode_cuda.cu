@@ -126,7 +126,6 @@ void run_flash(
 
 void rotary_fwd(
     void *x0_gpu,
-    void *o0_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
@@ -136,27 +135,21 @@ void rotary_fwd(
     int rotary_dim,
     int stride_batch,
     int stride_seq,
-    int stride_c,
-    int stride_head,
-    int stride_head_dim,
-    int stride_rotary
+    int stride_head
 ) {
-    int block_width = 32;
-    dim3 block_size(block_width, block_width, 1);
-	dim3 grid_size(batch_size, nheads, rotary_dim);
+    int block_height = 32;
+    dim3 block_size(rotary_dim, block_height, 1);
+	dim3 grid_size(batch_size, nheads, 1);
 
     rotary<<<grid_size, block_size>>>(
         (float *)x0_gpu,
-        (float *)o0_gpu,
         (float *)cos_gpu,
         (float *)sin_gpu,
         seqlen,
         stride_batch,
         stride_seq,
-        stride_c,
         stride_head,
-        stride_head_dim,
-        stride_rotary
+        rotary_dim
     );
     checkCudaError();
     cudaDeviceSynchronize();
@@ -202,9 +195,11 @@ void run_rotary(
     cudaMemcpy(x0_gpu, x0, sizeof(float) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
 
+    float *q_gpu = x0_gpu + (0 * stride_c);
+    float *k_gpu = x0_gpu + (1 * stride_c);
+
     rotary_fwd(
-        x0_gpu,
-        x0_gpu,
+        q_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,
@@ -214,10 +209,21 @@ void run_rotary(
         rotary_dim,
         stride_batch,
         stride_seq,
-        stride_c,
-        stride_head,
-        stride_head_dim,
-        rotary_dim
+        stride_head
+    );
+
+    rotary_fwd(
+        k_gpu,
+        sin_gpu,
+        cos_gpu,
+        batch_size,
+        seqlen,
+        nheads,
+        head_dim,
+        rotary_dim,
+        stride_batch,
+        stride_seq,
+        stride_head
     );
 
     cudaMemcpy(x0, x0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
