@@ -218,12 +218,15 @@ __global__ void rotary(
 
     if (tid >= seqlen) return;
 
+    float *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
+    float *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
+
     for (int seq = tid; seq < seqlen; seq += nthreads) {
         float cos = *(_cos + (seq * rotary_half) + rot);
         float sin = *(_sin + (seq * rotary_half) + rot);
 
-        float *o0 = x + (batch * stride_batch) + (seq * stride_seq) + (head * stride_head) + rot;
-        float *o1 = x + (batch * stride_batch) + (seq * stride_seq) + (head * stride_head) + rotary_half + rot;
+        float *o0 = _o0 + (seq * stride_seq);
+        float *o1 = _o1 + (seq * stride_seq);
 
         float x0 = *o0;
         float x1 = *o1;

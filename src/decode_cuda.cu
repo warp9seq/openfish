@@ -137,8 +137,8 @@ void rotary_fwd(
     int stride_seq,
     int stride_head
 ) {
-    int block_height = 32;
-    dim3 block_size(rotary_dim, block_height, 1);
+    int thread_h = 32;
+    dim3 block_size(rotary_dim, thread_h, 1);
 	dim3 grid_size(batch_size, nheads, 1);
 
     rotary<<<grid_size, block_size>>>(
@@ -163,7 +163,7 @@ void run_rotary(
 ) {
     int batch_size = 500;
     int seqlen = 833;
-    int c = 3;
+    int c = 1;
     int nheads = 8;
     int head_dim = 64;
     int rotary_dim = 32;
@@ -196,24 +196,9 @@ void run_rotary(
     checkCudaError();
 
     float *q_gpu = x0_gpu + (0 * stride_c);
-    float *k_gpu = x0_gpu + (1 * stride_c);
 
     rotary_fwd(
         q_gpu,
-        sin_gpu,
-        cos_gpu,
-        batch_size,
-        seqlen,
-        nheads,
-        head_dim,
-        rotary_dim,
-        stride_batch,
-        stride_seq,
-        stride_head
-    );
-
-    rotary_fwd(
-        k_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,

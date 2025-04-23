@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 
     int batch_size = 500;
     int seqlen = 833;
-    int c = 3;
+    int c = 1;
     int num_heads = 8;
     int rotary_dim = 32;
     int head_dim = 64;
@@ -45,8 +45,8 @@ int main(int argc, char* argv[]) {
     void *cos = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(cos);
 
-    fp = fopen("../slorado/qkv_full.blob", "rb");
-    F_CHK(fp, "../slorado/qkv_full.blob");
+    fp = fopen("../slorado/q_ro_full.blob", "rb");
+    F_CHK(fp, "../slorado/q_ro_full.blob");
     result = fread(x0, elem_size_full, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
@@ -78,8 +78,8 @@ int main(int argc, char* argv[]) {
         cos
     );
 
-    fp = fopen("qkv_out.blob", "w");
-    F_CHK(fp, "qkv_out.blob");
+    fp = fopen("q_ro_out.blob", "w");
+    F_CHK(fp, "q_ro_out.blob");
     if (fwrite(x0, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
