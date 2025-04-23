@@ -21,7 +21,7 @@ __global__ void fwd_post_scan(
 );
 
 __global__ void rotary(
-	half *_x0,
+	float *_x0,
     float *_o0,
     float *_cos,
     float *_sin,

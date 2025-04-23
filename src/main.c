@@ -24,8 +24,7 @@ int main(int argc, char* argv[]) {
 // {
     FILE *fp;
     size_t result;
-
-    const int elem_size = sizeof(uint16_t);
+    
     const int elem_size_full = sizeof(uint32_t);
 
     int batch_size = 500;
@@ -38,7 +37,7 @@ int main(int argc, char* argv[]) {
     size_t numel = batch_size * seqlen * c * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
     size_t numel_ro = seqlen * rotary_dim;
 
-    void *x0 = calloc(numel, elem_size);
+    void *x0 = calloc(numel, elem_size_full);
     MALLOC_CHK(x0);
 
     void *sin = calloc(numel_ro, elem_size_full);
@@ -46,11 +45,9 @@ int main(int argc, char* argv[]) {
     void *cos = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(cos);
 
-    void *o0;
-
-    fp = fopen("../slorado/qkv.blob", "rb");
-    F_CHK(fp, "../slorado/qkv.blob");
-    result = fread(x0, elem_size, numel, fp);
+    fp = fopen("../slorado/qkv_full.blob", "rb");
+    F_CHK(fp, "../slorado/qkv_full.blob");
+    result = fread(x0, elem_size_full, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -77,20 +74,17 @@ int main(int argc, char* argv[]) {
 
     run_rotary(
         x0,
-        &o0,
         sin,
         cos
     );
 
     fp = fopen("qkv_out.blob", "w");
     F_CHK(fp, "qkv_out.blob");
-    if (fwrite(o0, elem_size_full, numel, fp) != numel) {
+    if (fwrite(x0, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
-
-    free(o0);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);

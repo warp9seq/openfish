@@ -146,7 +146,7 @@ void rotary_fwd(
 	dim3 grid_size(batch_size, nheads, rotary_dim);
 
     rotary<<<grid_size, block_size>>>(
-        (half *)x0_gpu,
+        (float *)x0_gpu,
         (float *)o0_gpu,
         (float *)cos_gpu,
         (float *)sin_gpu,
@@ -165,7 +165,6 @@ void rotary_fwd(
 
 void run_rotary(
     void *x0,
-    void **o0,
     void *sin,
     void *cos
 ) {
@@ -185,9 +184,6 @@ void run_rotary(
     int stride_head = head_dim;
     int stride_head_dim = 1;
 
-    *o0 = (float *)malloc(sizeof(float) * numel);
-    MALLOC_CHK(*o0);
-
     float *cos_gpu;
     cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
 	checkCudaError();
@@ -200,19 +196,15 @@ void run_rotary(
     cudaMemcpy(sin_gpu, sin, sizeof(float) * numel_ro, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    half *x0_gpu;
-    cudaMalloc((void **)&x0_gpu, sizeof(half) * numel);
+    float *x0_gpu;
+    cudaMalloc((void **)&x0_gpu, sizeof(float) * numel);
 	checkCudaError();
-    cudaMemcpy(x0_gpu, x0, sizeof(half) * numel, cudaMemcpyHostToDevice);
+    cudaMemcpy(x0_gpu, x0, sizeof(float) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
-
-    float *o0_gpu;
-    cudaMalloc((void **)&o0_gpu, sizeof(float) * numel);
-	checkCudaError();
 
     rotary_fwd(
         x0_gpu,
-        o0_gpu,
+        x0_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,
@@ -228,7 +220,7 @@ void run_rotary(
         rotary_dim
     );
 
-    cudaMemcpy(*o0, o0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
+    cudaMemcpy(x0, x0_gpu, sizeof(float) * numel, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     cudaFree(cos_gpu);
@@ -236,8 +228,6 @@ void run_rotary(
     cudaFree(sin_gpu);
 	checkCudaError();
     cudaFree(x0_gpu);
-	checkCudaError();
-    cudaFree(o0_gpu);
 	checkCudaError();
 }
 

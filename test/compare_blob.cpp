@@ -37,14 +37,16 @@ int main(int argc, char* argv[]) {
 
     float max_diff = 0.0f;
     float avg_diff = 0.0f;
-    float max_val = -FLT_MAX;
-    float min_val = FLT_MAX;
+    float max_val_0 = -FLT_MAX;
+    float min_val_0 = FLT_MAX;
+    float max_val_1 = -FLT_MAX;
+    float min_val_1 = FLT_MAX;
     uint64_t n_diff = 0;
     for (int i = 0; i < tens_len; ++i) {
-        if (tens0[i] > max_val) max_val = tens0[i];
-        if (tens1[i] > max_val) max_val = tens1[i];
-        if (tens0[i] < min_val) min_val = tens0[i];
-        if (tens1[i] < min_val) min_val = tens1[i];
+        if (tens0[i] > max_val_0) max_val_0 = tens0[i];
+        if (tens1[i] > max_val_1) max_val_1 = tens1[i];
+        if (tens0[i] < min_val_0) min_val_0 = tens0[i];
+        if (tens1[i] < min_val_1) min_val_1 = tens1[i];
 
         float diff = fabs(tens0[i] - tens1[i]);
         if (diff != 0.0f) {
@@ -56,7 +58,8 @@ int main(int argc, char* argv[]) {
         }
     }
     avg_diff /= tens_len;
-    fprintf(stderr, "tensor max elem diff by %.32f, avg diff: %f, tens_len: %zu, n_diffs: %zu, min_val: %.3f, max_val: %.3f\n", max_diff, avg_diff, tens_len, n_diff, min_val, max_val);
+    fprintf(stderr, "tensor max elem diff by %.32f, avg diff: %f, tens_len: %zu, n_diffs: %zu\n", max_diff, avg_diff, tens_len, n_diff);
+    fprintf(stderr, "min_val_0: %.3f, max_val_0: %.3f, min_val_1: %.3f, max_val_1: %.3f\n", min_val_0, max_val_0, min_val_1, max_val_1);
 
     return 0;
 }
