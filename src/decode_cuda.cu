@@ -132,13 +132,13 @@ void rotary_fwd(
     int seqlen,
     int nheads,
     int head_dim,
-    int rotary_dim,
+    int rotary_half,
     int stride_batch,
     int stride_seq,
     int stride_head
 ) {
     int thread_h = 32;
-    dim3 block_size(rotary_dim, thread_h, 1);
+    dim3 block_size(rotary_half, thread_h, 1);
 	dim3 grid_size(batch_size, nheads, 1);
 
     rotary<<<grid_size, block_size>>>(
@@ -149,7 +149,7 @@ void rotary_fwd(
         stride_batch,
         stride_seq,
         stride_head,
-        rotary_dim
+        rotary_half
     );
     checkCudaError();
     cudaDeviceSynchronize();
@@ -163,17 +163,15 @@ void run_rotary(
 ) {
     int batch_size = 500;
     int seqlen = 833;
-    int c = 1;
     int nheads = 8;
     int head_dim = 64;
-    int rotary_dim = 32;
+    int rotary_half = 32;
 
-    size_t numel = batch_size * seqlen * c * nheads * head_dim;
-    size_t numel_ro = seqlen * rotary_dim;
+    size_t numel = batch_size * seqlen * nheads * head_dim;
+    size_t numel_ro = seqlen * rotary_half;
 
-    int stride_batch = seqlen * c * nheads * head_dim;
-    int stride_seq = c * nheads * head_dim;
-    int stride_c = nheads * head_dim;
+    int stride_batch = seqlen * nheads * head_dim;
+    int stride_seq = nheads * head_dim;
     int stride_head = head_dim;
     int stride_head_dim = 1;
 
@@ -195,17 +193,15 @@ void run_rotary(
     cudaMemcpy(x0_gpu, x0, sizeof(float) * numel, cudaMemcpyHostToDevice);
     checkCudaError();
 
-    float *q_gpu = x0_gpu + (0 * stride_c);
-
     rotary_fwd(
-        q_gpu,
+        x0_gpu,
         sin_gpu,
         cos_gpu,
         batch_size,
         seqlen,
         nheads,
         head_dim,
-        rotary_dim,
+        rotary_half,
         stride_batch,
         stride_seq,
         stride_head
@@ -221,89 +217,6 @@ void run_rotary(
     cudaFree(x0_gpu);
 	checkCudaError();
 }
-
-// void run_rotary(
-//     void *qk,
-//     void *sin,
-//     void *cos,
-//     void **o
-// ) {
-//     int seqlen_offt = 0;
-//     int batch_size = 500;
-//     int seqlen = 833;
-//     int nheads = 8;
-//     int head_dim = 64;
-//     size_t numel = batch_size * seqlen * nheads * head_dim;
-
-//     int seqlen_ro = 0; // cos.shape[0]
-//     int rotary_dim = 0; // cos.shape[1]
-
-//     ASSERT(rotary_dim * 2 <= head_dim);
-//     ASSERT(head_dim <= 256);
-//     ASSERT(seqlen_ro >= seqlen);
-
-//     int stride_batch = seqlen * nheads * head_dim;
-//     int stride_seq = nheads * head_dim;
-//     int stride_head = head_dim;
-//     int stride_head_dim = 1;
-
-//     int block_m = 8;
-//     int block_k = 32;
-//     if (rotary_dim <= 64) {
-//         block_k = 64;
-//     } else if (rotary_dim <= 128) {
-//         block_k = 128;
-//     } else {
-//         block_k = 256;
-//         block_m = 4;
-//     }
-
-//     half *cos_gpu;
-//     cudaMalloc((void **)&cos_gpu, sizeof(half) * seqlen_ro * rotary_dim);
-// 	checkCudaError();
-//     cudaMemcpy(cos_gpu, cos, sizeof(half) * seqlen_ro * rotary_dim, cudaMemcpyHostToDevice);
-//     checkCudaError();
-
-//     half *sin_gpu;
-//     cudaMalloc((void **)&sin_gpu, sizeof(half) * seqlen_ro * rotary_dim);
-// 	checkCudaError();
-//     cudaMemcpy(sin_gpu, sin, sizeof(half) * seqlen_ro * rotary_dim, cudaMemcpyHostToDevice);
-//     checkCudaError();
-
-//     half *qk_gpu;
-//     cudaMalloc((void **)&qk_gpu, sizeof(half) * numel * 2);
-// 	checkCudaError();
-
-//     cudaMemcpy(qk_gpu, qk, sizeof(half) * numel * 2, cudaMemcpyHostToDevice);
-//     checkCudaError();
-
-//     *o = malloc(sizeof(half) * numel * 2);
-//     MALLOC_CHK(*o);
-
-//     rotary(
-//         qk_gpu,
-//         qk_gpu,
-//         cos_gpu,
-//         sin_gpu,
-//         seqlen_offt,
-//         seqlen,
-//         rotary_dim * 2,
-//         seqlen_ro,
-//         stride_batch,
-//         stride_seq,
-//         stride_head,
-//         stride_head_dim,
-//         block_k,
-//         stride_batch,
-//         stride_seq,
-//         stride_head,
-//         stride_head_dim,
-//         block_m
-//     );
-
-//     cudaMemcpy(*o, qk_gpu, sizeof(half) * numel * 2, cudaMemcpyDeviceToHost);
-//     checkCudaError();
-// }
 
 openfish_gpubuf_t *gpubuf_init_cuda(
     const int T,
