@@ -74,12 +74,19 @@ void run_rotary(
     void *cos
 );
 
-// void run_flash(
-//     void *q,
-//     void *k,
-//     void *v,
-//     void **o
-// );
+void rotary_f16_cuda(
+    void *x0_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head
+);
 
 #ifdef __cplusplus
 }

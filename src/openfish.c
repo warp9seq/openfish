@@ -87,3 +87,31 @@ void openfish_flash_fwd(
         win_lower
     );
 }
+
+void openfish_rotary_f16(
+    void *x_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head
+) {
+    rotary_f16_cuda(
+        x_gpu,
+        sin_gpu,
+        cos_gpu,
+        batch_size,
+        seqlen,
+        nheads,
+        head_dim,
+        rotary_half,
+        stride_batch,
+        stride_seq,
+        stride_head
+    );
+}

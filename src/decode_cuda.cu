@@ -124,6 +124,38 @@ void run_flash(
     checkCudaError();
 }
 
+void rotary_f16_cuda(
+    void *x0_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head
+) {
+    int thread_h = 32;
+    dim3 block_size(rotary_half, thread_h, 1);
+	dim3 grid_size(batch_size, nheads, 1);
+
+    rotary_f16<<<grid_size, block_size>>>(
+        (half *)x0_gpu,
+        (float *)cos_gpu,
+        (float *)sin_gpu,
+        seqlen,
+        stride_batch,
+        stride_seq,
+        stride_head,
+        rotary_half
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
 void rotary_fwd(
     void *x0_gpu,
     void *sin_gpu,
@@ -173,8 +205,7 @@ void run_rotary(
     int stride_batch = seqlen * nheads * head_dim;
     int stride_seq = nheads * head_dim;
     int stride_head = head_dim;
-    int stride_head_dim = 1;
-
+    
     float *cos_gpu;
     cudaMalloc((void **)&cos_gpu, sizeof(float) * numel_ro);
 	checkCudaError();

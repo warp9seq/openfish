@@ -86,6 +86,20 @@ void openfish_flash_fwd(
     int win_lower
 );
 
+void openfish_rotary_f16(
+    void *x_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head
+);
+
 #ifdef __cplusplus
 }
 #endif
