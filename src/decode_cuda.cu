@@ -21,7 +21,7 @@ void flash_fwd(
     int win_upper,
     int win_lower
 ) {
-    size_t tens_stride = batch_size * seqlen * nheads * head_dim;
+    size_t tens_stride = nheads * head_dim;
     void *q_gpu = (cutlass::half_t *)qkv_gpu + (0 * tens_stride);
     void *k_gpu = (cutlass::half_t *)qkv_gpu + (1 * tens_stride);
     void *v_gpu = (cutlass::half_t *)qkv_gpu + (2 * tens_stride);
