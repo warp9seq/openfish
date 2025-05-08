@@ -26,65 +26,119 @@ int main(int argc, char* argv[]) {
     size_t result;
     
     const int elem_size_full = sizeof(uint32_t);
+    const int elem_size_half = sizeof(uint16_t);
 
-    int batch_size = 500;
-    int seqlen = 833;
-    int c = 3;
-    int num_heads = 8;
-    int rotary_dim = 32;
-    int head_dim = 64;
+    int64_t B = 500 * 833; // batch_size * seqlen
+    int64_t I = 512;
+    int64_t H = 2048;
 
-    size_t numel = batch_size * seqlen * c * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
-    size_t numel_ro = seqlen * rotary_dim;
+    void *x = calloc(B * I, elem_size_half);
 
-    void *x0 = calloc(numel, elem_size_full);
-    MALLOC_CHK(x0);
-
-    void *sin = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(sin);
-    void *cos = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(cos);
-
-    fp = fopen("../slorado/qkv_full.blob", "rb");
-    F_CHK(fp, "../slorado/qkv_full.blob");
-    result = fread(x0, elem_size_full, numel, fp);
-    if (result != numel) {
+    fp = fopen("../slorado/x_slorado.blob", "rb");
+    F_CHK(fp, "../slorado/x_slorado.blob");
+    result = fread(x, elem_size_half, B * I, fp);
+    if (result != B * I) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    fp = fopen("../slorado/sin.blob", "rb");
-    F_CHK(fp, "../slorado/sin.blob");
-    result = fread(sin, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
+    void *w0 = calloc(H * I, elem_size_half);
+    void *w1 = calloc(H * I, elem_size_half);
+
+    fp = fopen("../slorado/w0_slorado.blob", "rb");
+    F_CHK(fp, "../slorado/w0_slorado.blob");
+    result = fread(w0, elem_size_half, H * I, fp);
+    if (result != H * I) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    fp = fopen("../slorado/cos.blob", "rb");
-    F_CHK(fp, "../slorado/cos.blob");
-    result = fread(cos, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
+    fp = fopen("../slorado/w1_slorado.blob", "rb");
+    F_CHK(fp, "../slorado/w1_slorado.blob");
+    result = fread(w1, elem_size_half, H * I, fp);
+    if (result != H * I) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
 
-    run_rotary(
-        x0,
-        sin,
-        cos
+    void *o = calloc(B * H, elem_size_full);
+
+    swiglu_test(
+        x,
+        w0,
+        w1,
+        &o
     );
 
-    fp = fopen("qkv_out.blob", "w");
-    F_CHK(fp, "qkv_out.blob");
-    if (fwrite(x0, elem_size_full, numel, fp) != numel) {
+    fp = fopen("o.blob", "w");
+    F_CHK(fp, "o.blob");
+    if (fwrite(o, elem_size_full, B * H, fp) != B * H) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     fclose(fp);
+
+    // int batch_size = 500;
+    // int seqlen = 833;
+    // int c = 3;
+    // int num_heads = 8;
+    // int rotary_dim = 32;
+    // int head_dim = 64;
+
+    // size_t numel = batch_size * seqlen * c * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    // size_t numel_ro = seqlen * rotary_dim;
+
+    // void *x0 = calloc(numel, elem_size_full);
+    // MALLOC_CHK(x0);
+
+    // void *sin = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(sin);
+    // void *cos = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(cos);
+
+    // fp = fopen("../slorado/qkv_full.blob", "rb");
+    // F_CHK(fp, "../slorado/qkv_full.blob");
+    // result = fread(x0, elem_size_full, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("../slorado/sin.blob", "rb");
+    // F_CHK(fp, "../slorado/sin.blob");
+    // result = fread(sin, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("../slorado/cos.blob", "rb");
+    // F_CHK(fp, "../slorado/cos.blob");
+    // result = fread(cos, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // run_rotary(
+    //     x0,
+    //     sin,
+    //     cos
+    // );
+
+    // fp = fopen("qkv_out.blob", "w");
+    // F_CHK(fp, "qkv_out.blob");
+    // if (fwrite(x0, elem_size_full, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);

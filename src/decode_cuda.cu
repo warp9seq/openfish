@@ -30,10 +30,6 @@ void dual_gemm_lhs_activation_and_mul_(
     int x_stride_0 = I;
     int w_stride_0 = I;
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-    checkCudaError();
-
     // templati-ze the cutlass kernel
     cutlass::gemm::GemmCoord problem_size(B, H, I);
 
@@ -140,17 +136,21 @@ void dual_gemm_lhs_activation_and_mul_(
 
     cutlass::Status status = dual_gemm.can_implement(arguments);
     ASSERT(status == cutlass::Status::kSuccess);
+    checkCudaError();
 
     status = dual_gemm.initialize(arguments, workspace);
     ASSERT(status == cutlass::Status::kSuccess);
-    status = dual_gemm(stream);
+    checkCudaError();
+
+    status = dual_gemm();
     ASSERT(status == cutlass::Status::kSuccess);
+    checkCudaError();
+
+    cudaDeviceSynchronize();
+    checkCudaError();
 
     cudaFree(workspace);
 	checkCudaError();
-
-    cudaStreamDestroy(stream);
-    checkCudaError();
 }
 
 void swiglu_test(
@@ -190,6 +190,7 @@ void swiglu_test(
     cutlass::half_t *d0;
     cutlass::half_t *d1;
     cutlass::half_t *d2;
+    float *o_gpu;
 
     cudaMalloc((void **)&d0, sizeof(cutlass::half_t) * B * H);
 	checkCudaError();
@@ -200,9 +201,24 @@ void swiglu_test(
     cudaMalloc((void **)&d2, sizeof(cutlass::half_t) * B * H);
 	checkCudaError();
 
-    dual_gemm_lhs_activation_and_mul_<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
+    cudaMalloc((void **)&o_gpu, sizeof(float) * B * H);
+	checkCudaError();
 
-    cudaMemcpy(*o, d2, sizeof(float) * B * H, cudaMemcpyDeviceToHost);
+    dual_gemm_lhs_activation_and_mul_<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
+    
+    dim3 block_size(32, 32, 1);
+	dim3 grid_size(32, 32, 1);
+
+    half2float_vec_cpy<<<grid_size,block_size>>>(
+        (half *)d2,
+        o_gpu,
+        B * H
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+
+    cudaMemcpy(*o, o_gpu, sizeof(float) * B * H, cudaMemcpyDeviceToHost);
     checkCudaError();
 
     cudaFree(d0);

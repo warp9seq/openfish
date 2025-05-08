@@ -236,6 +236,23 @@ __global__ void rotary(
     }
 }
 
+__global__ void half2float_vec_cpy(
+	half *x,
+    float *o,
+    const uint64_t seqlen
+) {
+    const uint64_t bid = blockIdx.x + (blockIdx.y * gridDim.x);
+    const uint64_t nthreads = (blockDim.x * blockDim.y) * (gridDim.x * gridDim.y);
+
+    const uint64_t tid = (threadIdx.x + (threadIdx.y * blockDim.x)) + (bid * (blockDim.x * blockDim.y));
+
+    if (tid >= seqlen) return;
+
+    for (int seq = tid; seq < seqlen; seq += nthreads) {
+        o[seq] = __half2float(x[seq]);
+    }
+}
+
 // __global__ void rotary_2(
 // 	half *_OUT,
 //     half *_X,

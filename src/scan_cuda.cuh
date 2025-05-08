@@ -34,6 +34,12 @@ __global__ void rotary(
     const uint64_t stride_rotary
 );
 
+__global__ void half2float_vec_cpy(
+	half *x,
+    float *o,
+    const uint64_t seqlen
+);
+
 // __global__ void rotary(
 // 	half *_OUT,
 //     half *_X,
