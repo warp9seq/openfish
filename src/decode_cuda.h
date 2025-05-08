@@ -54,6 +54,18 @@ void write_gpubuf_cuda(
     const openfish_gpubuf_t *gpubuf
 );
 
+void swiglu(
+    void *x,
+    void *w0,
+    void *w1,
+    void *d0,
+    void *d1,
+    void *d2,
+    int64_t B,
+    int64_t I,
+    int64_t H
+);
+
 void flash_fwd(
     void *qkv_gpu,
     void *o_gpu,

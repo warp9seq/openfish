@@ -115,3 +115,27 @@ void openfish_rotary_f16(
         stride_head
     );
 }
+
+void openfish_swiglu(
+    void *x,
+    void *w0,
+    void *w1,
+    void *d0,
+    void *d1,
+    void *d2,
+    int64_t B,
+    int64_t I,
+    int64_t H
+) {
+    swiglu(
+        x,
+        w0,
+        w1,
+        d0,
+        d1,
+        d2,
+        B,
+        I,
+        H
+    );
+}
