@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
     const int elem_size_full = sizeof(uint32_t);
     const int elem_size_half = sizeof(uint16_t);
 
-    int64_t B = 500 * 833; // batch_size * seqlen
+    int64_t B = 1 * 833; // batch_size * seqlen
     int64_t I = 512;
     int64_t H = 2048;
 

@@ -88,8 +88,8 @@ class EpilogueLHSActivationAndMul {
     ActivationFnFragmentCompute activation_func;
     cutlass::multiplies<FragmentCompute> mul_func;
 
-    auto activation_lhs_out = activation_func(casted_lhs);
-    return compute_to_out(mul_func(activation_lhs_out, casted_rhs));
+    auto activation_rhs_out = activation_func(casted_rhs);
+    return compute_to_out(mul_func(activation_rhs_out, casted_lhs));
   }
 
   CUTLASS_HOST_DEVICE
@@ -102,10 +102,7 @@ class EpilogueLHSActivationAndMul {
     ActivationFnElementCompute activation_func;
     cutlass::multiplies<ElementCompute> mul_func;
 
-    auto activation_rhs_out = activation_func(casted_rhs); // todo: might have to switch order
+    auto activation_rhs_out = activation_func(casted_rhs);
     return ElementOutput(mul_func(activation_rhs_out, casted_lhs));
-
-    // auto activation_lhs_out = activation_func(casted_lhs);
-    // return ElementOutput(mul_func(activation_lhs_out, casted_rhs));
   }
 };
