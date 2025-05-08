@@ -74,6 +74,13 @@ void run_rotary(
     void *cos
 );
 
+void swiglu_test(
+    void *x,
+    void *w0,
+    void *w1,
+    void **o
+);
+
 // void run_flash(
 //     void *q,
 //     void *k,

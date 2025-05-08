@@ -102,7 +102,10 @@ class EpilogueLHSActivationAndMul {
     ActivationFnElementCompute activation_func;
     cutlass::multiplies<ElementCompute> mul_func;
 
-    auto activation_lhs_out = activation_func(casted_lhs);
-    return ElementOutput(mul_func(activation_lhs_out, casted_rhs));
+    auto activation_rhs_out = activation_func(casted_rhs); // todo: might have to switch order
+    return ElementOutput(mul_func(activation_rhs_out, casted_lhs));
+
+    // auto activation_lhs_out = activation_func(casted_lhs);
+    // return ElementOutput(mul_func(activation_lhs_out, casted_rhs));
   }
 };

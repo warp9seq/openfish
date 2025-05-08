@@ -19,17 +19,16 @@ void dual_gemm_lhs_activation_and_mul_(
     void *x,
     void *w0,
     void *w1,
-    void **d0,
-    void **d1,
-    void **d2,
+    void *d0,
+    void *d1,
+    void *d2, // result
     int64_t B,
     int64_t I,
-    int64_t H,
-    int64_t K
+    int64_t H
 ) {
     int d_stride_0 = H;
     int x_stride_0 = I;
-    int w_stride_0 = K;
+    int w_stride_0 = I;
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
@@ -147,25 +146,77 @@ void dual_gemm_lhs_activation_and_mul_(
     status = dual_gemm(stream);
     ASSERT(status == cutlass::Status::kSuccess);
 
+    cudaFree(workspace);
+	checkCudaError();
+
     cudaStreamDestroy(stream);
     checkCudaError();
 }
 
-void swiglu_fwd(
+void swiglu_test(
     void *x,
     void *w0,
-    void *w1
+    void *w1,
+    void **o
 ) {
-    int64_t B = 64;
-    int64_t I = 64;
-    int64_t H = 64;
-    int64_t K = 64;
+    // x: 500 833 512 | 3
+    // w: 4096 512 | 2
+    // t: 500 833 2048 | 3
 
-    void *d0 = 0;
-    void *d1 = 0;
-    void *d2 = 0;
+    int64_t B = 500 * 833;
+    int64_t I = 512;
+    int64_t H = 2048;
 
-    dual_gemm_lhs_activation_and_mul_<cutlass::half_t, SiLu>(x, w0, w1, &d0, &d1, &d1, B, I, H, K);
+    void *x_gpu;
+
+    cudaMalloc((void **)&x_gpu, sizeof(cutlass::half_t) * B * I);
+	checkCudaError();
+    cudaMemcpy(x_gpu, x, sizeof(cutlass::half_t) * B * I, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    cutlass::half_t *w0_gpu;
+    cutlass::half_t *w1_gpu;
+
+    cudaMalloc((void **)&w0_gpu, sizeof(cutlass::half_t) * H * I);
+	checkCudaError();
+    cudaMemcpy(w0_gpu, w0, sizeof(cutlass::half_t) * H * I, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    cudaMalloc((void **)&w1_gpu, sizeof(cutlass::half_t) * H * I);
+	checkCudaError();
+    cudaMemcpy(w1_gpu, w1, sizeof(cutlass::half_t) * H * I, cudaMemcpyHostToDevice);
+    checkCudaError();
+
+    cutlass::half_t *d0;
+    cutlass::half_t *d1;
+    cutlass::half_t *d2;
+
+    cudaMalloc((void **)&d0, sizeof(cutlass::half_t) * B * H);
+	checkCudaError();
+
+    cudaMalloc((void **)&d1, sizeof(cutlass::half_t) * B * H);
+	checkCudaError();
+
+    cudaMalloc((void **)&d2, sizeof(cutlass::half_t) * B * H);
+	checkCudaError();
+
+    dual_gemm_lhs_activation_and_mul_<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
+
+    cudaMemcpy(*o, d2, sizeof(float) * B * H, cudaMemcpyDeviceToHost);
+    checkCudaError();
+
+    cudaFree(d0);
+	checkCudaError();
+    cudaFree(d1);
+	checkCudaError();
+    cudaFree(d2);
+	checkCudaError();
+    cudaFree(x_gpu);
+	checkCudaError();
+    cudaFree(w0_gpu);
+	checkCudaError();
+    cudaFree(w1_gpu);
+	checkCudaError();
 }
 
 void flash_fwd(
