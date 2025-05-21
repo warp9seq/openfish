@@ -62,23 +62,32 @@ void openfish_decode_gpu(
 }
 
 void openfish_rotary_emb(
-    void *x0_gpu,
+    void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,
     int batch_size,
     int seqlen,
     int nheads,
     int head_dim,
-    int rotary_dim,
+    int rotary_half,
     int stride_batch,
     int stride_seq,
-    int stride_c,
-    int stride_head,
-    int stride_head_dim,
-    int stride_rotary
+    int stride_head
 ) {
 #ifdef HAVE_CUDA
-    rotary_emb_cuda(x0_gpu, x0_gpu, sin_gpu, cos_gpu, batch_size, seqlen, nheads, head_dim, rotary_dim, stride_batch, stride_seq, stride_c, stride_head, stride_head_dim, stride_rotary);
+    rotary_emb_cuda(
+        x_gpu,
+        sin_gpu,
+        cos_gpu,
+        batch_size,
+        seqlen,
+        nheads,
+        head_dim,
+        rotary_half,
+        stride_batch,
+        stride_seq,
+        stride_head
+    );
 #elif HAVE_ROCM
     
 #else
