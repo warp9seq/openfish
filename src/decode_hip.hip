@@ -155,7 +155,7 @@ void decode_hip(
 
     OPENFISH_LOG_TRACE("%s", "bwd scan...");
     bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
-    checkHipError(); HIP_CHECK(ret);
+    checkHipError(); 
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
 
@@ -169,13 +169,13 @@ void decode_hip(
         fixed_stay_score,
         1.0f
     );
-    checkHipError(); HIP_CHECK(ret);
+    checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
 
     OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
     fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-    checkHipError(); HIP_CHECK(ret);
+    checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
 
@@ -186,7 +186,7 @@ void decode_hip(
         gpubuf->qual_data,
         1.0f
     );
-    checkHipError(); HIP_CHECK(ret);
+    checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
     
@@ -203,7 +203,7 @@ void decode_hip(
         q_shift,
         q_scale
     );
-    checkHipError(); HIP_CHECK(ret);
+    checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
 
