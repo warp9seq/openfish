@@ -5,6 +5,7 @@
 #include <float.h>
 #include <hip/hip_fp16.h>
 #include <stdint.h>
+#include <hip/hip_runtime.h>
 
 #ifdef __cplusplus
 extern "C" {

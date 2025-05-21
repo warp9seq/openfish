@@ -21,6 +21,8 @@ void rotary_emb_hip(
     int stride_seq,
     int stride_head
 ) {
+    hipError_t ret;
+
     int thread_h = 32;
     dim3 block_size(rotary_half, thread_h, 1);
 	dim3 grid_size(batch_size, nheads, 1);
@@ -35,7 +37,7 @@ void rotary_emb_hip(
         stride_head,
         rotary_half
     );
-    checkCudaError();
-    hipDeviceSynchronize();
-    checkCudaError();
+    checkHipError();
+    ret = hipDeviceSynchronize();
+    checkHipError(); HIP_CHECK(ret);
 }
