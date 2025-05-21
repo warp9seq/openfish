@@ -4,6 +4,7 @@
 
 #ifdef HAVE_CUDA
 #include "decode_cuda.h"
+#include "nn_cuda.h"
 #endif
 
 #ifdef HAVE_ROCM
@@ -54,6 +55,32 @@ void openfish_decode_gpu(
     decode_cuda(T, N, C, scores_TNC, state_len, options, gpubuf, moves, sequence, qstring);
 #elif HAVE_ROCM
     decode_hip(T, N, C, scores_TNC, state_len, options, gpubuf, moves, sequence, qstring);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
+
+void openfish_rotary_emb(
+    void *x0_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_c,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
+) {
+#ifdef HAVE_CUDA
+    rotary_emb_cuda(x0_gpu, x0_gpu, sin_gpu, cos_gpu, batch_size, seqlen, nheads, head_dim, rotary_dim, stride_batch, stride_seq, stride_c, stride_head, stride_head_dim, stride_rotary);
+#elif HAVE_ROCM
+    
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);

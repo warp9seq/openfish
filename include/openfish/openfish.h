@@ -72,6 +72,23 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
+void openfish_rotary_emb(
+    void *x0_gpu,
+    void *sin_gpu,
+    void *cos_gpu,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_dim,
+    int stride_batch,
+    int stride_seq,
+    int stride_c,
+    int stride_head,
+    int stride_head_dim,
+    int stride_rotary
+);
+
 #ifdef __cplusplus
 }
 #endif

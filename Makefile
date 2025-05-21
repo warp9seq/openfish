@@ -31,7 +31,7 @@ endif
 ifdef cuda
 	CUDA_ROOT ?= /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
-    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o
+    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o $(BUILD_DIR)/nn_cuda.o
     NVCC ?= $(CUDA_ROOT)/bin/nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
@@ -108,6 +108,9 @@ $(BUILD_DIR)/beam_search_cuda.o: src/beam_search_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 $(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+
+$(BUILD_DIR)/nn_cuda.o: src/nn_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 # hip
