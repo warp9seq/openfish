@@ -1,9 +1,9 @@
-#ifndef ROTARY_EMB_CUDA_H
-#define ROTARY_EMB_CUDA_H
+#ifndef ROTARY_EMB_HIP_H
+#define ROTARY_EMB_HIP_H
 
 #include <math.h>
 #include <float.h>
-#include <cuda_fp16.h>
+#include <hip/hip_fp16.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -50,4 +50,4 @@ __global__ void rotary_emb(
 }
 #endif
 
-#endif // ROTARY_EMB_CUDA_H
+#endif // ROTARY_EMB_HIP_H

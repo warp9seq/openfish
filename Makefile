@@ -42,7 +42,7 @@ else ifdef rocm
 	ROCM_LIB ?= $(ROCM_ROOT)/lib
 	HIPCC ?= $(ROCM_ROOT)/bin/hipcc
 	ROCM_CFLAGS += -g -Wall $(ROCM_ARCH)
-	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o
+	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o $(BUILD_DIR)/nn_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
 	CPPFLAGS += -DHAVE_ROCM=1
@@ -124,6 +124,9 @@ $(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+
+$(BUILD_DIR)/nn_hip.o: src/nn_hip.hip
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
 
 clean:

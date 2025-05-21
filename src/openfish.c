@@ -9,6 +9,7 @@
 
 #ifdef HAVE_ROCM
 #include "decode_hip.h"
+#include "nn_hip.h"
 #endif
 
 openfish_gpubuf_t *openfish_gpubuf_init(
@@ -89,7 +90,19 @@ void openfish_rotary_emb(
         stride_head
     );
 #elif HAVE_ROCM
-    
+rotary_emb_hip(
+    x_gpu,
+    sin_gpu,
+    cos_gpu,
+    batch_size,
+    seqlen,
+    nheads,
+    head_dim,
+    rotary_half,
+    stride_batch,
+    stride_seq,
+    stride_head
+);
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);
