@@ -87,7 +87,7 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
-void openfish_rotary_emb(
+void openfish_rotary_emb_gpu(
     void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,

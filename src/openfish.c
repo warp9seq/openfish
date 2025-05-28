@@ -62,7 +62,7 @@ void openfish_decode_gpu(
 #endif
 }
 
-void openfish_rotary_emb(
+void openfish_rotary_emb_gpu(
     void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,
@@ -90,19 +90,19 @@ void openfish_rotary_emb(
         stride_head
     );
 #elif HAVE_ROCM
-rotary_emb_hip(
-    x_gpu,
-    sin_gpu,
-    cos_gpu,
-    batch_size,
-    seqlen,
-    nheads,
-    head_dim,
-    rotary_half,
-    stride_batch,
-    stride_seq,
-    stride_head
-);
+    rotary_emb_hip(
+        x_gpu,
+        sin_gpu,
+        cos_gpu,
+        batch_size,
+        seqlen,
+        nheads,
+        head_dim,
+        rotary_half,
+        stride_batch,
+        stride_seq,
+        stride_head
+    );
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);
