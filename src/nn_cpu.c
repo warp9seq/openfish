@@ -124,17 +124,4 @@ void openfish_rotary_emb_cpu(
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }
-
-#ifdef DEBUG
-    // write tensors
-    FILE *fp;
-    
-    fp = fopen("o.blob", "w");
-    F_CHK(fp, "o.blob");
-    if (fwrite(x, sizeof(float), n_elem, fp) != n_elem) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-#endif
 }
