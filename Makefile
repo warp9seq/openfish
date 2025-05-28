@@ -13,6 +13,7 @@ STATICLIB = $(BUILD_DIR)/libopenfish.a
 OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
+	  $(BUILD_DIR)/nn_cpu.o \
 	  $(BUILD_DIR)/openfish.o \
 	  $(BUILD_DIR)/beam_search.o \
 
@@ -81,6 +82,9 @@ $(BUILD_DIR)/signal_prep.o: src/signal_prep.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/nn_cpu.o: src/nn_cpu.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/beam_search.o: src/beam_search.c
