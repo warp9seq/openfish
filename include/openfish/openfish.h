@@ -51,8 +51,8 @@ void openfish_decode_cpu(
 
 void openfish_rotary_emb_cpu(
     void *x,
-    void *sin,
-    void *cos,
+    void *sin_buf,
+    void *cos_buf,
     int batch_size,
     int seqlen,
     int nheads,

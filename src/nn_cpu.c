@@ -9,8 +9,8 @@
 
 static void rotary_emb(
 	float *x,
-    const float *_cos,
-    const float *_sin,
+    float *_cos,
+    float *_sin,
     const uint64_t seqlen,
     const uint64_t stride_batch,
     const uint64_t stride_seq,
@@ -24,8 +24,8 @@ static void rotary_emb(
     float *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
 
     for (int seq = 0; seq < seqlen; ++seq) {
-        float cos = *(_cos + (seq * rotary_half) + rot);
-        float sin = *(_sin + (seq * rotary_half) + rot);
+        float cos_val = *(_cos + (seq * rotary_half) + rot);
+        float sin_val = *(_sin + (seq * rotary_half) + rot);
 
         float *o0 = _o0 + (seq * stride_seq);
         float *o1 = _o1 + (seq * stride_seq);
@@ -33,15 +33,15 @@ static void rotary_emb(
         float x0 = *o0;
         float x1 = *o1;
 
-        *o0 = x0 * cos - x1 * sin;
-        *o1 = x0 * sin + x1 * cos;
+        *o0 = x0 * cos_val - x1 * sin_val;
+        *o1 = x0 * sin_val + x1 * cos_val;
     }
 }
 
 typedef struct {
     float *x;
-    float *sin;
-    float *cos;
+    float *sin_buf;
+    float *cos_buf;
     uint64_t start;
     uint64_t end;
     uint64_t seqlen;
@@ -61,8 +61,8 @@ static void* pthread_single_rotary_emb(void* voidargs) {
             for (uint64_t rot = 0; rot < args->rotary_half; ++rot) {
                 rotary_emb(
                     args->x,
-                    args->cos,
-                    args->sin,
+                    args->cos_buf,
+                    args->sin_buf,
                     args->seqlen,
                     args->stride_batch,
                     args->stride_seq,
@@ -79,8 +79,8 @@ static void* pthread_single_rotary_emb(void* voidargs) {
 
 void openfish_rotary_emb_cpu(
     void *x,
-    void *sin,
-    void *cos,
+    void *sin_buf,
+    void *cos_buf,
     int batch_size,
     int seqlen,
     int nheads,
@@ -108,8 +108,8 @@ void openfish_rotary_emb_cpu(
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
         pt_args[t].x = (float *)x;
-        pt_args[t].sin = (float *)sin;
-        pt_args[t].cos = (float *)cos;
+        pt_args[t].sin_buf = (float *)sin_buf;
+        pt_args[t].cos_buf = (float *)cos_buf;
         pt_args[t].seqlen = seqlen;
         pt_args[t].nheads = nheads;
         pt_args[t].head_dim = head_dim;

@@ -92,15 +92,15 @@ int main(int argc, char* argv[]) {
     int stride_head = headdim;
 
     size_t numel = batch_size * seqlen * c * nheads * headdim; // todo: for it to be inplace, make the stride independent of rotary dim
-    size_t numel_ro = 2048;
+    size_t numel_ro = 65536;
 
     void *x = calloc(numel, elem_size_full);
     MALLOC_CHK(x);
 
-    void *sin = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(sin);
-    void *cos = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(cos);
+    void *sin_buf = calloc(numel_ro, elem_size_full);
+    MALLOC_CHK(sin_buf);
+    void *cos_buf = calloc(numel_ro, elem_size_full);
+    MALLOC_CHK(cos_buf);
 
     fp = fopen("../slorado/q.blob", "rb");
     F_CHK(fp, "../slorado/q.blob");
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("../slorado/sin.blob", "rb");
     F_CHK(fp, "../slorado/sin.blob");
-    result = fread(sin, elem_size_full, numel_ro, fp);
+    result = fread(sin_buf, elem_size_full, numel_ro, fp);
     if (result != numel_ro) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -122,7 +122,7 @@ int main(int argc, char* argv[]) {
 
     fp = fopen("../slorado/cos.blob", "rb");
     F_CHK(fp, "../slorado/cos.blob");
-    result = fread(cos, elem_size_full, numel_ro, fp);
+    result = fread(cos_buf, elem_size_full, numel_ro, fp);
     if (result != numel_ro) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -131,8 +131,8 @@ int main(int argc, char* argv[]) {
 
     openfish_rotary_emb_cpu(
         x,
-        sin,
-        cos,
+        sin_buf,
+        cos_buf,
         batch_size,
         seqlen,
         nheads,
