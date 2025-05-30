@@ -83,25 +83,28 @@ int main(int argc, char* argv[]) {
 
     int batch_size = 500;
     int seqlen = 833;
-    int c = 3;
-    int num_heads = 8;
-    int rotary_dim = 32;
-    int head_dim = 64;
+    int c = 1;
+    int nheads = 8;
+    int rotary_half = 32;
+    int headdim = 64;
+    int stride_batch = seqlen * c * nheads * headdim;
+    int stride_seq = c * nheads * headdim;
+    int stride_head = headdim;
 
-    size_t numel = batch_size * seqlen * c * num_heads * head_dim; // todo: for it to be inplace, make the stride independent of rotary dim
+    size_t numel = batch_size * seqlen * c * nheads * headdim; // todo: for it to be inplace, make the stride independent of rotary dim
     size_t numel_ro = 2048;
 
-    void *x0 = calloc(numel, elem_size_full);
-    MALLOC_CHK(x0);
+    void *x = calloc(numel, elem_size_full);
+    MALLOC_CHK(x);
 
     void *sin = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(sin);
     void *cos = calloc(numel_ro, elem_size_full);
     MALLOC_CHK(cos);
 
-    fp = fopen("../slorado/qkv_full.blob", "rb");
-    F_CHK(fp, "../slorado/qkv_full.blob");
-    result = fread(x0, elem_size_full, numel, fp);
+    fp = fopen("../slorado/q.blob", "rb");
+    F_CHK(fp, "../slorado/q.blob");
+    result = fread(x, elem_size_full, numel, fp);
     if (result != numel) {
         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
         exit(EXIT_FAILURE);
@@ -126,15 +129,28 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
 
-    // run_rotary(
-    //     x0,
-    //     sin,
-    //     cos
-    // );
+    fprintf(stderr, "yay\n");
 
-    fp = fopen("qkv_out.blob", "w");
-    F_CHK(fp, "qkv_out.blob");
-    if (fwrite(x0, elem_size_full, numel, fp) != numel) {
+    openfish_rotary_emb_cpu(
+        x,
+        sin,
+        cos,
+        batch_size,
+        seqlen,
+        nheads,
+        headdim,
+        rotary_half,
+        stride_batch,
+        stride_seq,
+        stride_head,
+        64
+    );
+
+    fprintf(stderr, "yipee\n");
+
+    fp = fopen("q_out.blob", "w");
+    F_CHK(fp, "q_out.blob");
+    if (fwrite(x, elem_size_full, numel, fp) != numel) {
         fprintf(stderr, "error writing o file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }

@@ -91,8 +91,6 @@ void openfish_rotary_emb_cpu(
     int stride_head,
     int nthreads
 ) {
-    size_t n_elem = batch_size * seqlen * nheads * head_dim;
-
     // create threads
     nthreads = batch_size < nthreads ? batch_size : nthreads;
     const int chunks_per_thread = batch_size / nthreads;
@@ -112,6 +110,13 @@ void openfish_rotary_emb_cpu(
         pt_args[t].x = (float *)x;
         pt_args[t].sin = (float *)sin;
         pt_args[t].cos = (float *)cos;
+        pt_args[t].seqlen = seqlen;
+        pt_args[t].nheads = nheads;
+        pt_args[t].head_dim = head_dim;
+        pt_args[t].rotary_half = rotary_half;
+        pt_args[t].stride_batch = stride_batch;
+        pt_args[t].stride_seq = stride_seq;
+        pt_args[t].stride_head = stride_head;
     }
 
     // score tensors
