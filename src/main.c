@@ -129,8 +129,6 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
 
-    fprintf(stderr, "yay\n");
-
     openfish_rotary_emb_cpu(
         x,
         sin,
@@ -145,8 +143,6 @@ int main(int argc, char* argv[]) {
         stride_head,
         64
     );
-
-    fprintf(stderr, "yipee\n");
 
     fp = fopen("q_out.blob", "w");
     F_CHK(fp, "q_out.blob");
