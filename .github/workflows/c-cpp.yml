@@ -93,6 +93,8 @@ jobs:
       image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget
     - name: build
       run: make -j2 debug=1
     - name: test
@@ -104,6 +106,8 @@ jobs:
       image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
