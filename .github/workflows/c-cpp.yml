@@ -107,7 +107,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget gnupg add-apt-repository
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget gnupg software-properties-common
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
