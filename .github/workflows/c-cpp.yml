@@ -12,7 +12,7 @@ on:
 jobs:
   ubuntu_16:
     name: Ubuntu 16
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:16.04
       volumes:
@@ -35,7 +35,7 @@ jobs:
       run: export DEVICE=cpu && make test
   ubuntu_16_cuda:
     name: Ubuntu 16 CUDA
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:16.04
       volumes:
@@ -65,7 +65,7 @@ jobs:
       run: make cuda=1 -j2 debug=1
   ubuntu_18:
     name: Ubuntu 18
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:18.04
       volumes:
@@ -88,7 +88,9 @@ jobs:
       run: export DEVICE=cpu && make test
   ubuntu_20:
     name: Ubuntu 20
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
     - name: build
@@ -97,7 +99,9 @@ jobs:
       run: export DEVICE=cpu && make test
   ubuntu_20_cuda:
     name: Ubuntu 20 CUDA
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
     - name: cuda
