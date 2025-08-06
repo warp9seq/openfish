@@ -1,62 +1,29 @@
 # fast
 comparing files test/openfish-blobs/fast_1000c_bwd_NTC.blob and bwd_NTC.blob
-tens len: 106688000
 tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000030, tens_len: 106688000, n_diffs: 13849056
-min_val_0: 0.000, max_val_0: 100.000, min_val_1: 0.000, max_val_1: 5990.710
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/fast_1000c_post_NTC.blob and post_NTC.blob
-tens len: 106688000
 tensor max elem diff by 0.00024396181106567382812500000000, avg diff: 0.000000, tens_len: 106688000, n_diffs: 96962021
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/fast_1000c_qual_data.blob and qual_data.blob
-tens len: 6664000
 tensor max elem diff by 0.99999773502349853515625000000000, avg diff: 0.025673, tens_len: 6664000, n_diffs: 5350276
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/fast_1000c_total_probs.blob and total_probs.blob
-tens len: 1666000
 tensor max elem diff by 527.99926757812500000000000000000000, avg diff: 0.512259, tens_len: 1666000, n_diffs: 470731
-min_val_0: 0.000, max_val_0: 100.000, min_val_1: 0.000, max_val_1: 1644.002
 
 # hac
 comparing files test/openfish-blobs/hac_400c_bwd_NTC.blob and bwd_NTC.blob
-tens len: 170700800
 tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000030, tens_len: 170700800, n_diffs: 24721953
-min_val_0: 0.000, max_val_0: 100.000, min_val_1: 0.000, max_val_1: 6247.379
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/hac_400c_post_NTC.blob and post_NTC.blob
-tens len: 170700800
 tensor max elem diff by 0.00024402141571044921875000000000, avg diff: 0.000000, tens_len: 170700800, n_diffs: 162347234
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/hac_400c_qual_data.blob and qual_data.blob
-tens len: 2665600
 tensor max elem diff by 0.99999618530273437500000000000000, avg diff: 0.009212, tens_len: 2665600, n_diffs: 2190661
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/hac_400c_total_probs.blob and total_probs.blob
-tens len: 666400
 tensor max elem diff by 475.00042724609375000000000000000000, avg diff: 0.316534, tens_len: 666400, n_diffs: 186961
-min_val_0: 0.000, max_val_0: 92.000, min_val_1: 0.000, max_val_1: 603.000
 
 # sup
 comparing files test/openfish-blobs/sup_200c_bwd_NTC.blob and bwd_NTC.blob
-tens len: 341401600
 tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000019, tens_len: 341401600, n_diffs: 36453889
-min_val_0: 0.000, max_val_0: 100.000, min_val_1: 0.000, max_val_1: 6131.708
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/sup_200c_post_NTC.blob and post_NTC.blob
-tens len: 341401600
 tensor max elem diff by 0.00027927756309509277343750000000, avg diff: 0.000000, tens_len: 341401600, n_diffs: 331694665
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/sup_200c_qual_data.blob and qual_data.blob
-tens len: 1332800
 tensor max elem diff by 0.99999892711639404296875000000000, avg diff: 0.004351, tens_len: 1332800, n_diffs: 1148520
-min_val_0: 0.000, max_val_0: 1.000, min_val_1: 0.000, max_val_1: 1.000
-usage: compare_blob <tens_0.blob> <tens_1.blob>
 comparing files test/openfish-blobs/sup_200c_total_probs.blob and total_probs.blob
-tens len: 333200
 tensor max elem diff by 73.00001525878906250000000000000000, avg diff: 0.243373, tens_len: 333200, n_diffs: 90946
-min_val_0: 0.000, max_val_0: 92.000, min_val_1: 0.000, max_val_1: 503.000
