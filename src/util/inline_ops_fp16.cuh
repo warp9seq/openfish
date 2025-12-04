@@ -24,13 +24,16 @@
 #define TOSTRING(x) STRINGIFY(x)
 #define AT __FILE__ ":" TOSTRING(__LINE__)
 
-#if CUDART_VERSION >= 11000
 #include <cuda_fp16.h>
-// #pragma message(AT " CUDART_VERSION with FP16: " TOSTRING(                     \
-//     CUDART_VERSION) ", CUDA_ARCH: " TOSTRING(__CUDA_ARCH__))
-#else
-// #pragma message(AT " CUDART_VERSION: " TOSTRING(CUDART_VERSION))
-#endif
+#include <cuda_bf16.h>
+
+// #if CUDART_VERSION >= 11000
+// #include <cuda_fp16.h>
+// // #pragma message(AT " CUDART_VERSION with FP16: " TOSTRING(                     \
+// //     CUDART_VERSION) ", CUDA_ARCH: " TOSTRING(__CUDA_ARCH__))
+// #else
+// // #pragma message(AT " CUDART_VERSION: " TOSTRING(CUDART_VERSION))
+// #endif
 
 // CONSTANTS
 template <> __device__ __forceinline__ __half dscalar_three() {

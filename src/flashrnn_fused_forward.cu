@@ -29,6 +29,7 @@
 #include "util/cuda_error.h"
 #include "util/inline_ops.cuh"
 #include "flashrnn.h"
+#include "elman_fused_pointwise.cuh"
 #include <cooperative_groups.h>
 #include <driver_types.h>
 #include <mma.h>
