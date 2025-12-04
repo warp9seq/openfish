@@ -22,8 +22,8 @@ int main(int argc, char* argv[]) {
 #if defined DEBUG
 // #pragma omp parallel
 // {
-    FILE *fp;
-    size_t result;
+    // FILE *fp;
+    // size_t result;
     
     const int elem_size_full = sizeof(uint32_t);
     const int elem_size_half = sizeof(uint16_t);
@@ -81,76 +81,76 @@ int main(int argc, char* argv[]) {
     // }
     // fclose(fp);
 
-    int batch_size = 500;
-    int seqlen = 833;
-    int c = 1;
-    int nheads = 8;
-    int rotary_half = 32;
-    int headdim = 64;
-    int stride_batch = seqlen * c * nheads * headdim;
-    int stride_seq = c * nheads * headdim;
-    int stride_head = headdim;
+    // int batch_size = 500;
+    // int seqlen = 833;
+    // int c = 1;
+    // int nheads = 8;
+    // int rotary_half = 32;
+    // int headdim = 64;
+    // int stride_batch = seqlen * c * nheads * headdim;
+    // int stride_seq = c * nheads * headdim;
+    // int stride_head = headdim;
 
-    size_t numel = batch_size * seqlen * c * nheads * headdim; // todo: for it to be inplace, make the stride independent of rotary dim
-    size_t numel_ro = 65536;
+    // size_t numel = batch_size * seqlen * c * nheads * headdim; // todo: for it to be inplace, make the stride independent of rotary dim
+    // size_t numel_ro = 65536;
 
-    void *x = calloc(numel, elem_size_full);
-    MALLOC_CHK(x);
+    // void *x = calloc(numel, elem_size_full);
+    // MALLOC_CHK(x);
 
-    void *sin_buf = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(sin_buf);
-    void *cos_buf = calloc(numel_ro, elem_size_full);
-    MALLOC_CHK(cos_buf);
+    // void *sin_buf = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(sin_buf);
+    // void *cos_buf = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(cos_buf);
 
-    fp = fopen("../slorado/q.blob", "rb");
-    F_CHK(fp, "../slorado/q.blob");
-    result = fread(x, elem_size_full, numel, fp);
-    if (result != numel) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/q.blob", "rb");
+    // F_CHK(fp, "../slorado/q.blob");
+    // result = fread(x, elem_size_full, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("../slorado/sin.blob", "rb");
-    F_CHK(fp, "../slorado/sin.blob");
-    result = fread(sin_buf, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/sin.blob", "rb");
+    // F_CHK(fp, "../slorado/sin.blob");
+    // result = fread(sin_buf, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    fp = fopen("../slorado/cos.blob", "rb");
-    F_CHK(fp, "../slorado/cos.blob");
-    result = fread(cos_buf, elem_size_full, numel_ro, fp);
-    if (result != numel_ro) {
-        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("../slorado/cos.blob", "rb");
+    // F_CHK(fp, "../slorado/cos.blob");
+    // result = fread(cos_buf, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
 
-    openfish_rotary_emb_cpu(
-        x,
-        sin_buf,
-        cos_buf,
-        batch_size,
-        seqlen,
-        nheads,
-        headdim,
-        rotary_half,
-        stride_batch,
-        stride_seq,
-        stride_head,
-        64
-    );
+    // openfish_rotary_emb_cpu(
+    //     x,
+    //     sin_buf,
+    //     cos_buf,
+    //     batch_size,
+    //     seqlen,
+    //     nheads,
+    //     headdim,
+    //     rotary_half,
+    //     stride_batch,
+    //     stride_seq,
+    //     stride_head,
+    //     64
+    // );
 
-    fp = fopen("q_out.blob", "w");
-    F_CHK(fp, "q_out.blob");
-    if (fwrite(x, elem_size_full, numel, fp) != numel) {
-        fprintf(stderr, "error writing o file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
+    // fp = fopen("q_out.blob", "w");
+    // F_CHK(fp, "q_out.blob");
+    // if (fwrite(x, elem_size_full, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
     
     // void *q = calloc(numel, elem_size);
     // MALLOC_CHK(q);
@@ -197,159 +197,159 @@ int main(int argc, char* argv[]) {
     // }
     // fclose(fp);
 
-//     if (argc < 4) {
-//         fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
-//         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
-//         exit(EXIT_FAILURE);
-//     }
-//     set_openfish_log_level(OPENFISH_LOG_DBUG);
+    if (argc < 4) {
+        fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
+        fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+    set_openfish_log_level(OPENFISH_LOG_DBUG);
 
-//     const int device = omp_get_thread_num();
-// #if defined HAVE_CUDA
-//     set_device_cuda(device);
-// #elif defined HAVE_ROCM
-//     set_device_hip(device);
-// #endif
+    const int device = omp_get_thread_num();
+#if defined HAVE_CUDA
+    set_device_cuda(device);
+#elif defined HAVE_ROCM
+    set_device_hip(device);
+#endif
 
-//     OPENFISH_LOG_DEBUG("simulating batches on device %d", device);
+    OPENFISH_LOG_DEBUG("simulating batches on device %d", device);
 
-//     const int T = 1666;
-//     const int N = strtol(argv[2], NULL, 10);
-//     assert(N > 0);
-//     const int state_len = strtol(argv[3], NULL, 10);
-//     assert(state_len > 0);
-//     const int C = pow(4, state_len) * 4;
+    const int T = 1666;
+    const int N = strtol(argv[2], NULL, 10);
+    assert(N > 0);
+    const int state_len = strtol(argv[3], NULL, 10);
+    assert(state_len > 0);
+    const int C = pow(4, state_len) * 4;
 
-//     // read scores from file
-//     size_t scores_len = T * N * C;
-// #if defined HAVE_CUDA || defined HAVE_ROCM
-//     const int elem_size = sizeof(uint16_t);
-// #else
-//     const int elem_size = sizeof(float);
-// #endif
-//     void *scores = calloc(scores_len, elem_size);
-//     MALLOC_CHK(scores);
+    // read scores from file
+    size_t scores_len = T * N * C;
+#if defined HAVE_CUDA || defined HAVE_ROCM
+    const int elem_size = sizeof(uint16_t);
+#else
+    const int elem_size = sizeof(float);
+#endif
+    void *scores = calloc(scores_len, elem_size);
+    MALLOC_CHK(scores);
 
-//     FILE *fp = fopen(argv[1], "rb");
-//     F_CHK(fp, argv[1]);
+    FILE *fp = fopen(argv[1], "rb");
+    F_CHK(fp, argv[1]);
 
-//     size_t result = fread(scores, elem_size, scores_len, fp);
-//     if (result != scores_len) {
-//         OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
-//         exit(EXIT_FAILURE);
-//     }
-//     fclose(fp);
+    size_t result = fread(scores, elem_size, scores_len, fp);
+    if (result != scores_len) {
+        OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
 
-//     // upload scores to gpu
-// #if defined HAVE_CUDA
-//     void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
-// #elif defined HAVE_ROCM
-//     void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
-// #endif
+    // upload scores to gpu
+#if defined HAVE_CUDA
+    void *scores_gpu = upload_scores_to_cuda(T, N, C, scores);
+#elif defined HAVE_ROCM
+    void *scores_gpu = upload_scores_to_hip(T, N, C, scores);
+#endif
 
-// #if defined HAVE_CUDA || defined HAVE_ROCM
-//     openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
-// #endif
-//     openfish_opt_t options = DECODER_INIT;
+#if defined HAVE_CUDA || defined HAVE_ROCM
+    openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
+#endif
+    openfish_opt_t options = DECODER_INIT;
 
-//     // config mods from 4.2.0 models
-//     if (state_len == 3) { // fast
-//         options.q_scale = 0.97;
-//         options.q_shift = -1.8;
-//     } else if (state_len == 4) { // hac
-//         options.q_scale = 0.95;
-//         options.q_shift = -0.2;
-//     } else if (state_len == 5) { // sup
-//         options.q_scale = 0.95;
-//         options.q_shift = 0.5;
-//     }
+    // config mods from 4.2.0 models
+    if (state_len == 3) { // fast
+        options.q_scale = 0.97;
+        options.q_shift = -1.8;
+    } else if (state_len == 4) { // hac
+        options.q_scale = 0.95;
+        options.q_shift = -0.2;
+    } else if (state_len == 5) { // sup
+        options.q_scale = 0.95;
+        options.q_shift = 0.5;
+    }
 
-//     uint8_t *moves;
-//     char *sequence;
-//     char *qstring;
+    uint8_t *moves;
+    char *sequence;
+    char *qstring;
 
-//     double t0, t1, elapsed;
-//     t0 = realtime();
+    double t0, t1, elapsed;
+    t0 = realtime();
     
-// #ifdef BENCH
-//     int n_batch = 140; // simulate 20k reads
-//     if (state_len == 3)      n_batch = 14000; // fast
-//     else if (state_len == 4) n_batch = 34500; // hac
-//     else if (state_len == 5) n_batch = 68500; // sup
-//     OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
-//     for (int i = 0; i < n_batch; ++i) {
-// #endif
+#ifdef BENCH
+    int n_batch = 140; // simulate 20k reads
+    if (state_len == 3)      n_batch = 1400; // fast
+    else if (state_len == 4) n_batch = 3450; // hac
+    else if (state_len == 5) n_batch = 6850; // sup
+    OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
+    for (int i = 0; i < n_batch; ++i) {
+#endif
 
-//     // decode scores
-// #if defined HAVE_CUDA || defined HAVE_ROCM
-//         openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
-// #else
-//         int nthreads = 8;
-//         openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
-// #endif
+    // decode scores
+#if defined HAVE_CUDA || defined HAVE_ROCM
+        openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
+#else
+        int nthreads = 8;
+        openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+#endif
 
-// #ifdef BENCH
-//         if (i + 1 != n_batch) {
-//             free(moves);
-//             free(sequence);
-//             free(qstring);
-//         }
-//     }
-// #endif
+#ifdef BENCH
+        if (i + 1 != n_batch) {
+            free(moves);
+            free(sequence);
+            free(qstring);
+        }
+    }
+#endif
 
-//     // end timing
-//     t1 = realtime();
-//     elapsed = t1 - t0;
-//     OPENFISH_LOG_DEBUG("decode completed in %f secs", elapsed);
+    // end timing
+    t1 = realtime();
+    elapsed = t1 - t0;
+    OPENFISH_LOG_DEBUG("decode completed in %f secs", elapsed);
 
-//     // write results to file
-//     fp = fopen("moves.blob", "w");
-//     F_CHK(fp, "moves.blob");
-//     if (fwrite(moves, sizeof(uint8_t), N * T, fp) != N * T) {
-//         fprintf(stderr, "error writing moves file: %s\n", strerror(errno));
-//         exit(EXIT_FAILURE);
-//     }
-//     fclose(fp);
+    // write results to file
+    fp = fopen("moves.blob", "w");
+    F_CHK(fp, "moves.blob");
+    if (fwrite(moves, sizeof(uint8_t), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing moves file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
 
-//     fp = fopen("sequence.blob", "w");
-//     F_CHK(fp, "sequence.blob");
-//     if (fwrite(sequence, sizeof(char), N * T, fp) != N * T) {
-//         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-//         exit(EXIT_FAILURE);
-//     }
-//     fclose(fp);
+    fp = fopen("sequence.blob", "w");
+    F_CHK(fp, "sequence.blob");
+    if (fwrite(sequence, sizeof(char), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
 
-//     fp = fopen("qstring.blob", "w");
-//     F_CHK(fp, "qstring.blob");
-//     if (fwrite(qstring, sizeof(char), N * T, fp) != N * T) {
-//         fprintf(stderr, "error writing qstring file: %s\n", strerror(errno));
-//         exit(EXIT_FAILURE);
-//     }
-//     fclose(fp);
+    fp = fopen("qstring.blob", "w");
+    F_CHK(fp, "qstring.blob");
+    if (fwrite(qstring, sizeof(char), N * T, fp) != N * T) {
+        fprintf(stderr, "error writing qstring file: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
 
-//     free(moves);
-//     free(sequence);
-//     free(qstring);
+    free(moves);
+    free(sequence);
+    free(qstring);
 
-//     free(scores);
+    free(scores);
 
-// #if defined DEBUG && defined HAVE_CUDA
-//     write_gpubuf_cuda(T, N, state_len, gpubuf);
-// #endif
+#if defined DEBUG && defined HAVE_CUDA
+    write_gpubuf_cuda(T, N, state_len, gpubuf);
+#endif
 
-// #if defined DEBUG && defined HAVE_ROCM
-//     write_gpubuf_hip(T, N, state_len, gpubuf);
-// #endif
+#if defined DEBUG && defined HAVE_ROCM
+    write_gpubuf_hip(T, N, state_len, gpubuf);
+#endif
 
-// #if defined HAVE_CUDA || defined HAVE_ROCM
-//     openfish_gpubuf_free(gpubuf);
-// #endif
+#if defined HAVE_CUDA || defined HAVE_ROCM
+    openfish_gpubuf_free(gpubuf);
+#endif
 
-// #if defined HAVE_CUDA
-//     free_scores_cuda(scores_gpu);
-// #elif defined HAVE_ROCM
-//     free_scores_hip(scores_gpu);
-// #endif
+#if defined HAVE_CUDA
+    free_scores_cuda(scores_gpu);
+#elif defined HAVE_ROCM
+    free_scores_hip(scores_gpu);
+#endif
 // }
 #endif
     return 0;
