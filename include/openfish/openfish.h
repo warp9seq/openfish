@@ -107,12 +107,13 @@ class ForwardPass;
 class FlashRNNFuncFused
 {
 private:
-    std::unique_ptr<ForwardPass> fw;
+    ForwardPass *fw;
     // BackwardPass bw;
     // BackwardPassCut bwc;
 
 public:
     FlashRNNFuncFused(const bool training, const int batch_size, const int hidden_size, const int num_heads);
+    ~FlashRNNFuncFused();
     
     void forward(
         bool training,

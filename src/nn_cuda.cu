@@ -40,8 +40,12 @@ void rotary_emb_cuda(
     checkCudaError();
 }
 
+FlashRNNFuncFused::~FlashRNNFuncFused() {
+    delete fw;
+}
+
 FlashRNNFuncFused::FlashRNNFuncFused(const bool training, const int batch_size, const int hidden_size, const int num_heads) {
-    fw = std::unique_ptr<ForwardPass>(new ForwardPass(training, batch_size, hidden_size, num_heads, 0, 0));
+    fw = new ForwardPass(training, batch_size, hidden_size, num_heads, 0, 0);
 }
 
 void FlashRNNFuncFused::forward(
