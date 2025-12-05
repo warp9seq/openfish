@@ -116,9 +116,6 @@ void FlashRNNFuncFused::forward(
 //                              FLASHRNN_FORWARD_WARP_TILING_DIM_BATCH,
 //                          FLASHRNN_NUM_GATES_R * hidden_size},
 //                         options.dtype(torch::kFloat32));
-    // for (uint i = 0; i < FLASHRNN_NUM_STATES; i++) {
-    //     states[i][0] = s0[i];
-    // }
 
     fw->Set(training, batch_size, hidden_size, num_heads, (cublasHandle_t &)blas_handle, 0); // current stream default 0
     res = fw->Run(

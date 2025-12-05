@@ -29,15 +29,17 @@
 #include "util/cuda_error.h"
 #include "util/inline_ops.cuh"
 #include "flashrnn.h"
-#include "elman_fused_pointwise.cuh"
+// #include "elman_fused_pointwise.cuh"
 #include <cooperative_groups.h>
 #include <driver_types.h>
 #include <mma.h>
 #include <stdio.h>
 
-#ifndef _FLASHRNN_POINTWISE_INCLUDED
-#include "flashrnn_fused_pointwise_base.cuh"
-#endif
+#include "lstm_fused_pointwise.cuh"
+
+// #ifndef _FLASHRNN_POINTWISE_INCLUDED
+
+// #endif
 
 #define CEIL_DIV(a, b) (((a) + (b)-1) / (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -47,83 +49,6 @@
 
 namespace cg = cooperative_groups;
 using namespace nvcuda;
-
-// gate order: i f z o
-// FLASHRNN_NUM_GATES_R:     1
-//             1 - - -
-// FLASHRNN_NUM_GATES_I:     3
-//             - 1 1 1
-
-// dimensions
-// G: # gates
-// FLASHRNN_NUM_GATES_R: # recurrent gates per hidden dimensions (1 for lstmhin,
-// 4 for slstm) FLASHRNN_NUM_GATES_I: # gates from input FLASHRNN_NUM_GATES_T: #
-// total gates S: # states T: # time steps B: # batch dim H: # hidden dim I: #
-// input dim
-
-// General naming convention: dim = real size in memory, count = number along
-// axis -> high level dim = count * dim
-// -> tile dim = total dim / tile count
-
-#ifndef FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE
-
-// optimized for hidden size 1024
-#define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_HIDDEN 1 // FRTCH 16?
-#define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE 64  // FRTCG 1024 best 64
-#define FLASHRNN_FORWARD_BLOCK_TILING_COUNT_BATCH 1      // Btcb
-// means extra warps for threads
-#define FLASHRNN_FORWARD_WARP_TILING_COUNT_BATCH 1 // Wtcb
-// means each warp loops over batches stored in additional shared memory
-#define FLASHRNN_FORWARD_WARP_LOOPING_COUNT_BATCH 1      // Wlcp
-#define FLASHRNN_FORWARD_WARP_LOOPING_COUNT_GATE 1       // FWLCG
-#define FLASHRNN_FORWARD_WARP_TILING_COUNT_HIDDEN 4      // FWTCH 1024 best 8
-#define FLASHRNN_FORWARD_WARP_RECURRENT_CACHED_HIDDEN 16 // FWRCH 1024 best 8
-
-#define FLASHRNN_FORWARD_MULTIHEAD_TILING_COUNT 1
-#define FLASHRNN_FORWARD_SHARED_MEMORY_PADDING 8
-
-#define FLASHRNN_HIDDEN_SIZE 1024
-#define FLASHRNN_NUM_HEADS 1
-
-#define FLASHRNN_FORWARD_WARP_TILING_DIM_BATCH 8 // FWTDB
-#define FLASHRNN_FORWARD_WARP_TILING_DIM_GATE 32 // FWTDG
-
-#endif
-
-#define FRTCH FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_HIDDEN
-#define FRTCG FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE
-#define FBTCB FLASHRNN_FORWARD_BLOCK_TILING_COUNT_BATCH
-#define FWTCB FLASHRNN_FORWARD_WARP_TILING_COUNT_BATCH
-#define FWLCB FLASHRNN_FORWARD_WARP_LOOPING_COUNT_BATCH
-#define FWLCG FLASHRNN_FORWARD_WARP_LOOPING_COUNT_GATE
-#define FWTCH FLASHRNN_FORWARD_WARP_TILING_COUNT_HIDDEN
-#define FWRCH FLASHRNN_FORWARD_WARP_RECURRENT_CACHED_HIDDEN
-#define FMTC FLASHRNN_FORWARD_MULTIHEAD_TILING_COUNT
-#define FSMP FLASHRNN_FORWARD_SHARED_MEMORY_PADDING
-#define FWTDB FLASHRNN_FORWARD_WARP_TILING_DIM_BATCH
-#define FWTDG FLASHRNN_FORWARD_WARP_TILING_DIM_GATE
-#define FWTDH FLASHRNN_FORWARD_WARP_TILING_DIM_HIDDEN
-
-#ifdef FLASHRNN_USE_DTYPE_FLOAT32
-#define MAT_DTYPE wmma::precision::tf32
-#define DTYPE float
-#define ACC_DTYPE float
-#endif
-#ifdef FLASHRNN_USE_DTYPE_FLOAT16
-#define MAT_DTYPE __half
-#define DTYPE __half
-#define ACC_DTYPE __half
-#endif
-#ifdef FLASHRNN_USE_DTYPE_BFLOAT16
-#define MAT_DTYPE __nv_bfloat16
-#define DTYPE __nv_bfloat16
-#define ACC_DTYPE float
-#endif
-
-#define HS FLASHRNN_HIDDEN_SIZE
-#define NH FLASHRNN_NUM_HEADS
-
-#define WARP_SIZE 32
 
 // #endif
 #define _FLOAT4FACTOR 8
