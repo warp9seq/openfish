@@ -17,6 +17,8 @@ OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/openfish.o \
 	  $(BUILD_DIR)/beam_search.o \
 	  $(BUILD_DIR)/flashrnn_fused_forward.o \
+	  $(BUILD_DIR)/blas.o \
+	  $(BUILD_DIR)/cuda_error.o \
 
 GPU_LIB =
 
@@ -33,10 +35,10 @@ endif
 ifdef cuda
 	CUDA_ROOT ?= /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
-    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o $(BUILD_DIR)/nn_cuda.o
+    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o $(BUILD_DIR)/cuda_error.o $(BUILD_DIR)/blas.o $(BUILD_DIR)/nn_cuda.o $(BUILD_DIR)/flashrnn_fused_forward.o
     NVCC ?= $(CUDA_ROOT)/bin/nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall -arch=sm_80
-    CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
+    CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl -lcublas
     GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
 else ifdef rocm
@@ -110,6 +112,12 @@ $(BUILD_DIR)/decode_cuda.o: src/decode_cuda.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 $(BUILD_DIR)/beam_search_cuda.o: src/beam_search_cuda.cu
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+
+$(BUILD_DIR)/blas.o: src/util/blas.cu
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+
+$(BUILD_DIR)/cuda_error.o: src/util/cuda_error.cu
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
 
 $(BUILD_DIR)/flashrnn_fused_forward.o: src/flashrnn_fused_forward.cu
