@@ -8,8 +8,6 @@
 
 #include <cuda_fp16.h>
 
-using namespace flashrnn_fused;
-
 void rotary_emb_cuda(
     void *x_gpu,
     void *sin_gpu,
@@ -42,62 +40,51 @@ void rotary_emb_cuda(
     checkCudaError();
 }
 
-class FlashRNNFuncFused
-{
-private:
-    ForwardPass fw;
-    // BackwardPass bw;
-    // BackwardPassCut bwc;
+FlashRNNFuncFused::FlashRNNFuncFused(const bool training, const int batch_size, const int hidden_size, const int num_heads) {
+    fw = std::unique_ptr<ForwardPass>(new ForwardPass(training, batch_size, hidden_size, num_heads, 0, 0));
+}
 
-public:
-    FlashRNNFuncFused(const bool training, const int batch_size,
-                      const int hidden_size, const int num_heads)
-        : fw(training, batch_size, hidden_size, num_heads, 0, 0)
-        //   bw(batch_size, hidden_size, num_heads, 0, 0),
-        //   bwc(batch_size, hidden_size, num_heads, 0, 0)
-          {}
+void FlashRNNFuncFused::forward(
+    bool training,
+    void *x, // W_ih * x + b_ih
+    void *s0,
+    void *recurrent_kernel, // W_hh
+    void *bias, // b_hh
+    void *states,
+    void *gate_cache_r,
+    void *gate_cache_i,
+    void *gate_buffer,
+    int seqlen,
+    int batch_size,
+    int nheads,
+    int head_dim,
+    void *blas_handle
+) {
+    const auto time_steps = seqlen;
+    // const auto batch_size = x.size(1);
+    const auto num_heads = nheads;
+    // const auto head_dim = recurrent_kernel.size(1);
+    const auto hidden_size = head_dim * num_heads;
 
-    void forward(
-        bool training,
-        void *x, // W_ih * x + b_ih
-        void *s0,
-        void *recurrent_kernel, // W_hh
-        void *bias, // b_hh
-        void *states,
-        void *gate_cache_r,
-        void *gate_cache_i,
-        void *gate_buffer,
-        int seqlen,
-        int batch_size,
-        int nheads,
-        int head_dim,
-        const cublasHandle_t &blas_handle
-    ) {
-        const auto time_steps = seqlen;
-        // const auto batch_size = x.size(1);
-        const auto num_heads = nheads;
-        // const auto head_dim = recurrent_kernel.size(1);
-        const auto hidden_size = head_dim * num_heads;
+    // make sure its contiguious and on gpu
+    // CHECK_INPUT(x);
+    // CHECK_INPUT(s0);
+    // CHECK_INPUT(recurrent_kernel);
+    // CHECK_INPUT(bias);
 
-        // make sure its contiguious and on gpu
-        // CHECK_INPUT(x);
-        // CHECK_INPUT(s0);
-        // CHECK_INPUT(recurrent_kernel);
-        // CHECK_INPUT(bias);
+    // TORCH_CHECK(x.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_W>(),
+    //             "Bad input type");
+    // TORCH_CHECK(s0.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_S>(),
+    //             "Bad input type");
+    // TORCH_CHECK(recurrent_kernel.scalar_type() ==
+    //                 typeToTorchDtype<FLASHRNN_DTYPE_R>(),
+    //             "Bad input type");
+    // TORCH_CHECK(bias.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_B>(),
+    //             "Bad input type");
 
-        // TORCH_CHECK(x.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_W>(),
-        //             "Bad input type");
-        // TORCH_CHECK(s0.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_S>(),
-        //             "Bad input type");
-        // TORCH_CHECK(recurrent_kernel.scalar_type() ==
-        //                 typeToTorchDtype<FLASHRNN_DTYPE_R>(),
-        //             "Bad input type");
-        // TORCH_CHECK(bias.scalar_type() == typeToTorchDtype<FLASHRNN_DTYPE_B>(),
-        //             "Bad input type");
-
-        // const auto options = x.options();
-        // const at::cuda::CUDAGuard guard(options.device_index());
-        int res = 1;
+    // const auto options = x.options();
+    // const at::cuda::CUDAGuard guard(options.device_index());
+    int res = 1;
 //         Tensor states = torch::empty(
 //             {FLASHRNN_NUM_STATES, time_steps + 1, batch_size, num_heads, head_dim},
 //             options.dtype(typeToTorchDtype<FLASHRNN_DTYPE_S>()));
@@ -125,38 +112,37 @@ public:
 //                              FLASHRNN_FORWARD_WARP_TILING_DIM_BATCH,
 //                          FLASHRNN_NUM_GATES_R * hidden_size},
 //                         options.dtype(torch::kFloat32));
-        // for (uint i = 0; i < FLASHRNN_NUM_STATES; i++) {
-        //     states[i][0] = s0[i];
-        // }
+    // for (uint i = 0; i < FLASHRNN_NUM_STATES; i++) {
+    //     states[i][0] = s0[i];
+    // }
 
-        fw.Set(training, batch_size, hidden_size, num_heads, blas_handle, 0); // current stream default 0
-        res = fw.Run(
-            time_steps,
-            reinterpret_cast<FLASHRNN_DTYPE_R *>(recurrent_kernel),
-            reinterpret_cast<FLASHRNN_DTYPE_B *>(bias),
-            reinterpret_cast<FLASHRNN_DTYPE_W *>(x),
-            reinterpret_cast<FLASHRNN_DTYPE_S *>(states),
-            reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_r),
-            reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_i),
-            reinterpret_cast<FLASHRNN_ACC_DTYPE *>(gate_buffer)
-        );
+    fw->Set(training, batch_size, hidden_size, num_heads, (cublasHandle_t &)blas_handle, 0); // current stream default 0
+    res = fw->Run(
+        time_steps,
+        reinterpret_cast<FLASHRNN_DTYPE_R *>(recurrent_kernel),
+        reinterpret_cast<FLASHRNN_DTYPE_B *>(bias),
+        reinterpret_cast<FLASHRNN_DTYPE_W *>(x),
+        reinterpret_cast<FLASHRNN_DTYPE_S *>(states),
+        reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_r),
+        reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_i),
+        reinterpret_cast<FLASHRNN_ACC_DTYPE *>(gate_buffer)
+    );
 
-        // AT_DISPATCH_FLOATING_TYPES_AND_HALF2(
-        //     x.scalar_type(), "FlashRNNFuncFused.forward", ([&]
-        //                                                    {
-        //   fw.Set(training, batch_size, hidden_size, num_heads, blas_handle, 0); // current stream default 0
-        //   res = fw.Run(
-        //       time_steps,
-        //       reinterpret_cast<FLASHRNN_DTYPE_R *>(recurrent_kernel.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_DTYPE_B *>(bias.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_DTYPE_W *>(x.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_DTYPE_S *>(states.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_r.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_i.data_ptr()),
-        //       reinterpret_cast<FLASHRNN_ACC_DTYPE *>(gate_buffer.data_ptr())); }));
-        if (res != 0) {
-            exit(1);
-        }
-        // return {states, gate_cache_r, gate_cache_i};
+    // AT_DISPATCH_FLOATING_TYPES_AND_HALF2(
+    //     x.scalar_type(), "FlashRNNFuncFused.forward", ([&]
+    //                                                    {
+    //   fw.Set(training, batch_size, hidden_size, num_heads, blas_handle, 0); // current stream default 0
+    //   res = fw.Run(
+    //       time_steps,
+    //       reinterpret_cast<FLASHRNN_DTYPE_R *>(recurrent_kernel.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_DTYPE_B *>(bias.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_DTYPE_W *>(x.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_DTYPE_S *>(states.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_r.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_DTYPE_G *>(gate_cache_i.data_ptr()),
+    //       reinterpret_cast<FLASHRNN_ACC_DTYPE *>(gate_buffer.data_ptr())); }));
+    if (res != 0) {
+        exit(1);
     }
-};
+    // return {states, gate_cache_r, gate_cache_i};
+}

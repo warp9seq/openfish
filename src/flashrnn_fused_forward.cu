@@ -657,8 +657,6 @@ __global__ void __launch_bounds__(_FUSED_KERNEL_MAX_THREADS,
   }
 }
 
-namespace flashrnn_fused {
-
 struct ForwardPass::private_data {
   bool training;
   int batch_size;
@@ -971,5 +969,3 @@ int ForwardPass::Run(
   }
   return 0;
 }
-
-} // namespace flashrnn_fused

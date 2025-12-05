@@ -94,8 +94,6 @@
 #define FLASHRNN_ACC_DTYPE float
 #endif
 
-namespace flashrnn_fused {
-
 class ForwardPass {
 public:
   // training: `true` if the caller intends to perform a backward pass to
@@ -185,4 +183,3 @@ private:
 //   private_data *data_;
 // };
 
-} // namespace flashrnn_fused

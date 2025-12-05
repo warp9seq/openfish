@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <memory>
 
 #include "openfish_error.h"
 
@@ -100,6 +101,37 @@ void openfish_rotary_emb_gpu(
     int stride_seq,
     int stride_head
 );
+
+#ifdef HAVE_CUDA
+class ForwardPass;
+class FlashRNNFuncFused
+{
+private:
+    std::unique_ptr<ForwardPass> fw;
+    // BackwardPass bw;
+    // BackwardPassCut bwc;
+
+public:
+    FlashRNNFuncFused(const bool training, const int batch_size, const int hidden_size, const int num_heads);
+    
+    void forward(
+        bool training,
+        void *x, // W_ih * x + b_ih
+        void *s0,
+        void *recurrent_kernel, // W_hh
+        void *bias, // b_hh
+        void *states,
+        void *gate_cache_r,
+        void *gate_cache_i,
+        void *gate_buffer,
+        int seqlen,
+        int batch_size,
+        int nheads,
+        int head_dim,
+        void *blas_handle
+    );
+};
+#endif
 
 #ifdef __cplusplus
 }

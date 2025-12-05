@@ -1,4 +1,4 @@
-CC = gcc
+CC = g++
 AR = ar
 CPPFLAGS +=	-I include/
 CFLAGS += -g -Wall -O2
