@@ -20,7 +20,6 @@ extern "C" {
 // all needed definitions from external
 #define FLASHRNN_NUM_HEADS 1
 #define FLASHRNN_HIDDEN_SIZE 96
-// #define FLASHRNN_BATCH_SIZE 8
 #define FLASHRNN_NUM_GATES_R 4
 #define FLASHRNN_NUM_GATES_W 4
 #define FLASHRNN_NUM_GATES_I 4
@@ -38,7 +37,7 @@ extern "C" {
 // fused forward
 // optimized for hidden size 1024
 #define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_HIDDEN 1 // Rtch 16?
-#define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE 64  // Rtcg 1024 best 64
+#define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE 12  // Rtcg 1024 best 64
 #define FLASHRNN_FORWARD_BLOCK_TILING_COUNT_BATCH 1      // Btcb
 // means extra warps for threads
 #define FLASHRNN_FORWARD_WARP_TILING_COUNT_BATCH 1 // Wtcb
@@ -110,7 +109,6 @@ extern "C" {
 
 // optimized for hidden size 1024
 #define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_HIDDEN 1 // FRTCH 16?
-#define FLASHRNN_FORWARD_RECURRENT_TILING_COUNT_GATE 64  // FRTCG 1024 best 64
 #define FLASHRNN_FORWARD_BLOCK_TILING_COUNT_BATCH 1      // Btcb
 // means extra warps for threads
 #define FLASHRNN_FORWARD_WARP_TILING_COUNT_BATCH 1 // Wtcb
