@@ -10,7 +10,10 @@ die() {
 
 if [ "$1" = 'mem' ]; then
     mem=1
-fi
+else
+    mem=0
+fi	
+
 
 ex() {
     if [ $mem -eq 1 ]; then
