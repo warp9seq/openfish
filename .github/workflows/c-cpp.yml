@@ -105,9 +105,9 @@ jobs:
       image: ubuntu:20.04    
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget gnupg
+      run: export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install zlib1g-dev wget datamash unzip bzip2 make g++ bc git gnupg software-properties-common -y    
+    - uses: actions/checkout@v2
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
