@@ -46,7 +46,7 @@ template <typename T>
 using SiLu = cutlass::epilogue::thread::SiLu<T>;
 
 template <typename scalar_t, template <typename> typename ActivationFn>
-void dual_gemm_lhs_activation_and_mul_cuda(
+static void dual_gemm_lhs_activation_and_mul_cuda(
     void *x,
     void *w0,
     void *w1,
