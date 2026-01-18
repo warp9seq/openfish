@@ -1,6 +1,7 @@
-CC = gcc
+CC = g++
 AR = ar
-CPPFLAGS +=	-I include/
+CPPFLAGS +=	-I include \
+			-I cutlass/include
 CFLAGS += -g -Wall -O2
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
