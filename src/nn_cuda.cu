@@ -46,7 +46,7 @@ template <typename T>
 using SiLu = cutlass::epilogue::thread::SiLu<T>;
 
 template <typename scalar_t, template <typename> typename ActivationFn>
-void dual_gemm_lhs_activation_and_mul_(
+void dual_gemm_lhs_activation_and_mul_cuda(
     void *x,
     void *w0,
     void *w1,
@@ -235,7 +235,7 @@ void dual_gemm_lhs_activation_and_mul_(
 //     cudaMalloc((void **)&o_gpu, sizeof(float) * B * H);
 // 	checkCudaError();
 
-//     dual_gemm_lhs_activation_and_mul_<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
+//     dual_gemm_lhs_activation_and_mul_cuda<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
     
 //     dim3 block_size(32, 32, 1);
 // 	dim3 grid_size(32, 32, 1);

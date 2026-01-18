@@ -22,6 +22,18 @@ void rotary_emb_cuda(
     int stride_head
 );
 
+void dual_gemm_lhs_activation_and_mul_cuda(
+    void *x,
+    void *w0,
+    void *w1,
+    void *d0,
+    void *d1,
+    void *d2, // result
+    int64_t B,
+    int64_t I,
+    int64_t H
+);
+
 #ifdef __cplusplus
 }
 #endif

@@ -23,7 +23,7 @@ static void rotary_emb(
     float *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
     float *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
 
-    for (int seq = 0; seq < seqlen; ++seq) {
+    for (uint64_t seq = 0; seq < seqlen; ++seq) {
         float cos_val = *(_cos + (seq * rotary_half) + rot);
         float sin_val = *(_sin + (seq * rotary_half) + rot);
 

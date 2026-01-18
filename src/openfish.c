@@ -108,3 +108,35 @@ void openfish_rotary_emb_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void dual_gemm_lhs_activation_and_mul_gpu(
+    void *x,
+    void *w0,
+    void *w1,
+    void *d0,
+    void *d1,
+    void *d2,
+    int64_t B,
+    int64_t I,
+    int64_t H
+) {
+#ifdef HAVE_CUDA
+    dual_gemm_lhs_activation_and_mul_cuda(
+        x,
+        w0,
+        w1,
+        d0,
+        d1,
+        d2,
+        B,
+        I,
+        H
+    );
+#elif HAVE_ROCM
+    OPENFISH_ERROR("%s", "not hip impl for this yet");
+    exit(EXIT_FAILURE);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
