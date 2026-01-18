@@ -109,7 +109,7 @@ void openfish_rotary_emb_gpu(
 #endif
 }
 
-void dual_gemm_lhs_activation_and_mul_gpu(
+void swiglu_gpu(
     void *x,
     void *w0,
     void *w1,
@@ -121,7 +121,7 @@ void dual_gemm_lhs_activation_and_mul_gpu(
     int64_t H
 ) {
 #ifdef HAVE_CUDA
-    dual_gemm_lhs_activation_and_mul_cuda(
+    swiglu_cuda(
         x,
         w0,
         w1,

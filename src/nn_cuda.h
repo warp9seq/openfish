@@ -22,7 +22,7 @@ void rotary_emb_cuda(
     int stride_head
 );
 
-void dual_gemm_lhs_activation_and_mul_cuda(
+void swiglu_cuda(
     void *x,
     void *w0,
     void *w1,

@@ -101,7 +101,7 @@ void openfish_rotary_emb_gpu(
     int stride_head
 );
 
-void dual_gemm_lhs_activation_and_mul_gpu(
+void swiglu_gpu(
     void *x,
     void *w0,
     void *w1,
