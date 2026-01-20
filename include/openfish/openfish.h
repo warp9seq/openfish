@@ -119,7 +119,7 @@ void silu_mul_gpu(
     void *o_gpu,
     uint64_t M,
     uint64_t K
-)l
+);
 
 #ifdef __cplusplus
 }
