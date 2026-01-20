@@ -34,6 +34,13 @@ void swiglu_cuda(
     int64_t H
 );
 
+void silu_mul_cuda(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t M,
+    uint64_t K
+);
+
 #ifdef __cplusplus
 }
 #endif

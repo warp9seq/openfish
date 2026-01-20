@@ -10,6 +10,34 @@
 #include "../cutlass/examples/45_dual_gemm/device/dual_gemm.h"
 #include "swiglu_kernel.h"
 
+void silu_mul_cuda(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t M,
+    uint64_t K
+) {
+    cudaError_t result;
+
+    dim3 block(32, 32);
+	dim3 grid(
+        (K + block.x - 1) / block.x,
+        (M + block.y - 1) / block.y
+    );
+
+    silu_mul<<<grid, block>>>(
+        (half *)x_gpu,
+        (half *)o_gpu,
+        K,
+        M
+    );
+
+    result = cudaDeviceSynchronize();
+    if (result != cudaSuccess) {
+        std::cerr << "cuda kernel failed: " << std::endl;
+        exit(1);
+    }
+}
+
 void rotary_emb_cuda(
     void *x_gpu,
     void *sin_gpu,
@@ -197,7 +225,6 @@ void swiglu_cuda(
 ) {
     dual_gemm_lhs_activation_and_mul_cuda<cutlass::half_t, SiLu>(x, w0, w1, d0, d1, d2, B, I, H);
 }
-
 
 // void swiglu_test(
 //     void *x,

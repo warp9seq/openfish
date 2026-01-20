@@ -68,6 +68,29 @@ __global__ void rotary_emb(
     }
 }
 
+__global__ void silu_mul(
+	half *x_gpu,
+	half *o_gpu,
+    const uint64_t B,
+    const uint64_t M
+) {
+    uint64_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (i < B && j < M) {
+        uint64_t k = i + j * B;
+        i += j * (B * 2);
+
+        half y = x_gpu[i];
+        half gate = x_gpu[i + B];
+
+        float g = __half2float(gate);
+        float silu = g / (1.0f + __expf(-g));
+
+        o_gpu[k] = __float2half(silu * __half2float(y));
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif

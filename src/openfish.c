@@ -140,3 +140,25 @@ void swiglu_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void silu_mul_gpu(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t M,
+    uint64_t K
+) {
+#ifdef HAVE_CUDA
+    silu_mul_cuda(
+        x_gpu,
+        o_gpu,
+        M,
+        K
+    );
+#elif HAVE_ROCM
+    OPENFISH_ERROR("%s", "not hip impl for this yet");
+    exit(EXIT_FAILURE);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
