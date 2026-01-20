@@ -10,6 +10,15 @@
 #include "../cutlass/examples/45_dual_gemm/device/dual_gemm.h"
 #include "swiglu_kernel.h"
 
+#include "cutlass/cutlass.h"
+#include "cutlass/gemm/device/gemm.h"
+#include <cutlass/gemm/kernel/default_gemm.h>
+#include <cutlass/epilogue/threadblock/epilogue_with_visitor.h>
+#include "cutlass_ext/gemm_universal_base_compat.h"
+#include "cutlass_ext/epilogue_per_row_per_col.h"
+#include "cutlass_ext/gemm_with_epilogue_visitor.h"
+#include <cuda_runtime.h>
+
 void silu_mul_cuda(
     void *x_gpu,
     void *o_gpu,
@@ -226,84 +235,127 @@ void swiglu_cuda(
     dual_gemm_lhs_activation_and_mul_cuda<cutlass::half_t, SiLu>(x, w0, w1, d0, d1, d2, B, I, H);
 }
 
-// void swiglu_test(
-//     void *x,
-//     void *w0,
-//     void *w1,
-//     void **o
-// ) {
-//     // x: 500 833 512 | 3
-//     // w: 4096 512 | 2
-//     // t: 500 833 2048 | 3
+// The code section below describes datatype for input, output matrices and computation between
+// elements in input matrices.
+using ElementAccumulator = int32_t;                 // data type of accumulator
+using ElementComputeEpilogue = ElementAccumulator;  // data type of epilogue operations
+using ElementInput = int8_t;                        // data type of elements in input matrix
+using ElementOutput = cutlass::half_t;              // data type of elements in output matrix D
+using ElementCompute = float;                       // data type of elements in output matrix D
 
-//     int64_t B = 1 * 833;
-//     int64_t I = 512;
-//     int64_t H = 2048;
+// The code section below describes matrix layout of input and output matrices. Column Major for
+// Matrix A, Row Major for Matrix B and Row Major for Matrix C
+using LayoutInputA = cutlass::layout::RowMajor;
+using LayoutInputB = cutlass::layout::ColumnMajor;
+using LayoutOutput = cutlass::layout::RowMajor;
 
-//     void *x_gpu;
+// This code section describes whether you want to use tensor cores or regular SIMT cores on GPU SM
+using OperatorClass = cutlass::arch::OpClassTensorOp;
 
-//     cudaMalloc((void **)&x_gpu, sizeof(cutlass::half_t) * B * I);
-// 	checkCudaError();
-//     cudaMemcpy(x_gpu, x, sizeof(cutlass::half_t) * B * I, cudaMemcpyHostToDevice);
-//     checkCudaError();
+// This code section describes CUDA SM architecture number
+using SmArch = cutlass::arch::Sm80;
 
-//     cutlass::half_t *w0_gpu;
-//     cutlass::half_t *w1_gpu;
+using ShapeMMAThreadBlock = cutlass::gemm::GemmShape<128, 128, 64>;
+using ShapeMMAWarp = cutlass::gemm::GemmShape<64, 32, 64>;
+using ShapeMMAOp = cutlass::gemm::GemmShape<16, 8, 32>;
 
-//     cudaMalloc((void **)&w0_gpu, sizeof(cutlass::half_t) * H * I);
-// 	checkCudaError();
-//     cudaMemcpy(w0_gpu, w0, sizeof(cutlass::half_t) * H * I, cudaMemcpyHostToDevice);
-//     checkCudaError();
+// This code section describes how threadblocks are scheduled on GPU
+using SwizzleThreadBlock = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<4>;
 
-//     cudaMalloc((void **)&w1_gpu, sizeof(cutlass::half_t) * H * I);
-// 	checkCudaError();
-//     cudaMemcpy(w1_gpu, w1, sizeof(cutlass::half_t) * H * I, cudaMemcpyHostToDevice);
-//     checkCudaError();
+// Number of pipelines you want to use
+constexpr int NumStages = 4;
 
-//     cutlass::half_t *d0;
-//     cutlass::half_t *d1;
-//     cutlass::half_t *d2;
-//     float *o_gpu;
+void quant_gemm_cuda(
+    void *a_quant,
+    void *b_quant,
+    void *a_scale,
+    void *b_scale,
+    void *o_gpu,
+    int M,
+    int N,
+    int K
+) {
+    auto alpha_col_ptr = b_scale;
+    auto alpha_row_ptr = a_scale;
 
-//     cudaMalloc((void **)&d0, sizeof(cutlass::half_t) * B * H);
-// 	checkCudaError();
+    using DefaultGemmConf = typename cutlass::gemm::device::DefaultGemmConfiguration<
+        OperatorClass,
+        SmArch,
+        ElementInput,
+        ElementInput,
+        ElementOutput,
+        ElementCompute
+    >;
+    using GemmOp = typename DefaultGemmConf::Operator;
+    using EpilogueOp = typename DefaultGemmConf::EpilogueOutputOp;
 
-//     cudaMalloc((void **)&d1, sizeof(cutlass::half_t) * B * H);
-// 	checkCudaError();
+    using GemmKernel_ = typename cutlass::gemm::kernel::DefaultGemm<ElementInput, cutlass::layout::RowMajor,
+    DefaultGemmConf::kAlignmentA, ElementInput, cutlass::layout::ColumnMajor, DefaultGemmConf::kAlignmentB,
+    ElementOutput, cutlass::layout::RowMajor, ElementAccumulator, OperatorClass, SmArch, ShapeMMAThreadBlock, ShapeMMAWarp,
+    ShapeMMAOp, EpilogueOp, SwizzleThreadBlock, NumStages, true, GemmOp>::GemmKernel;
 
-//     cudaMalloc((void **)&d2, sizeof(cutlass::half_t) * B * H);
-// 	checkCudaError();
+    using AlphaColTileIterator = cutlass::epilogue::threadblock::PredicatedTileIterator<
+        cutlass::epilogue::threadblock::OutputTileOptimalThreadMap<
+            typename GemmKernel_::Epilogue::OutputTileIterator::ThreadMap::Shape,
+            typename GemmKernel_::Epilogue::OutputTileIterator::ThreadMap::Count,
+            GemmKernel_::Epilogue::OutputTileIterator::ThreadMap::kThreads,
+            GemmKernel_::Epilogue::OutputTileIterator::kElementsPerAccess, cutlass::sizeof_bits<ElementOutput>::value>,
+        ElementCompute>;
 
-//     cudaMalloc((void **)&o_gpu, sizeof(float) * B * H);
-// 	checkCudaError();
+    // Epilogue visitor
+    using EpilogueVisitor = typename cutlass::epilogue::threadblock::EpilogueVisitorPerRowPerCol<ShapeMMAThreadBlock,
+        GemmKernel_::kThreadCount, AlphaColTileIterator, typename GemmKernel_::Epilogue::OutputTileIterator,
+        ElementAccumulator, ElementCompute, EpilogueOp>;
 
-//     dual_gemm_lhs_activation_and_mul_cuda<cutlass::half_t, SiLu>(x_gpu, w0_gpu, w1_gpu, d0, d1, d2, B, I, H);
-    
-//     dim3 block_size(32, 32, 1);
-// 	dim3 grid_size(32, 32, 1);
+    /// Epilogue
+    using Epilogue = typename cutlass::epilogue::threadblock::EpilogueWithVisitorFromExistingEpilogue<EpilogueVisitor,
+        typename GemmKernel_::Epilogue>::Epilogue;
 
-//     half2float_vec_cpy<<<grid_size,block_size>>>(
-//         (half *)d2,
-//         o_gpu,
-//         B * H
-//     );
-//     checkCudaError();
-//     cudaDeviceSynchronize();
-//     checkCudaError();
+    // GEMM
+    using GemmKernel
+        = cutlass::gemm::kernel::GemmWithEpilogueVisitor<typename GemmKernel_::Mma, Epilogue, SwizzleThreadBlock>;
 
-//     cudaMemcpy(*o, o_gpu, sizeof(float) * B * H, cudaMemcpyDeviceToHost);
-//     checkCudaError();
+    // // Create a tuple of problem size for matrix multiplication
+    // cutlass::gemm::GemmCoord problem_size = { M, N, K };
 
-//     cudaFree(d0);
-// 	checkCudaError();
-//     cudaFree(d1);
-// 	checkCudaError();
-//     cudaFree(d2);
-// 	checkCudaError();
-//     cudaFree(x_gpu);
-// 	checkCudaError();
-//     cudaFree(w0_gpu);
-// 	checkCudaError();
-//     cudaFree(w1_gpu);
-// 	checkCudaError();
-// }
+    // // Initialize alpha and beta for dot product computation
+    // ElementComputeEpilogue alpha = ElementComputeEpilogue(1.0);
+    // ElementComputeEpilogue beta = ElementComputeEpilogue(0.0);
+
+    // // Split K dimension into 1 partitions
+    // int split_k_slices = 1;
+
+    using Gemm = cutlass::gemm::device::GemmUniversalBaseCompat<GemmKernel>;
+
+    typename EpilogueOp::Params linearScalingParams; // TODO: right now it's unused (scaling is done in visitor, no activation needed)
+    typename Gemm::Arguments arguments{
+        cutlass::gemm::GemmUniversalMode::kGemm, {M, N, K}, 1,
+        {reinterpret_cast<ElementInput*>(a_quant), K},
+        {reinterpret_cast<ElementInput*>(b_quant), K},
+        {reinterpret_cast<ElementCompute*>(alpha_col_ptr), 0},
+        {reinterpret_cast<ElementCompute*>(alpha_row_ptr), 0}, {nullptr, 0},
+        {reinterpret_cast<ElementOutput*>(o_gpu), N}, 0, 0,
+        typename EpilogueVisitor::Arguments(linearScalingParams, 0, 0, 0)
+    };
+
+    Gemm gemm_op;
+
+    // Using the arguments, query for extra workspace required for matrix multiplication computation
+    uint8_t *workspace;
+    cudaMalloc((void **)&workspace, sizeof(uint8_t) * gemm_op.get_workspace_size(arguments));
+	checkCudaError();
+
+    // Check the problem size is supported or not 
+    cutlass::Status status = gemm_op.can_implement(arguments);
+    CUTLASS_CHECK(status);
+
+    // Initialize CUTLASS kernel with arguments and workspace pointer
+    status = gemm_op.initialize(arguments, workspace);
+    CUTLASS_CHECK(status);
+
+    status = gemm_op();
+    CUTLASS_CHECK(status);
+
+    cudaDeviceSynchronize();
+    checkCudaError();
+}

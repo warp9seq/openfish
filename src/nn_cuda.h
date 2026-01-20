@@ -41,6 +41,17 @@ void silu_mul_cuda(
     uint64_t K
 );
 
+void quant_gemm_cuda(
+    void *a_quant,
+    void *b_quant,
+    void *a_scale,
+    void *b_scale,
+    void *o_gpu,
+    int M,
+    int N,
+    int K
+);
+
 #ifdef __cplusplus
 }
 #endif

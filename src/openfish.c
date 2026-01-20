@@ -162,3 +162,33 @@ void silu_mul_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void quant_gemm_gpu(
+    void *a_quant,
+    void *b_quant,
+    void *a_scale,
+    void *b_scale,
+    void *o_gpu,
+    int M,
+    int N,
+    int K
+) {
+#ifdef HAVE_CUDA
+    quant_gemm_cuda(
+        a_quant,
+        b_quant,
+        a_scale,
+        b_scale,
+        o_gpu,
+        M,
+        N,
+        K
+    );
+#elif HAVE_ROCM
+    OPENFISH_ERROR("%s", "not hip impl for this yet");
+    exit(EXIT_FAILURE);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}

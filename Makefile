@@ -1,7 +1,8 @@
 CC = g++
 AR = ar
 CPPFLAGS +=	-I include \
-			-I cutlass/include
+			-I cutlass/include \
+			-I cutlass_ext/include
 CFLAGS += -g -Wall -O2
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
