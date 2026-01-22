@@ -63,6 +63,17 @@ void rmsnorm_cuda(
     float eps
 );
 
+void rmsnorm_quant_cuda(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
 #ifdef __cplusplus
 }
 #endif

@@ -222,3 +222,33 @@ void rmsnorm_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void rmsnorm_quant_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+#ifdef HAVE_CUDA
+    rmsnorm_quant_cuda(
+        input,
+        weight,
+        residual,
+        residual_scale,
+        MN,
+        K,
+        alpha,
+        eps
+    );
+#elif HAVE_ROCM
+    OPENFISH_ERROR("%s", "not hip impl for this yet");
+    exit(EXIT_FAILURE);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}

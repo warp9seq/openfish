@@ -19,6 +19,29 @@
 #include "cutlass_ext/gemm_with_epilogue_visitor.h"
 #include <cuda_runtime.h>
 
+void rmsnorm_quant_cuda(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    assert(K <= 1024);
+    
+    int threads = K;
+    int blocks = MN;
+    
+    rmsnorm_quant<<<blocks, threads>>>(
+        (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
 void rmsnorm_cuda(
     const void* input,
     const void* residual,
@@ -29,6 +52,8 @@ void rmsnorm_cuda(
     float alpha,
     float eps
 ) {
+    assert(K <= 1024);
+    
     int threads = K;
     int blocks = MN;
     
@@ -91,8 +116,8 @@ void rotary_emb_cuda(
         rotary_half
     );
     checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    // cudaDeviceSynchronize();
+    // checkCudaError();
 }
 
 template <typename T>
@@ -347,9 +372,9 @@ void quant_gemm_cuda(
 
   Gemm gemm_op;
   // Using the arguments, query for extra workspace required for matrix multiplication computation
-  uint8_t *workspace = NULL; // we dont need extra space apparently
-//   cudaMalloc((void **)&workspace, sizeof(uint8_t) * Gemm::get_workspace_size(arguments));
-//   checkCudaError();
+  uint8_t *workspace;
+  cudaMalloc((void **)&workspace, sizeof(uint8_t) * Gemm::get_workspace_size(arguments));
+  checkCudaError();
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm_op.can_implement(arguments);
@@ -362,9 +387,9 @@ void quant_gemm_cuda(
   status = gemm_op();
   CUTLASS_CHECK(status);
 
-//   cudaDeviceSynchronize();
-//   checkCudaError();
+  cudaDeviceSynchronize();
+  checkCudaError();
 
-//   cudaFree(workspace);
-//   checkCudaError();
+  cudaFree(workspace);
+  checkCudaError();
 }
