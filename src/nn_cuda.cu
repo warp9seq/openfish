@@ -306,8 +306,8 @@ void quant_gemm_cuda(
   int N,
   int K
 ) {
-  constexpr int Stages = 3;
-  using ThreadblockShape = cutlass::gemm::GemmShape<256, 128, 64>;
+  constexpr int Stages = 5;
+  using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 64>;
   using WarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
   using InstructionShape = cutlass::gemm::GemmShape<16, 8, 32>;
   using ThreadblockSwizzle = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<8>;
