@@ -131,6 +131,17 @@ void quant_gemm_gpu(
     int K
 );
 
+void rmsnorm_gpu(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
 #ifdef __cplusplus
 }
 #endif

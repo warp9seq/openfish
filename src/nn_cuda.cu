@@ -19,14 +19,33 @@
 #include "cutlass_ext/gemm_with_epilogue_visitor.h"
 #include <cuda_runtime.h>
 
+void rmsnorm_cuda(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    int threads = K;
+    int blocks = MN;
+    
+    rmsnorm<<<blocks, threads>>>(
+        (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
 void silu_mul_cuda(
     void *x_gpu,
     void *o_gpu,
     uint64_t M,
     uint64_t K
 ) {
-    cudaError_t result;
-
     dim3 block(32, 32);
 	dim3 grid(
         (K + block.x - 1) / block.x,
@@ -39,12 +58,9 @@ void silu_mul_cuda(
         K,
         M
     );
-
-    result = cudaDeviceSynchronize();
-    if (result != cudaSuccess) {
-        std::cerr << "cuda kernel failed: " << std::endl;
-        exit(1);
-    }
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
 }
 
 void rotary_emb_cuda(

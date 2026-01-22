@@ -192,3 +192,33 @@ void quant_gemm_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void rmsnorm_gpu(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+#ifdef HAVE_CUDA
+    rmsnorm_cuda(
+        input,
+        residual,
+        weight,
+        output,
+        MN,
+        K,
+        alpha,
+        eps
+    );
+#elif HAVE_ROCM
+    OPENFISH_ERROR("%s", "not hip impl for this yet");
+    exit(EXIT_FAILURE);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
