@@ -123,8 +123,12 @@ void openfish_silu_mul_gpu(
         K
     );
 #elif HAVE_ROCM
-    OPENFISH_ERROR("%s", "not hip impl for this yet");
-    exit(EXIT_FAILURE);
+    silu_mul_hip(
+        x_gpu,
+        o_gpu,
+        MN,
+        K
+    );
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);
@@ -153,8 +157,16 @@ void openfish_rmsnorm_gpu(
         eps
     );
 #elif HAVE_ROCM
-    OPENFISH_ERROR("%s", "not hip impl for this yet");
-    exit(EXIT_FAILURE);
+    rmsnorm_hip(
+        input,
+        residual,
+        weight,
+        output,
+        MN,
+        K,
+        alpha,
+        eps
+    );
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);
@@ -183,8 +195,16 @@ void openfish_rmsnorm_quant_gpu(
         eps
     );
 #elif HAVE_ROCM
-    OPENFISH_ERROR("%s", "not hip impl for this yet");
-    exit(EXIT_FAILURE);
+    rmsnorm_quant_hip(
+        input,
+        weight,
+        residual,
+        residual_scale,
+        MN,
+        K,
+        alpha,
+        eps
+    );
 #else
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);

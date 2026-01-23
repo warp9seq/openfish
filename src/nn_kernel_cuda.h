@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef NN_CUDA_CUH
-#define NN_CUDA_CUH
+#ifndef NN_KERNEL_CUDA_H
+#define NN_KERNEL_CUDA_H
 
 #include <math.h>
 #include <float.h>
@@ -273,4 +273,4 @@ __global__ void rmsnorm_quant(
 }
 #endif
 
-#endif // NN_CUDA_CUH
+#endif // NN_KERNEL_CUDA_H
