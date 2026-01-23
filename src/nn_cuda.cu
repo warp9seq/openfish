@@ -1,11 +1,80 @@
 #include "nn_cuda.h"
 #include "error.h"
 #include "cuda_utils.cuh"
-#include "rotary_emb_cuda.cuh"
+#include "nn_cuda.cuh"
 
 #include <openfish/openfish_error.h>
 
 #include <cuda_fp16.h>
+
+void rmsnorm_quant_cuda(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    ASSERT(K <= 1024);
+    
+    int threads = K;
+    int blocks = MN;
+    
+    rmsnorm_quant<<<blocks, threads>>>(
+        (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
+void rmsnorm_cuda(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    ASSERT(K <= 1024);
+    
+    int threads = K;
+    int blocks = MN;
+    
+    rmsnorm<<<blocks, threads>>>(
+        (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
+
+void silu_mul_cuda(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t MN,
+    uint64_t K
+) {
+    dim3 block(32, 32);
+	dim3 grid(
+        (K + block.x - 1) / block.x,
+        (MN + block.y - 1) / block.y
+    );
+
+    silu_mul<<<grid, block>>>(
+        (half *)x_gpu,
+        (half *)o_gpu,
+        K,
+        MN
+    );
+    checkCudaError();
+    cudaDeviceSynchronize();
+    checkCudaError();
+}
 
 void rotary_emb_cuda(
     void *x_gpu,

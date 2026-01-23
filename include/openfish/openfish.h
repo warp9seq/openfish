@@ -101,6 +101,35 @@ void openfish_rotary_emb_gpu(
     int stride_head
 );
 
+void openfish_silu_mul_gpu(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t MN,
+    uint64_t K
+);
+
+void openfish_rmsnorm_gpu(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
+void openfish_rmsnorm_quant_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
 #ifdef __cplusplus
 }
 #endif
