@@ -60,9 +60,9 @@ void silu_mul_cuda(
     uint64_t K
 ) {
     auto threads = 1024;
-    auto blocks = ((K + threads - 1) / threads) * MN;
+    auto blocks = MN;
 
-    silu_mul<<<blocks, threads >>>(
+    silu_mul<<<blocks, threads>>>(
         (half *)x_gpu,
         (half *)o_gpu,
         K,

@@ -74,20 +74,18 @@ __global__ void silu_mul(
     const int K,
     const int MN
 ) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = i / K;
-    int k = i - (j * K);
+    int j = blockIdx.x;
 
-    if (k < K && j < MN) {
-        k += j * (K * 2);
+    for (int k = threadIdx.x; k < K; k += blockDim.x) {
+        int i = k + j * (K * 2);
 
-        half y = x_gpu[k];
-        half gate = x_gpu[k + K];
+        half y = x_gpu[i];
+        half gate = x_gpu[i + K];
 
         float g = __half2float(gate);
         float silu = g / (1.0f + __expf(-g));
 
-        o_gpu[i] = __float2half(silu * __half2float(y));
+        o_gpu[k + j * K] = __float2half(silu * __half2float(y));
     }
 }
 
