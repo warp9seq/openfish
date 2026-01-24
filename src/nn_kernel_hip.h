@@ -72,13 +72,13 @@ __global__ void rotary_emb(
 __global__ void silu_mul(
 	half *x_gpu,
 	half *o_gpu,
-    const int K,
-    const int MN
+    const uint64_t K,
+    const uint64_t MN
 ) {
-    int j = blockIdx.x;
+    uint64_t j = blockIdx.x;
 
-    for (int k = threadIdx.x; k < K; k += blockDim.x) {
-        int i = k + j * (K * 2);
+    for (uint64_t k = threadIdx.x; k < K; k += blockDim.x) {
+        uint64_t i = k + j * (K * 2);
 
         half y = x_gpu[i];
         half gate = x_gpu[i + K];
