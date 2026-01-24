@@ -68,20 +68,17 @@ void rmsnorm_cuda(
 void silu_mul_cuda(
     void *x_gpu,
     void *o_gpu,
-    uint64_t M,
+    uint64_t MN,
     uint64_t K
 ) {
-    dim3 block(32, 32);
-	dim3 grid(
-        (K + block.x - 1) / block.x,
-        (M + block.y - 1) / block.y
-    );
+    auto threads = 1024;
+    auto blocks = MN;
 
-    silu_mul<<<grid, block>>>(
+    silu_mul<<<blocks, threads>>>(
         (half *)x_gpu,
         (half *)o_gpu,
         K,
-        M
+        MN
     );
     checkCudaError();
     cudaDeviceSynchronize();
