@@ -59,13 +59,10 @@ void silu_mul_cuda(
     uint64_t MN,
     uint64_t K
 ) {
-    dim3 block(32, 32);
-	dim3 grid(
-        (K + block.x - 1) / block.x,
-        (MN + block.y - 1) / block.y
-    );
+    auto threads = 1024;
+    auto blocks = ((K + threads - 1) / threads) * MN;
 
-    silu_mul<<<grid, block>>>(
+    silu_mul<<<blocks, threads >>>(
         (half *)x_gpu,
         (half *)o_gpu,
         K,
