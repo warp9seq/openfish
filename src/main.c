@@ -20,8 +20,183 @@
 
 int main(int argc, char* argv[]) {
 #if defined DEBUG
-#pragma omp parallel
-{
+// #pragma omp parallel
+// {
+    // FILE *fp;
+    // size_t result;
+    
+    const int elem_size_full = sizeof(uint32_t);
+    const int elem_size_half = sizeof(uint16_t);
+
+    // int64_t B = 1 * 833; // batch_size * seqlen
+    // int64_t I = 512;
+    // int64_t H = 2048;
+
+    // void *x = calloc(B * I, elem_size_half);
+
+    // fp = fopen("../slorado/x_slorado.blob", "rb");
+    // F_CHK(fp, "../slorado/x_slorado.blob");
+    // result = fread(x, elem_size_half, B * I, fp);
+    // if (result != B * I) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // void *w0 = calloc(H * I, elem_size_half);
+    // void *w1 = calloc(H * I, elem_size_half);
+
+    // fp = fopen("../slorado/w0_slorado.blob", "rb");
+    // F_CHK(fp, "../slorado/w0_slorado.blob");
+    // result = fread(w0, elem_size_half, H * I, fp);
+    // if (result != H * I) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("../slorado/w1_slorado.blob", "rb");
+    // F_CHK(fp, "../slorado/w1_slorado.blob");
+    // result = fread(w1, elem_size_half, H * I, fp);
+    // if (result != H * I) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // void *o = calloc(B * H, elem_size_full);
+
+    // swiglu_test(
+    //     x,
+    //     w0,
+    //     w1,
+    //     &o
+    // );
+
+    // fp = fopen("o.blob", "w");
+    // F_CHK(fp, "o.blob");
+    // if (fwrite(o, elem_size_full, B * H, fp) != B * H) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // int batch_size = 500;
+    // int seqlen = 833;
+    // int c = 1;
+    // int nheads = 8;
+    // int rotary_half = 32;
+    // int headdim = 64;
+    // int stride_batch = seqlen * c * nheads * headdim;
+    // int stride_seq = c * nheads * headdim;
+    // int stride_head = headdim;
+
+    // size_t numel = batch_size * seqlen * c * nheads * headdim; // todo: for it to be inplace, make the stride independent of rotary dim
+    // size_t numel_ro = 65536;
+
+    // void *x = calloc(numel, elem_size_full);
+    // MALLOC_CHK(x);
+
+    // void *sin_buf = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(sin_buf);
+    // void *cos_buf = calloc(numel_ro, elem_size_full);
+    // MALLOC_CHK(cos_buf);
+
+    // fp = fopen("../slorado/q.blob", "rb");
+    // F_CHK(fp, "../slorado/q.blob");
+    // result = fread(x, elem_size_full, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("../slorado/sin.blob", "rb");
+    // F_CHK(fp, "../slorado/sin.blob");
+    // result = fread(sin_buf, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("../slorado/cos.blob", "rb");
+    // F_CHK(fp, "../slorado/cos.blob");
+    // result = fread(cos_buf, elem_size_full, numel_ro, fp);
+    // if (result != numel_ro) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // openfish_rotary_emb_cpu(
+    //     x,
+    //     sin_buf,
+    //     cos_buf,
+    //     batch_size,
+    //     seqlen,
+    //     nheads,
+    //     headdim,
+    //     rotary_half,
+    //     stride_batch,
+    //     stride_seq,
+    //     stride_head,
+    //     64
+    // );
+
+    // fp = fopen("q_out.blob", "w");
+    // F_CHK(fp, "q_out.blob");
+    // if (fwrite(x, elem_size_full, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+    
+    // void *q = calloc(numel, elem_size);
+    // MALLOC_CHK(q);
+    // void *k = calloc(numel, elem_size);
+    // MALLOC_CHK(k);
+    // void *v = calloc(numel, elem_size);
+    // MALLOC_CHK(v);
+
+    // fp = fopen("q.blob", "rb");
+    // F_CHK(fp, "q.blob");
+    // result = fread(q, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("k.blob", "rb");
+    // F_CHK(fp, "k.blob");
+    // result = fread(k, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // fp = fopen("v.blob", "rb");
+    // F_CHK(fp, "v.blob");
+    // result = fread(v, elem_size, numel, fp);
+    // if (result != numel) {
+    //     OPENFISH_ERROR("%s: %s", "error reading score file", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
+    // void *o;
+    // run_flash(q, k, v, &o);
+
+    // fp = fopen("o.blob", "w");
+    // F_CHK(fp, "o.blob");
+    // if (fwrite(o, elem_size, numel, fp) != numel) {
+    //     fprintf(stderr, "error writing o file: %s\n", strerror(errno));
+    //     exit(EXIT_FAILURE);
+    // }
+    // fclose(fp);
+
     if (argc < 4) {
         fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
@@ -98,9 +273,9 @@ int main(int argc, char* argv[]) {
     
 #ifdef BENCH
     int n_batch = 140; // simulate 20k reads
-    if (state_len == 3)      n_batch = 14000; // fast
-    else if (state_len == 4) n_batch = 34500; // hac
-    else if (state_len == 5) n_batch = 68500; // sup
+    if (state_len == 3)      n_batch = 1400; // fast
+    else if (state_len == 4) n_batch = 3450; // hac
+    else if (state_len == 5) n_batch = 6850; // sup
     OPENFISH_LOG_DEBUG("simulating %d batches...", n_batch);
     for (int i = 0; i < n_batch; ++i) {
 #endif
@@ -175,7 +350,7 @@ int main(int argc, char* argv[]) {
 #elif defined HAVE_ROCM
     free_scores_hip(scores_gpu);
 #endif
-}
+// }
 #endif
     return 0;
 }

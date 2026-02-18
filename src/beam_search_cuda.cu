@@ -196,8 +196,8 @@ __global__ void beam_search(
     __shared__ float beam_init_threshold;
 
     for (size_t beam_element = tid; beam_element < MAX_BEAM_CANDIDATES; beam_element += nthreads) {
-        current_beam_front[beam_element] = {0};
-        prev_beam_front[beam_element] = {0};
+        current_beam_front[beam_element] = (beam_front_element_t){0};
+        prev_beam_front[beam_element] = (beam_front_element_t){0};
         current_scores[beam_element] = 0.0f;
         prev_scores[beam_element] = 0.0f;
     }

@@ -49,6 +49,21 @@ void openfish_decode_cpu(
     char **qstring
 );
 
+void openfish_rotary_emb_cpu(
+    void *x,
+    void *sin_buf,
+    void *cos_buf,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int nthreads
+);
+
 void openfish_decode_gpu(
     const int T,
     const int N,
@@ -72,7 +87,7 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
-void openfish_rotary_emb(
+void openfish_rotary_emb_gpu(
     void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,
