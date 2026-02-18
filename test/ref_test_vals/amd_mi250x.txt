@@ -1,0 +1,29 @@
+# fast
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/fast_1000c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000011, tens_len: 106688000, n_diffs: 4675783
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/fast_1000c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00029951333999633789062500000000, avg diff: 0.000000, tens_len: 106688000, n_diffs: 94552180
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/fast_1000c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99999773502349853515625000000000, avg diff: 0.025680, tens_len: 6664000, n_diffs: 4937534
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/fast_1000c_total_probs.blob and total_probs.blob
+tensor max elem diff by 528.00000000000000000000000000000000, avg diff: 0.512306, tens_len: 1666000, n_diffs: 465050
+
+# hac
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/hac_400c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00097656250000000000000000000000, avg diff: 0.000005, tens_len: 170700800, n_diffs: 3926257
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/hac_400c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00024324655532836914062500000000, avg diff: 0.000000, tens_len: 170700800, n_diffs: 160221484
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/hac_400c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99985498189926147460937500000000, avg diff: 0.009209, tens_len: 2665600, n_diffs: 2161472
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/hac_400c_total_probs.blob and total_probs.blob
+tensor max elem diff by 475.00030517578125000000000000000000, avg diff: 0.316372, tens_len: 666400, n_diffs: 187800
+
+# sup
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/sup_200c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00146484375000000000000000000000, avg diff: 0.000006, tens_len: 341401600, n_diffs: 9786935
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/sup_200c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00021538138389587402343750000000, avg diff: 0.000000, tens_len: 341401600, n_diffs: 329865362
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/sup_200c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99997997283935546875000000000000, avg diff: 0.004345, tens_len: 1332800, n_diffs: 1165447
+comapring files /software/projects/pawsey1099/bonwon/slorado_test_data/blobs/sup_200c_total_probs.blob and total_probs.blob
+tensor max elem diff by 73.00002288818359375000000000000000, avg diff: 0.243349, tens_len: 333200, n_diffs: 91960

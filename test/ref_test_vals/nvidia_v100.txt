@@ -1,0 +1,29 @@
+# fast
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/fast_1000c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000030, tens_len: 106688000, n_diffs: 13849056
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/fast_1000c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00024396181106567382812500000000, avg diff: 0.000000, tens_len: 106688000, n_diffs: 96962021
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/fast_1000c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99999773502349853515625000000000, avg diff: 0.025673, tens_len: 6664000, n_diffs: 5350276
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/fast_1000c_total_probs.blob and total_probs.blob
+tensor max elem diff by 527.99926757812500000000000000000000, avg diff: 0.512259, tens_len: 1666000, n_diffs: 470731
+
+# hac
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/hac_400c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000030, tens_len: 170700800, n_diffs: 24721953
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/hac_400c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00024402141571044921875000000000, avg diff: 0.000000, tens_len: 170700800, n_diffs: 162347234
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/hac_400c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99999618530273437500000000000000, avg diff: 0.009212, tens_len: 2665600, n_diffs: 2190661
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/hac_400c_total_probs.blob and total_probs.blob
+tensor max elem diff by 475.00042724609375000000000000000000, avg diff: 0.316534, tens_len: 666400, n_diffs: 186961
+
+# sup
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/sup_200c_bwd_NTC.blob and bwd_NTC.blob
+tensor max elem diff by 0.00195312500000000000000000000000, avg diff: 0.000019, tens_len: 341401600, n_diffs: 36453889
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/sup_200c_post_NTC.blob and post_NTC.blob
+tensor max elem diff by 0.00027927756309509277343750000000, avg diff: 0.000000, tens_len: 341401600, n_diffs: 331694665
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/sup_200c_qual_data.blob and qual_data.blob
+tensor max elem diff by 0.99999892711639404296875000000000, avg diff: 0.004351, tens_len: 1332800, n_diffs: 1148520
+comapring files /data/bonwon/slorado_test_data/openfish-blobs/sup_200c_total_probs.blob and total_probs.blob
+tensor max elem diff by 73.00001525878906250000000000000000, avg diff: 0.243373, tens_len: 333200, n_diffs: 90946

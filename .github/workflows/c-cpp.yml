@@ -12,7 +12,7 @@ on:
 jobs:
   ubuntu_16:
     name: Ubuntu 16
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:16.04
       volumes:
@@ -35,7 +35,7 @@ jobs:
       run: export DEVICE=cpu && make test
   ubuntu_16_cuda:
     name: Ubuntu 16 CUDA
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:16.04
       volumes:
@@ -65,7 +65,7 @@ jobs:
       run: make cuda=1 -j2 debug=1
   ubuntu_18:
     name: Ubuntu 18
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     container:
       image: ubuntu:18.04
       volumes:
@@ -88,29 +88,37 @@ jobs:
       run: export DEVICE=cpu && make test
   ubuntu_20:
     name: Ubuntu 20
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget
     - name: build
       run: make -j2 debug=1
     - name: test
       run: export DEVICE=cpu && make test
   ubuntu_20_cuda:
     name: Ubuntu 20 CUDA
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:20.04
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc wget gnupg software-properties-common
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
-        sudo dpkg -i cuda-keyring_1.0-1_all.deb
+        dpkg -i cuda-keyring_1.0-1_all.deb
         wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin
-        sudo mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
-        sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
-        sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
-        sudo apt-get update
-        sudo apt-get -y install cuda-11-1
+        mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600
+        apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub
+        add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /"
+        apt-get update
+        apt-get -y install cuda-11-1
     - name: build cuda=1
       run: make -j2 cuda=1 debug=1
   ubuntu_22:

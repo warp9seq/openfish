@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <math.h>
-#include <cstdint>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
 
 // compile me for tests:
-// g++ -o compare_blob test/compare_blob.c 
+// g++ -o compare_blob test/compare_blob.c
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
