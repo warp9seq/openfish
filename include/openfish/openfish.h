@@ -101,6 +101,21 @@ void openfish_rotary_emb_gpu(
     int stride_head
 );
 
+void openfish_rotary_emb_cpu(
+    void *x,
+    void *sin_buf,
+    void *cos_buf,
+    int batch_size,
+    int seqlen,
+    int nheads,
+    int head_dim,
+    int rotary_half,
+    int stride_batch,
+    int stride_seq,
+    int stride_head,
+    int nthreads
+);
+
 #ifdef __cplusplus
 }
 #endif
