@@ -43,6 +43,9 @@ else ifdef rocm
 	ROCM_LIB ?= $(ROCM_ROOT)/lib
 	HIPCC ?= $(ROCM_ROOT)/bin/hipcc
 	ROCM_CFLAGS += -g -Wall $(ROCM_ARCH)
+	ifneq (,$(findstring gfx1150,$(ROCM_ARCH)))
+		ROCM_CFLAGS += -D__AMDGCN_WAVEFRONT_SIZE=32
+	endif
 	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o $(BUILD_DIR)/nn_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
