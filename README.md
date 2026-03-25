@@ -110,9 +110,9 @@ The scripts below download a set of pre-computed blobs and compare *openfish* ou
 
 ```sh
 make debug=1
-scripts/cpu_quick_run.sh fast   # fast model  (state_len=3, C=64)
-scripts/cpu_quick_run.sh hac    # hac model   (state_len=4, C=256)
-scripts/cpu_quick_run.sh sup    # sup model   (state_len=5, C=1024)
+scripts/cpu_quick_run.sh fast   # fast 4.2.0 model  (state_len=3, C=64)
+scripts/cpu_quick_run.sh hac    # hac 4.2.0 model   (state_len=4, C=256)
+scripts/cpu_quick_run.sh sup    # sup 4.2.0 model   (state_len=5, C=1024)
 ```
 
 **GPU (CUDA):**
