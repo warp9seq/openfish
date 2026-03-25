@@ -29,7 +29,8 @@ void openfish_decode_cpu(
 );
 
 // example usage
-const openfish_opt_t opt = {32, 100.0, 2.0, 0.0, 1.0, 1.0, false};
+torch::Tensor scores = module.forward(some_signal_data);
+const openfish_opt_t opt = DECODER_INIT; // default values for ONT DNA v4.2.0 models
 
 const int T = scores.size(0);
 const int N = scores.size(1);
