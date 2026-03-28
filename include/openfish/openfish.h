@@ -11,6 +11,7 @@
 extern "C" {
 #endif
 
+#define OPENFISH_DECODER_INIT_420 DECODER_INIT
 #define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
 
 typedef struct openfish_gpubuf {
