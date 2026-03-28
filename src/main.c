@@ -250,7 +250,7 @@ int main(int argc, char* argv[]) {
 #if defined HAVE_CUDA || defined HAVE_ROCM
     openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(T, N, state_len);
 #endif
-    openfish_opt_t options = DECODER_INIT;
+    openfish_opt_t options = OPENFISH_DECODER_INIT;
 
     // config mods from 4.2.0 models
     if (state_len == 3) { // fast
