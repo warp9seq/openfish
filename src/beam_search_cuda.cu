@@ -489,17 +489,15 @@ __global__ void beam_search(
             }
 
             // write current scores and beam fronts to prev
-            if (tid == 0) {
-                size_t write_idx = 0;
-                for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
-                    if (current_scores[read_idx] >= beam_cutoff_score) {
-                        if (write_idx < MAX_BEAM_WIDTH) {
-                            prev_beam_front[write_idx] = current_beam_front[read_idx];
-                            prev_scores[write_idx] = current_scores[read_idx];
-                            ++write_idx;
-                        } else {
-                            break;
-                        }
+            size_t write_idx = 0;
+            for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
+                if (current_scores[read_idx] >= beam_cutoff_score) {
+                    if (write_idx < MAX_BEAM_WIDTH) {
+                        prev_beam_front[write_idx] = current_beam_front[read_idx];
+                        prev_scores[write_idx] = current_scores[read_idx];
+                        ++write_idx;
+                    } else {
+                        break;
                     }
                 }
             }
