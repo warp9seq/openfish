@@ -108,7 +108,7 @@ __global__ void rmsnorm(
     half* y = output + row * hidden_dim;
     
     // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[32];  // For warp reduction
+    __shared__ float shared_sum[warpSize];  // For warp reduction
     
     float thread_sum = 0.0f;
     float x_new; // if this for loop happens more than once it will break, in this case we need to cache more than one x
@@ -119,11 +119,11 @@ __global__ void rmsnorm(
     }
     
     // Warp-level reduction
-    int warp_id = threadIdx.x / 32;
-    int lane_id = threadIdx.x % 32;
+    int warp_id = threadIdx.x / warpSize;
+    int lane_id = threadIdx.x % warpSize;
     
     // Reduce within warp
-    for (int offset = 16; offset > 0; offset /= 2) {
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
         thread_sum += __shfl_down_sync(0xffffffff, thread_sum, offset);
     }
     
@@ -135,11 +135,11 @@ __global__ void rmsnorm(
     
     // First warp reduces the warp sums
     float sum_sq = 0.0f;
-    if (threadIdx.x < 32) {
-        int num_warps = (blockDim.x + 31) / 32;
+    if (threadIdx.x < warpSize) {
+        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
         sum_sq = (threadIdx.x < num_warps) ? shared_sum[threadIdx.x] : 0.0f;
         
-        for (int offset = 16; offset > 0; offset /= 2) {
+        for (int offset = warpSize/2; offset > 0; offset /= 2) {
             sum_sq += __shfl_down_sync(0xffffffff, sum_sq, offset);
         }
     }
@@ -182,18 +182,18 @@ __global__ void rmsnorm_quant(
     float w = __half2float(weight[idx]);
     
     // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[32];  // For warp reduction
+    __shared__ float shared_sum[warpSize];  // For warp reduction
     
     float thread_sum = 0.0f;
     float val = __half2float(inp[idx]) + (((float)res[idx] * (*res_scale)) * alpha);
     thread_sum += val * val;
     
     // Warp-level reduction
-    int warp_id = threadIdx.x / 32;
-    int lane_id = threadIdx.x % 32;
+    int warp_id = threadIdx.x / warpSize;
+    int lane_id = threadIdx.x % warpSize;
     
     // Reduce within warp
-    for (int offset = 16; offset > 0; offset /= 2) {
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
         thread_sum += __shfl_down_sync(0xffffffff, thread_sum, offset);
     }
     
@@ -205,11 +205,11 @@ __global__ void rmsnorm_quant(
     
     // First warp reduces the warp sums
     float sum_sq = 0.0f;
-    if (threadIdx.x < 32) {
-        int num_warps = (blockDim.x + 31) / 32;
+    if (threadIdx.x < warpSize) {
+        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
         sum_sq = (threadIdx.x < num_warps) ? shared_sum[threadIdx.x] : 0.0f;
         
-        for (int offset = 16; offset > 0; offset /= 2) {
+        for (int offset = warpSize/2; offset > 0; offset /= 2) {
             sum_sq += __shfl_down_sync(0xffffffff, sum_sq, offset);
         }
     }
@@ -225,14 +225,14 @@ __global__ void rmsnorm_quant(
     float rms_inv = rms_shared;
 
     // Step 2: Find max absolute value for output quantization
-    __shared__ float shared_max[32];
+    __shared__ float shared_max[warpSize];
     
     float thread_max = 0.0f;
     float normalized = val * rms_inv * w;
     thread_max = fmaxf(thread_max, fabsf(normalized));
     
     // Reduce to find max
-    for (int offset = 16; offset > 0; offset /= 2) {
+    for (int offset = warpSize/2; offset > 0; offset /= 2) {
         thread_max = fmaxf(thread_max, __shfl_down_sync(0xffffffff, thread_max, offset));
     }
     
@@ -242,11 +242,11 @@ __global__ void rmsnorm_quant(
     __syncthreads();
     
     float abs_max = 0.0f;
-    if (threadIdx.x < 32) {
-        int num_warps = (blockDim.x + 31) / 32;
+    if (threadIdx.x < warpSize) {
+        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
         abs_max = (threadIdx.x < num_warps) ? shared_max[threadIdx.x] : 0.0f;
         
-        for (int offset = 16; offset > 0; offset /= 2) {
+        for (int offset = warpSize/2; offset > 0; offset /= 2) {
             abs_max = fmaxf(abs_max, __shfl_down_sync(0xffffffff, abs_max, offset));
         }
     }
