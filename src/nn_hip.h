@@ -22,6 +22,35 @@ void rotary_emb_hip(
     int stride_head
 );
 
+void silu_mul_hip(
+    void *x_gpu,
+    void *o_gpu,
+    uint64_t MN,
+    uint64_t K
+);
+
+void rmsnorm_hip(
+    const void* input,
+    const void* residual,
+    const void* weight,
+    void* output,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
+void rmsnorm_quant_hip(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
 #ifdef __cplusplus
 }
 #endif
