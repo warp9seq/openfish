@@ -59,13 +59,13 @@ void rmsnorm_hip(
 void silu_mul_hip(
     void *x_gpu,
     void *o_gpu,
-    uint64_t MN,
-    uint64_t K
+    int MN,
+    int K
 ) {
     hipError_t ret;
 
-    auto threads = 1024;
-    auto blocks = MN;
+    int threads = 1024;
+    int blocks = MN;
 
     silu_mul<<<blocks, threads>>>(
         (half *)x_gpu,

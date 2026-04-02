@@ -25,8 +25,8 @@ void rotary_emb_hip(
 void silu_mul_hip(
     void *x_gpu,
     void *o_gpu,
-    uint64_t MN,
-    uint64_t K
+    int MN,
+    int K
 );
 
 void rmsnorm_hip(
