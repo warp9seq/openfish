@@ -108,7 +108,7 @@ __global__ void rmsnorm(
     half* y = output + row * hidden_dim;
     
     // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[warpSize];  // For warp reduction
+    __shared__ float shared_sum[32];  // For warp reduction
     
     float thread_sum = 0.0f;
     float x_new; // if this for loop happens more than once it will break, in this case we need to cache more than one x
@@ -182,7 +182,7 @@ __global__ void rmsnorm_quant(
     float w = __half2float(weight[idx]);
     
     // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[warpSize];  // For warp reduction
+    __shared__ float shared_sum[32];  // For warp reduction
     
     float thread_sum = 0.0f;
     float val = __half2float(inp[idx]) + (((float)res[idx] * (*res_scale)) * alpha);
@@ -225,7 +225,7 @@ __global__ void rmsnorm_quant(
     float rms_inv = rms_shared;
 
     // Step 2: Find max absolute value for output quantization
-    __shared__ float shared_max[warpSize];
+    __shared__ float shared_max[32];
     
     float thread_max = 0.0f;
     float normalized = val * rms_inv * w;

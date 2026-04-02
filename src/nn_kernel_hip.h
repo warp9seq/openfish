@@ -183,7 +183,7 @@ __global__ void rmsnorm_quant( // need to verify if works on rocm
     float w = __half2float(weight[idx]);
     
     // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[warpSize];  // For warp reduction
+    __shared__ float shared_sum[64];  // For warp reduction
     
     float thread_sum = 0.0f;
     float val = __half2float(inp[idx]) + (((float)res[idx] * (*res_scale)) * alpha);
@@ -226,7 +226,7 @@ __global__ void rmsnorm_quant( // need to verify if works on rocm
     float rms_inv = rms_shared;
 
     // Step 2: Find max absolute value for output quantization
-    __shared__ float shared_max[warpSize];
+    __shared__ float shared_max[64];
     
     float thread_max = 0.0f;
     float normalized = val * rms_inv * w;

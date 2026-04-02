@@ -21,8 +21,9 @@ void rmsnorm_quant_cuda(
     
     int threads = K;
     int blocks = MN;
+    size_t shared_mem_bytes = static_cast<size_t>(threads) * 2 * sizeof(float);
     
-    rmsnorm_quant<<<blocks, threads>>>(
+    rmsnorm_quant<<<blocks, threads, shared_mem_bytes>>>(
         (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
     );
     checkCudaError();
@@ -44,8 +45,9 @@ void rmsnorm_cuda(
     
     int threads = K;
     int blocks = MN;
+    size_t shared_mem_bytes = static_cast<size_t>(threads) * sizeof(float);
     
-    rmsnorm<<<blocks, threads>>>(
+    rmsnorm<<<blocks, threads, shared_mem_bytes>>>(
         (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
     );
     checkCudaError();
