@@ -62,7 +62,7 @@ void openfish_rotary_emb_cpu(
     int stride_seq,
     int stride_head,
     int nthreads
-)
+);
 
 void openfish_decode_gpu(
     const int T,
