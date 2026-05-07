@@ -133,6 +133,8 @@ scripts/gpu_quick_run.sh hac
 scripts/gpu_quick_run.sh sup
 ```
 
+We have provided some expected values on several GPUs [here](test/ref_test_vals/)
+
 ## Acknowledgements
 
 The CPU beam-search implementation is derived from the C++ implementation in [ONT Dorado](https://github.com/nanoporetech/dorado).
