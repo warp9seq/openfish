@@ -83,6 +83,12 @@ openfish_gpubuf_t *openfish_gpubuf_init(
     const int state_len
 );
 
+size_t openfish_gpubuf_size(
+    const int T,
+    const int N,
+    const int state_len
+);
+
 void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
