@@ -210,3 +210,33 @@ void openfish_rmsnorm_quant_gpu(
     exit(EXIT_FAILURE);
 #endif
 }
+
+void openfish_rmsnorm_quant_fp8_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+#ifdef HAVE_CUDA
+    OPENFISH_ERROR("%s", "fp8 fused rmsnorm not implemented for CUDA");
+    exit(EXIT_FAILURE);
+#elif HAVE_ROCM
+    rmsnorm_quant_fp8_hip(
+        input,
+        weight,
+        residual,
+        residual_scale,
+        MN,
+        K,
+        alpha,
+        eps
+    );
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}

@@ -130,6 +130,17 @@ void openfish_rmsnorm_quant_gpu(
     float eps
 );
 
+void openfish_rmsnorm_quant_fp8_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+);
+
 #ifdef __cplusplus
 }
 #endif
