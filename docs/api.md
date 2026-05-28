@@ -4,12 +4,11 @@
 
 All public symbols are declared in `include/openfish/openfish.h`.
 
-**Decoder options** — populate with the `OPENFISH_DECODER_INIT` macro for ONT DNA v4.2.0 model defaults:
+**Decoder options** — call `openfish_decoder_default_opts()` for ONT DNA v4.2.0 model defaults:
 
 ```c
-openfish_opt_t opt = OPENFISH_DECODER_INIT;
-// OPENFISH_DECODER_INIT expands to: {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
 // fields: beam_width, beam_cut, blank_score, q_shift, q_scale, temperature, move_pad
+openfish_opt_t opt = openfish_decoder_default_opts(); // {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
 ```
 
 **CPU decoding:**
@@ -30,7 +29,7 @@ void openfish_decode_cpu(
 
 // example usage
 torch::Tensor scores = module.forward(some_signal_data);
-const openfish_opt_t opt = OPENFISH_DECODER_INIT; // default values for ONT DNA v4.2.0 models
+const openfish_opt_t opt = openfish_decoder_default_opts();
 
 const int T = scores.size(0);
 const int N = scores.size(1);

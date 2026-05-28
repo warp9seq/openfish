@@ -11,9 +11,6 @@
 extern "C" {
 #endif
 
-#define OPENFISH_DECODER_INIT DECODER_INIT
-#define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
-
 typedef struct openfish_gpubuf {
     float *bwd_NTC;
     float *post_NTC;
@@ -36,6 +33,8 @@ typedef struct openfish_opt {
     float temperature;
     bool move_pad;
 } openfish_opt_t;
+
+openfish_opt_t openfish_decoder_default_opts(void);
 
 void openfish_decode_cpu(
     const int T,
