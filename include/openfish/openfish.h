@@ -64,6 +64,14 @@ void openfish_rotary_emb_cpu(
     int nthreads
 );
 
+size_t openfish_gpubuf_size(
+    const int T,
+    const int N,
+    const int state_len
+);
+
+#if defined(HAVE_CUDA) || defined(HAVE_ROCM)
+
 void openfish_decode_gpu(
     const int T,
     const int N,
@@ -78,12 +86,6 @@ void openfish_decode_gpu(
 );
 
 openfish_gpubuf_t *openfish_gpubuf_init(
-    const int T,
-    const int N,
-    const int state_len
-);
-
-size_t openfish_gpubuf_size(
     const int T,
     const int N,
     const int state_len
@@ -143,6 +145,8 @@ void openfish_rmsnorm_quant_gpu(
     float alpha,
     float eps
 );
+
+#endif // defined(HAVE_CUDA) || defined(HAVE_ROCM)
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,6 @@
-#include "decode_cuda.h"
+#include <openfish/openfish.h>
+#include <stdint.h>
+#include "decode.h"
 #include "scan_cuda.h"
 #include "beam_search_cuda.h"
 #include "error.h"
@@ -8,7 +10,7 @@
 
 #include <cuda_fp16.h>
 
-openfish_gpubuf_t *gpubuf_init_cuda(
+openfish_gpubuf_t *openfish_gpubuf_init(
     const int T,
     const int N,
     const int state_len
@@ -47,7 +49,7 @@ openfish_gpubuf_t *gpubuf_init_cuda(
     return gpubuf;
 }
 
-void gpubuf_free_cuda(
+void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 ) {
     cudaFree(gpubuf->bwd_NTC);
@@ -76,7 +78,7 @@ void gpubuf_free_cuda(
     free(gpubuf);
 }
 
-void decode_cuda(
+void openfish_decode_gpu(
     const int T,
     const int N,
     const int C,
@@ -211,128 +213,3 @@ void decode_cuda(
     checkCudaError();
 }
 
-// misc stuff for testing //////////////////////////////////////////////////////
-void set_device_cuda(
-    int device
-) {
-    cudaSetDevice(device);
-	checkCudaError();
-}
-
-void *upload_scores_to_cuda(
-    const int T,
-    const int N,
-    const int C,
-    const void *scores_TNC
-) {
-    void *scores_TNC_gpu;
-
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * T * N * C);
-	checkCudaError();
-
-	cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * T * N * C, cudaMemcpyHostToDevice);
-	checkCudaError();
-
-    return scores_TNC_gpu;
-}
-
-void free_scores_cuda(
-    void *scores_TNC_gpu
-) {
-    cudaFree(scores_TNC_gpu);
-	checkCudaError();
-}
-
-void write_gpubuf_cuda(
-    const uint64_t T,
-    const uint64_t N,
-    const int state_len,
-    const openfish_gpubuf_t *gpubuf
-) {
-    const int num_states = pow(NUM_BASES, state_len);
-
-    float *bwd_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
-    MALLOC_CHK(bwd_NTC);
-    float *post_NTC = (float *)malloc(N * (T + 1) * num_states * sizeof(float));
-    MALLOC_CHK(post_NTC);
-    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
-    MALLOC_CHK(states);
-    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
-    MALLOC_CHK(qual_data);
-    float *base_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(base_probs);
-    float *total_probs = (float *)malloc(N * T * sizeof(float));
-    MALLOC_CHK(total_probs);
-
-    // copy scan results
-    cudaMemcpy(bwd_NTC, gpubuf->bwd_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
-    checkCudaError();
-	cudaMemcpy(post_NTC, gpubuf->post_NTC, sizeof(float) * N * (T + 1) * num_states, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    // copy intermediate
-    cudaMemcpy(states, gpubuf->states, sizeof(state_t) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(total_probs, gpubuf->total_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(qual_data, gpubuf->qual_data, sizeof(float) * N * T * NUM_BASES, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    cudaMemcpy(base_probs, gpubuf->base_probs, sizeof(float) * N * T, cudaMemcpyDeviceToHost);
-    checkCudaError();
-
-    // write results
-    FILE *fp;
-
-    fp = fopen("bwd_NTC.blob", "w");
-    F_CHK(fp, "bwd_NTC.blob");
-    if (fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("post_NTC.blob", "w");
-    F_CHK(fp, "post_NTC.blob");
-    if (fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    // write beam results
-    fp = fopen("qual_data.blob", "w");
-    F_CHK(fp, "qual_data.blob");
-    if (fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp) != N * T * NUM_BASES) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    F_CHK(fp, "base_probs.blob");
-    if (fwrite(base_probs, sizeof(float), N * T, fp) != N * T) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    F_CHK(fp, "total_probs.blob");
-    if (fwrite(total_probs, sizeof(float), N * T, fp) != N * T) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    // cleanup
-    free(bwd_NTC);
-    free(post_NTC);
-    free(states);
-    free(qual_data);
-    free(base_probs);
-    free(total_probs);
-}
-////////////////////////////////////////////////////////////////////////////////

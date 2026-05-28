@@ -1,4 +1,4 @@
-#include "nn_hip.h"
+#include <openfish/openfish.h>
 #include "error.h"
 #include "nn_kernel_hip.h"
 #include "hip_utils.h"
@@ -8,7 +8,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
-void rmsnorm_quant_hip(
+void openfish_rmsnorm_quant_gpu(
     const void* input,
     const void* weight,
     void* residual,
@@ -20,10 +20,10 @@ void rmsnorm_quant_hip(
 ) {
     hipError_t ret;
     ASSERT(K <= 1024);
-    
+
     int threads = K;
     int blocks = MN;
-    
+
     rmsnorm_quant<<<blocks, threads>>>(
         (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
     );
@@ -32,7 +32,7 @@ void rmsnorm_quant_hip(
     checkHipError(); HIP_CHECK(ret);
 }
 
-void rmsnorm_hip(
+void openfish_rmsnorm_gpu(
     const void* input,
     const void* residual,
     const void* weight,
@@ -44,10 +44,10 @@ void rmsnorm_hip(
 ) {
     hipError_t ret;
     ASSERT(K <= 1024);
-    
+
     int threads = K;
     int blocks = MN;
-    
+
     rmsnorm<<<blocks, threads>>>(
         (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
     );
@@ -56,16 +56,16 @@ void rmsnorm_hip(
     checkHipError(); HIP_CHECK(ret);
 }
 
-void silu_mul_hip(
+void openfish_silu_mul_gpu(
     void *x_gpu,
     void *o_gpu,
-    int MN,
-    int K
+    uint64_t MN,
+    uint64_t K
 ) {
     hipError_t ret;
 
     int threads = 1024;
-    int blocks = MN;
+    int blocks = (int)MN;
 
     silu_mul<<<blocks, threads>>>(
         (half *)x_gpu,
@@ -78,7 +78,7 @@ void silu_mul_hip(
     checkHipError(); HIP_CHECK(ret);
 }
 
-void flstm_step_hip(
+void openfish_flstm_step_gpu(
     const void* scratch,
     const void* ih_t,
     void* c,
@@ -95,7 +95,7 @@ void flstm_step_hip(
     checkHipError(); HIP_CHECK(ret);
 }
 
-void rotary_emb_hip(
+void openfish_rotary_emb_gpu(
     void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,

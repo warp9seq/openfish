@@ -38,6 +38,8 @@ ifdef cuda
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
     GPU_LIB = $(BUILD_DIR)/cuda.a
     CPPFLAGS += -DHAVE_CUDA=1
+    MAIN_CC = $(NVCC)
+    MAIN_CFLAGS = -x cu $(CUDA_CFLAGS)
 else ifdef rocm
 	ROCM_ROOT ?= /opt/rocm
 	ROCM_LIB ?= $(ROCM_ROOT)/lib
@@ -50,8 +52,12 @@ else ifdef rocm
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
 	CPPFLAGS += -DHAVE_ROCM=1
+	MAIN_CC = $(HIPCC)
+	MAIN_CFLAGS = -x hip $(ROCM_CFLAGS) -fPIC
 else
 	GPU_LIB = $(BUILD_DIR)/cpu_decoy.a
+	MAIN_CC = $(CC)
+	MAIN_CFLAGS = $(CFLAGS)
 endif
 
 ifdef bench
@@ -73,7 +79,7 @@ $(STATICLIB): $(OBJ) $(GPU_LIB)
 	$(AR) rcs $@ $(OBJ)
 
 $(BUILD_DIR)/main.o: src/main.c include/openfish/openfish.h
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(MAIN_CC) $(MAIN_CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/misc.o: src/misc.c src/misc.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@

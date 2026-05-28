@@ -1,4 +1,4 @@
-#include "nn_cuda.h"
+#include <openfish/openfish.h>
 #include "error.h"
 #include "cuda_utils.h"
 #include "nn_kernel_cuda.h"
@@ -7,7 +7,7 @@
 
 #include <cuda_fp16.h>
 
-void rmsnorm_quant_cuda(
+void openfish_rmsnorm_quant_gpu(
     const void* input,
     const void* weight,
     void* residual,
@@ -18,11 +18,11 @@ void rmsnorm_quant_cuda(
     float eps
 ) {
     ASSERT(K <= 1024);
-    
+
     int threads = K;
     int blocks = MN;
     size_t shared_mem_bytes = static_cast<size_t>(threads) * 2 * sizeof(float);
-    
+
     rmsnorm_quant<<<blocks, threads, shared_mem_bytes>>>(
         (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
     );
@@ -31,7 +31,7 @@ void rmsnorm_quant_cuda(
     checkCudaError();
 }
 
-void rmsnorm_cuda(
+void openfish_rmsnorm_gpu(
     const void* input,
     const void* residual,
     const void* weight,
@@ -42,11 +42,11 @@ void rmsnorm_cuda(
     float eps
 ) {
     ASSERT(K <= 1024);
-    
+
     int threads = K;
     int blocks = MN;
     size_t shared_mem_bytes = static_cast<size_t>(threads) * sizeof(float);
-    
+
     rmsnorm<<<blocks, threads, shared_mem_bytes>>>(
         (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
     );
@@ -55,14 +55,14 @@ void rmsnorm_cuda(
     checkCudaError();
 }
 
-void silu_mul_cuda(
+void openfish_silu_mul_gpu(
     void *x_gpu,
     void *o_gpu,
-    int MN,
-    int K
+    uint64_t MN,
+    uint64_t K
 ) {
     int threads = 1024;
-    int blocks = MN;
+    int blocks = (int)MN;
 
     silu_mul<<<blocks, threads>>>(
         (half *)x_gpu,
@@ -75,7 +75,7 @@ void silu_mul_cuda(
     checkCudaError();
 }
 
-void flstm_step_cuda(
+void openfish_flstm_step_gpu(
     const void* scratch,
     const void* ih_t,
     void* c,
@@ -91,7 +91,7 @@ void flstm_step_cuda(
     checkCudaError();
 }
 
-void rotary_emb_cuda(
+void openfish_rotary_emb_gpu(
     void *x_gpu,
     void *sin_gpu,
     void *cos_gpu,

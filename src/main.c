@@ -10,11 +10,11 @@
 #include <omp.h>
 
 #if defined HAVE_CUDA
-#include "decode_cuda.h"
+#include "test_utils_cuda.h"
 #endif
 
 #if defined HAVE_ROCM
-#include "decode_hip.h"
+#include "test_utils_hip.h"
 #endif
 
 int main(int argc, char* argv[]) {
