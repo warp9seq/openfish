@@ -10,3 +10,6 @@ build/*
 log.txt
 lib/*
 test/blob/
+
+# Local Claude Code instructions (kept locally, not in repo)
+CLAUDE.md

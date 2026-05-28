@@ -105,20 +105,20 @@ $(BUILD_DIR)/cpu_decoy.a:
 $(BUILD_DIR)/cuda.a: $(CUDA_OBJ)
 	$(AR) rcs $@ $^
 
-$(BUILD_DIR)/decode_cuda.o: src/decode_cuda.cu
+$(BUILD_DIR)/decode_cuda.o: src/decode_cuda.c
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/nn_cuda.o: src/nn_cuda.cu
+$(BUILD_DIR)/nn_cuda.o: src/nn_cuda.c
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
 	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC --hip-link $^ -o $@
 
-$(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
+$(BUILD_DIR)/decode_hip.o: src/decode_hip.c
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
 
-$(BUILD_DIR)/nn_hip.o: src/nn_hip.hip
+$(BUILD_DIR)/nn_hip.o: src/nn_hip.c
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
 
 clean:

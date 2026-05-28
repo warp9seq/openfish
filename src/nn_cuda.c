@@ -1,6 +1,6 @@
 #include "nn_cuda.h"
 #include "error.h"
-#include "cuda_utils.cuh"
+#include "cuda_utils.h"
 #include "nn_kernel_cuda.h"
 
 #include <openfish/openfish_error.h>
