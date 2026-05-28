@@ -75,6 +75,22 @@ void silu_mul_cuda(
     checkCudaError();
 }
 
+void flstm_step_cuda(
+    const void* scratch,
+    const void* ih_t,
+    void* c,
+    void* hh_next,
+    int N, int C
+) {
+    int threads = (C < 1024) ? C : 1024;
+    flstm_step<<<N, threads>>>(
+        (const half*)scratch, (const half*)ih_t,
+        (half*)c, (half*)hh_next,
+        4 * C, C
+    );
+    checkCudaError();
+}
+
 void rotary_emb_cuda(
     void *x_gpu,
     void *sin_gpu,

@@ -78,6 +78,23 @@ void silu_mul_hip(
     checkHipError(); HIP_CHECK(ret);
 }
 
+void flstm_step_hip(
+    const void* scratch,
+    const void* ih_t,
+    void* c,
+    void* hh_next,
+    int N, int C
+) {
+    hipError_t ret;
+    int threads = (C < 1024) ? C : 1024;
+    flstm_step<<<N, threads>>>(
+        (const half*)scratch, (const half*)ih_t,
+        (half*)c, (half*)hh_next,
+        4 * C, C
+    );
+    checkHipError(); HIP_CHECK(ret);
+}
+
 void rotary_emb_hip(
     void *x_gpu,
     void *sin_gpu,

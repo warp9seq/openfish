@@ -129,6 +129,23 @@ void openfish_rotary_emb_gpu(
 #endif
 }
 
+void openfish_flstm_step_gpu(
+    const void* scratch,
+    const void* ih_t,
+    void* c,
+    void* hh_next,
+    int N, int C
+) {
+#ifdef HAVE_CUDA
+    flstm_step_cuda(scratch, ih_t, c, hh_next, N, C);
+#elif HAVE_ROCM
+    flstm_step_hip(scratch, ih_t, c, hh_next, N, C);
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
+
 void openfish_silu_mul_gpu(
     void *x_gpu,
     void *o_gpu,

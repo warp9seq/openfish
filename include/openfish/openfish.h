@@ -107,6 +107,14 @@ void openfish_rotary_emb_gpu(
     int stride_head
 );
 
+void openfish_flstm_step_gpu(
+    const void* scratch,
+    const void* ih_t,
+    void* c,
+    void* hh_next,
+    int N, int C
+);
+
 void openfish_silu_mul_gpu(
     void *x_gpu,
     void *o_gpu,

@@ -32,7 +32,7 @@ endif
 ifdef cuda
 	CUDA_ROOT ?= /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
-    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/beam_search_cuda.o $(BUILD_DIR)/scan_cuda.o $(BUILD_DIR)/nn_cuda.o
+    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/nn_cuda.o
     NVCC ?= $(CUDA_ROOT)/bin/nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
@@ -46,7 +46,7 @@ else ifdef rocm
 # 	ifneq (,$(findstring gfx1150,$(ROCM_ARCH)))
 # 		ROCM_CFLAGS += -D__AMDGCN_WAVEFRONT_SIZE=32
 # 	endif
-	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/beam_search_hip.o $(BUILD_DIR)/scan_hip.o $(BUILD_DIR)/nn_hip.o
+	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/nn_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
 	CPPFLAGS += -DHAVE_ROCM=1
@@ -102,39 +102,24 @@ $(BUILD_DIR)/cpu_decoy.a:
 	$(AR) -r $@
 
 # cuda
-$(BUILD_DIR)/cuda.a: $(BUILD_DIR)/cuda_code.o $(CUDA_OBJ)
+$(BUILD_DIR)/cuda.a: $(CUDA_OBJ)
 	$(AR) rcs $@ $^
 
-$(BUILD_DIR)/cuda_code.o: $(CUDA_OBJ)
-	$(NVCC) $(CUDA_CFLAGS) -dlink $^ -o $@
-
 $(BUILD_DIR)/decode_cuda.o: src/decode_cuda.cu
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
-
-$(BUILD_DIR)/beam_search_cuda.o: src/beam_search_cuda.cu
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
-
-$(BUILD_DIR)/scan_cuda.o: src/scan_cuda.cu
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/nn_cuda.o: src/nn_cuda.cu
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -rdc=true -c $< -o $@
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
-	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC -fgpu-rdc --hip-link $^ -o $@
-
-$(BUILD_DIR)/beam_search_hip.o: src/beam_search_hip.hip
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
-
-$(BUILD_DIR)/scan_hip.o: src/scan_hip.hip
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC --hip-link $^ -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.hip
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
 
 $(BUILD_DIR)/nn_hip.o: src/nn_hip.hip
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fgpu-rdc -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*

@@ -267,6 +267,36 @@ __global__ void rmsnorm_quant(
     res[idx] = (int8_t)quantized;
 }
 
+// FLSTM epilogue: fuse bias-add, gate activations, cell update, and hidden state output.
+// scratch: (N, 4*C) — result of addmm(up_bias_hh_, hh[t], W_hh_fused) (bias already included)
+// ih_t:    (N, 4*C) — precomputed input-hidden contribution for this timestep
+// c:       (N, C)   — cell state, updated in-place
+// hh_next: (N, C)   — output hidden state h[t+1]
+// Launch: flstm_step<<<N, min(C, 1024)>>>(...)
+__global__ void flstm_step(
+    const half* scratch,
+    const half* ih_t,
+    half* c,
+    half* hh_next,
+    int C4, int C
+) {
+    int n = blockIdx.x;
+    for (int ch = threadIdx.x; ch < C; ch += blockDim.x) {
+        int base = n * C4 + ch;
+        float gi = __half2float(scratch[base + 0*C]) + __half2float(ih_t[base + 0*C]);
+        float gf = __half2float(scratch[base + 1*C]) + __half2float(ih_t[base + 1*C]);
+        float gg = __half2float(scratch[base + 2*C]) + __half2float(ih_t[base + 2*C]);
+        float go = __half2float(scratch[base + 3*C]) + __half2float(ih_t[base + 3*C]);
+        float i_g = fmaxf(0.f, fminf(1.f, gi * 0.2f + 0.5f));
+        float f_g = fmaxf(0.f, fminf(1.f, gf * 0.2f + 0.5f));
+        float g_g = fmaxf(-1.f, fminf(1.f, gg));
+        float o_g = fmaxf(0.f, fminf(1.f, go * 0.2f + 0.5f));
+        float c_new = f_g * __half2float(c[n * C + ch]) + i_g * g_g;
+        c[n * C + ch]       = __float2half(c_new);
+        hh_next[n * C + ch] = __float2half(o_g * tanhf(c_new));
+    }
+}
+
 #ifdef __cplusplus
 }
 #endif

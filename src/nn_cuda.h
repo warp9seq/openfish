@@ -8,6 +8,14 @@
 extern "C" {
 #endif
 
+void flstm_step_cuda(
+    const void* scratch,
+    const void* ih_t,
+    void* c,
+    void* hh_next,
+    int N, int C
+);
+
 void rotary_emb_cuda(
     void *x_gpu,
     void *sin_gpu,
