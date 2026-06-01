@@ -4,6 +4,7 @@
 #include <math.h>
 #include <float.h>
 
+#include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
 #include "decode.h"
