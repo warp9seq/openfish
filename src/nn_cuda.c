@@ -6,6 +6,7 @@
 #include <openfish/openfish_error.h>
 
 #include <cuda_fp16.h>
+#include <stdlib.h>
 
 void openfish_rmsnorm_quant_gpu(
     const void* input,
@@ -29,6 +30,22 @@ void openfish_rmsnorm_quant_gpu(
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
+}
+
+void openfish_rmsnorm_quant_fp8_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    (void)input; (void)weight; (void)residual; (void)residual_scale;
+    (void)MN; (void)K; (void)alpha; (void)eps;
+    OPENFISH_ERROR("%s", "fp8 fused rmsnorm not implemented for CUDA");
+    exit(EXIT_FAILURE);
 }
 
 void openfish_rmsnorm_gpu(

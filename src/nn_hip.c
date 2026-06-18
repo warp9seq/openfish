@@ -32,6 +32,30 @@ void openfish_rmsnorm_quant_gpu(
     checkHipError(); HIP_CHECK(ret);
 }
 
+void openfish_rmsnorm_quant_fp8_gpu(
+    const void* input,
+    const void* weight,
+    void* residual,
+    void* residual_scale,
+    int MN,
+    int K,
+    float alpha,
+    float eps
+) {
+    hipError_t ret;
+    ASSERT(K <= 1024);
+
+    int threads = K;
+    int blocks = MN;
+
+    rmsnorm_quant_fp8<<<blocks, threads>>>(
+        (half *)input, (half *)weight, (uint8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
+    );
+    checkHipError();
+    ret = hipDeviceSynchronize();
+    checkHipError(); HIP_CHECK(ret);
+}
+
 void openfish_rmsnorm_gpu(
     const void* input,
     const void* residual,
