@@ -111,34 +111,34 @@ __global__ void fwd_post_scan(
         // however, there has already been a TG barrier since they were written
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
-        // this time step's scores
-        const half *const ts_scores = chunk_scores + N * ts_states * ts;
-
         // alternating TG buffer twiddling
         const float* const ts_alpha_in = ts_fwd[ts & 1];
         float* const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
         // calculate the next time step's forward guide from this time step's scores and forward guide
-        // it's written to threadgroup memory for use in the next iteration
-        const uint64_t stay_state_idx = state;
-        const uint64_t step_state_idx_a = state / NUM_BASES;
-        const uint64_t step_trans_idx_a = state * NUM_BASES;
-        float vals[NUM_TRANSITIONS];
-        float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
-        for (uint64_t base = 0; base < NUM_BASES; ++base) {
-            // todo: this is a bandaid for indexing past the actual T dimension of scores
-            // need to verify with actual MetalTxCaller impl output,
-            // otherwise output remains exactly the same for this impl whether it indexes past or not
-            float ts_score = ts < _T ? __half2float(ts_scores[step_trans_idx_a + base]) : 0.0f;
+        // it's written to threadgroup memory for use in the next iteration. the guide is only defined
+        // over the _T score time steps, so we skip the final iteration (which would otherwise read
+        // past the scores buffer to produce a result that is never read)
+        if (ts < _T) {
+            // this time step's scores
+            const half *const ts_scores = chunk_scores + N * ts_states * ts;
 
-            vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
-            fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
+            const uint64_t stay_state_idx = state;
+            const uint64_t step_state_idx_a = state / NUM_BASES;
+            const uint64_t step_trans_idx_a = state * NUM_BASES;
+            float vals[NUM_TRANSITIONS];
+            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
+            for (uint64_t base = 0; base < NUM_BASES; ++base) {
+                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] +
+                    __half2float(ts_scores[step_trans_idx_a + base]);
+                fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
+            }
+            float fwd_sum = 0.0f;
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+                fwd_sum += __expf(vals[i] - fwd_max_val);
+            }
+            ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
         }
-        float fwd_sum = 0.0f;
-        for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-            fwd_sum += __expf(vals[i] - fwd_max_val);
-        }
-        ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
 
         // load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
         const float fwd_val = ts_alpha_in[state];

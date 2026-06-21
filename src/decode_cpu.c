@@ -44,9 +44,9 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
             }
             float sum = 0.0f;
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                sum += exp(vals[i] - max_val);
+                sum += expf(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + log(sum);
+            ts_alpha_out[state] = max_val + logf(sum);
         }
     }
 }
@@ -76,44 +76,45 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         // they were written.
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
-        // This time step's scores.
-        const float *const ts_scores = chunk_scores + N * ts_states * ts;
-
         // Alternating TG buffer twiddling.
         const float *const ts_alpha_in = ts_fwd[ts & 1];
         float *const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
-        // Calculate the next time step's forward guide from this time step's scores
-        // and forward guide.  It's written to threadgroup memory for use in the
-        // next iteration.
-        for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
-            const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / NUM_BASES;
-            const uint64_t step_trans_idx_a = state * NUM_BASES;
-            float vals[NUM_TRANSITIONS];
-            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-            for (uint64_t base = 0; base < NUM_BASES; ++base) {
-                // todo: this is a bandaid for indexing past the actual T dimension of scores
-                // need to verify with actual MetalTxCaller impl output,
-                // otherwise output remains exactly the same for this impl whether it indexes past or not
-                float ts_score = ts < _T ? ts_scores[step_trans_idx_a + base] : 0.0f;
-
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
-                fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
-            }
-            float fwd_sum = 0.0f;
-            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                fwd_sum += exp(vals[i] - fwd_max_val);
-            }
-            ts_alpha_out[state] = fwd_max_val + log(fwd_sum);
-
-            // Load the forward guide value calculated in the last time step for use
-            // in this time step's posterior probability calculation.
+        // Calculate the fwd/bwd guide product in log space for this time step's
+        // posterior. This is required for all T (= _T + 1) time steps.
+        for (uint64_t state = 0; state < num_states; ++state) {
+            // The forward guide value at this time step (alpha[ts]), calculated
+            // in the previous iteration.
             const float fwd_val = ts_alpha_in[state];
+            out[ts_idx + state] = fwd_val + bwd[ts_idx + state];
+        }
 
-            // Calculate fwd/bwd guide product in log space.
-            const float val = fwd_val + bwd[ts_idx + state];
-            out[ts_idx + state] = val;
+        // Calculate the next time step's forward guide from this time step's
+        // scores and forward guide. It's written to threadgroup memory for use
+        // in the next iteration. The guide is only defined over the _T score
+        // time steps, so we skip the final iteration (which would otherwise read
+        // past the scores buffer to produce a result that is never read).
+        if (ts < _T) {
+            // This time step's scores.
+            const float *const ts_scores = chunk_scores + N * ts_states * ts;
+
+            for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
+                const uint64_t stay_state_idx = state;
+                const uint64_t step_state_idx_a = state / NUM_BASES;
+                const uint64_t step_trans_idx_a = state * NUM_BASES;
+                float vals[NUM_TRANSITIONS];
+                float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
+                for (uint64_t base = 0; base < NUM_BASES; ++base) {
+                    vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] +
+                        ts_scores[step_trans_idx_a + base];
+                    fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
+                }
+                float fwd_sum = 0.0f;
+                for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+                    fwd_sum += expf(vals[i] - fwd_max_val);
+                }
+                ts_alpha_out[state] = fwd_max_val + logf(fwd_sum);
+            }
         }
     }
 }
@@ -132,7 +133,7 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
         float exp_vals[num_states];
         for (uint64_t state = 0; state < num_states; ++state) {
             const float val = fwd[ts_idx + state];
-            const float exp_val = exp(val - max_val);
+            const float exp_val = expf(val - max_val);
             exp_vals[state] = exp_val;
             exp_sum += exp_val;
         }
