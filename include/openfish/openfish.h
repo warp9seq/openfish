@@ -25,13 +25,10 @@ typedef struct openfish_gpubuf {
 } openfish_gpubuf_t;
 
 typedef struct openfish_opt {
-    size_t beam_width;
     float beam_cut;
     float blank_score;
     float q_shift;
     float q_scale;
-    float temperature;
-    bool move_pad;
 } openfish_opt_t;
 
 openfish_opt_t openfish_decoder_default_opts(void);

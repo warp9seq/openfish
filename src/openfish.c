@@ -2,7 +2,7 @@
 #include "decode.h"
 
 openfish_opt_t openfish_decoder_default_opts(void) {
-    openfish_opt_t opt = {32, 100.0f, 2.0f, 0.0f, 1.0f, 1.0f, false};
+    openfish_opt_t opt = {100.0f, 2.0f, 0.0f, 1.0f};
     return opt;
 }
 
