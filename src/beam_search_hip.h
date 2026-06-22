@@ -194,12 +194,22 @@ __global__ void beam_search(
     __shared__ float current_scores[MAX_BEAM_CANDIDATES];
     __shared__ float prev_scores[MAX_BEAM_CANDIDATES];
 
-    // a k=1 Bloom filter, indicating the presence of steps with particular sequence hashes
-    // avoids comparing stay hashes against all possible progenitor states where none of them has the requisite sequence hash
-    __shared__ bool step_hash_present[HASH_PRESENT_BITS];
+    // candidate-phase scratch. during candidate/stay generation it is a k=1 Bloom filter indicating the
+    // presence of steps with particular sequence hashes (avoids comparing stay hashes against all possible
+    // progenitor states where none has the requisite hash). it is dead from the max reduction onward, so the
+    // pruning phase reuses the same storage for the stream-compaction prefix-sum (compact_offsets) below.
+    __shared__ bool cand_scratch[HASH_PRESENT_BITS];
+    bool *const step_hash_present = cand_scratch;        // bloom-filter view (candidate/stay generation)
+    int  *const compact_offsets   = (int *)cand_scratch; // prefix-sum write-offset view (pruning/compaction)
+    static_assert(MAX_BEAM_CANDIDATES * sizeof(int) <= HASH_PRESENT_BITS * sizeof(bool),
+                  "compact_offsets overlay does not fit in cand_scratch");
 
     __shared__ size_t current_beam_width;
     __shared__ float beam_init_threshold;
+
+    // back-guide sort scratch lives in dynamic shared memory (sized to num_states floats at launch).
+    // keeping it out of static LDS lowers the kernel's static LDS footprint, raising occupancy / blocks-per-CU.
+    extern __shared__ float sorted_back_guides[];
 
     for (size_t beam_element = tid; beam_element < MAX_BEAM_CANDIDATES; beam_element += nthreads) {
         current_beam_front[beam_element] = (beam_front_element_t){0};
@@ -216,7 +226,6 @@ __global__ void beam_search(
 
     if (MAX_BEAM_WIDTH < num_states) {
         // copy the first set of back guides and sort to extract max_beam_width highest elements
-        __shared__ float sorted_back_guides[MAX_STATES];
         for (size_t i = tid; i < num_states; i += nthreads) {
             sorted_back_guides[i] = bwd_NTC[i];
         }
@@ -254,10 +263,16 @@ __global__ void beam_search(
 
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
-    __shared__ float block_buf[64];
+    // per-warp scratch for the two block-wide reductions each timestep. the max-score reduction (max_buf)
+    // runs first and is fully consumed before the cutoff-count reduction (count_buf) reuses the storage.
+    __shared__ float warp_buf[64];
+    float *const max_buf   = warp_buf;            // max-score reduction view
+    int   *const count_buf = (int *)warp_buf;     // cutoff-count reduction view
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
+    __shared__ int entered_search;                // 1 if first count > MAX_BEAM_WIDTH
+    __shared__ int bs_active;                      // cooperative binary-search continue/stop flag
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
@@ -413,12 +428,12 @@ __global__ void beam_search(
         for (int offset = warpSize/2; offset > 0; offset >>= 1) {
             warp_max = max(warp_max, __shfl_down(warp_max, offset));
         }
-        if (lane_id == 0) block_buf[warp_id] = warp_max;
+        if (lane_id == 0) max_buf[warp_id] = warp_max;
         __syncthreads();
 
         // set max val in all warps
         if (warp_id == 0) {
-            warp_max = (tid < nthreads/warpSize) ? block_buf[lane_id] : 0;
+            warp_max = (tid < nthreads/warpSize) ? max_buf[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_max = max(warp_max, __shfl_down(warp_max, offset));
@@ -431,84 +446,150 @@ __global__ void beam_search(
         // cut off to fit beam width
         // starting point for finding the cutoff score is the beam cut score
         if (tid == 0) {
-            elem_count = 0;
             beam_cutoff_score = max_score - log_beam_cut;
         }
         __syncthreads();
 
-        // count the elements which meet the min score
-        float *score_ptr = current_scores + tid;
-        for (int i = tid+1; i <= (int)(new_elem_count); i += nthreads) {
-            if (*score_ptr >= beam_cutoff_score) atomicAdd(&elem_count, 1);
-            score_ptr += nthreads;
+        // count the elements which meet the min score (parallel block-wide reduction)
+        // this primitive is reused for every recount below; `beam_cutoff_score` is the threshold
+        // and the result lands in count_buf[0]. warp-size agnostic (mirrors the max reduction above).
+        {
+            int local = 0;
+            for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+                if (current_scores[i] >= beam_cutoff_score) ++local;
+            }
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
+            if (lane_id == 0) count_buf[warp_id] = local;
+            __syncthreads();
+            if (warp_id == 0) {
+                int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
+                if (tid == 0) count_buf[0] = v;
+            }
+            __syncthreads();
+        }
+        if (tid == 0) {
+            elem_count = count_buf[0];
+            entered_search = (elem_count > MAX_BEAM_WIDTH) ? 1 : 0;
         }
         __syncthreads();
 
-        // fallback to max_score
-        // fallback to max_score
+        // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much.
+        // the decision logic stays on thread 0 (identical to the serial version, so the guess sequence and the final
+        // beam_cutoff_score are bit-identical); only the recount each guess is parallelised across the block.
+        if (entered_search) {
+            const size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
+            float low_score = beam_cutoff_score;
+            float hi_score = max_score;
+            int num_guesses = 1;
+            const int MAX_GUESSES = 10;
+
+            while (true) {
+                if (tid == 0) {
+                    if ((elem_count > MAX_BEAM_WIDTH || elem_count < (int)min_beam_width) && num_guesses < MAX_GUESSES) {
+                        if (elem_count > MAX_BEAM_WIDTH) {
+                            // make a higher guess
+                            low_score = beam_cutoff_score;
+                            beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
+                        } else {
+                            // make a lower guess
+                            hi_score = beam_cutoff_score;
+                            beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;
+                        }
+                        ++num_guesses;
+                        bs_active = 1;
+                    } else {
+                        bs_active = 0;
+                    }
+                }
+                __syncthreads();
+                if (!bs_active) break;  // uniform branch on shared flag, no divergent barrier
+
+                // recount at the new beam_cutoff_score
+                {
+                    int local = 0;
+                    for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+                        if (current_scores[i] >= beam_cutoff_score) ++local;
+                    }
+                    for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
+                    if (lane_id == 0) count_buf[warp_id] = local;
+                    __syncthreads();
+                    if (warp_id == 0) {
+                        int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                        for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
+                        if (tid == 0) count_buf[0] = v;
+                    }
+                    __syncthreads();
+                }
+                if (tid == 0) elem_count = count_buf[0];
+                __syncthreads();
+            }
+
+            // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
+            // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
+            //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
+            // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
+            //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
+            // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
+            //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
+            if (tid == 0) {
+                bs_active = (num_guesses == MAX_GUESSES) ? 1 : 0;
+                if (bs_active) beam_cutoff_score = hi_score;
+            }
+            __syncthreads();
+            if (bs_active) {
+                int local = 0;
+                for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+                    if (current_scores[i] >= beam_cutoff_score) ++local;
+                }
+                for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
+                if (lane_id == 0) count_buf[warp_id] = local;
+                __syncthreads();
+                if (warp_id == 0) {
+                    int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                    for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
+                    if (tid == 0) count_buf[0] = v;
+                }
+                __syncthreads();
+                if (tid == 0) elem_count = count_buf[0];
+                __syncthreads();
+            }
+
+            // clamp the element count to the max beam width in case of failure 2 from above
+            if (tid == 0) elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
+            __syncthreads();
+        }
+
+        // write current scores and beam fronts to prev (parallel stream compaction preserving read order).
+        // an exclusive prefix-sum of the predicate gives each passing element a destination == its serial write_idx,
+        // and gating on dst < MAX_BEAM_WIDTH reproduces "keep the first 32 passing elements in read order".
+        for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+            compact_offsets[i] = (current_scores[i] >= beam_cutoff_score) ? 1 : 0;
+        }
+        __syncthreads();
+        for (int d = 1; d < (int)new_elem_count; d <<= 1) {
+            int a0 = 0, a1 = 0;
+            int i0 = tid, i1 = tid + nthreads;
+            if (i0 < (int)new_elem_count && i0 >= d) a0 = compact_offsets[i0 - d];
+            if (i1 < (int)new_elem_count && i1 >= d) a1 = compact_offsets[i1 - d];
+            __syncthreads();
+            if (i0 < (int)new_elem_count && i0 >= d) compact_offsets[i0] += a0;
+            if (i1 < (int)new_elem_count && i1 >= d) compact_offsets[i1] += a1;
+            __syncthreads();
+        }
+        for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+            if (current_scores[i] >= beam_cutoff_score) {
+                int dst = compact_offsets[i] - 1;  // exclusive prefix == serial write_idx
+                if (dst < MAX_BEAM_WIDTH) {
+                    prev_beam_front[dst] = current_beam_front[i];
+                    prev_scores[dst] = current_scores[i];
+                }
+            }
+        }
+        __syncthreads();
         if (tid == 0) {
-            // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            if (elem_count > MAX_BEAM_WIDTH) {
-                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
-                float low_score = beam_cutoff_score;
-                float hi_score = max_score;
-                int num_guesses = 1;
-                const int MAX_GUESSES = 10;
-
-                while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
-                    if (elem_count > MAX_BEAM_WIDTH) {
-                        // make a higher guess
-                        low_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
-                    } else {
-                        // make a lower guess
-                        hi_score = beam_cutoff_score;
-                        beam_cutoff_score = (beam_cutoff_score + low_score) / 2.0f;
-                    }
-                    elem_count = 0;
-                    score_ptr = current_scores;
-                    for (int i = (int)new_elem_count; i; --i) {
-                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                        ++score_ptr;
-                    }
-
-                    ++num_guesses;
-                }
-
-                // If we made 10 guesses and didn't find a suitable score, a couple of things may have happened:
-                // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
-                //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
-                // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
-                //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
-                // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
-                //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
-                if (num_guesses == MAX_GUESSES) {
-                    beam_cutoff_score = hi_score;
-                    elem_count = 0;
-                    score_ptr = current_scores;
-                    for (int i = (int)new_elem_count; i; --i) {
-                        if (*score_ptr >= beam_cutoff_score) ++elem_count;
-                        ++score_ptr;
-                    }
-                }
-
-                // clamp the element count to the max beam width in case of failure 2 from above
-                elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
-            }
-
-            // write current scores and beam fronts to prev
-            size_t write_idx = 0;
-            for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
-                if (current_scores[read_idx] >= beam_cutoff_score) {
-                    if (write_idx < MAX_BEAM_WIDTH) {
-                        prev_beam_front[write_idx] = current_beam_front[read_idx];
-                        prev_scores[write_idx] = current_scores[read_idx];
-                        ++write_idx;
-                    } else {
-                        break;
-                    }
-                }
-            }
+            int total_pass = (new_elem_count > 0) ? compact_offsets[new_elem_count - 1] : 0;
+            elem_count = total_pass < MAX_BEAM_WIDTH ? total_pass : MAX_BEAM_WIDTH;
         }
         __syncthreads();
 

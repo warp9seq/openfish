@@ -154,14 +154,32 @@ void openfish_decode_gpu(
     // fwd + post scan
     // beam search
 
+#ifdef BENCH
+    // per-kernel timing breakdown, accumulated across all decode calls (bench builds only)
+    static double t_bwd = 0, t_beam = 0, t_fwd = 0, t_qual = 0, t_gen = 0;
+    static int n_calls = 0;
+    hipEvent_t ev0, ev1;
+    ret = hipEventCreate(&ev0); checkHipError(); HIP_CHECK(ret);
+    ret = hipEventCreate(&ev1); checkHipError(); HIP_CHECK(ret);
+    float ev_ms = 0;
+    ++n_calls;
+    #define TIME_KERNEL(acc, launch) do { \
+        ret = hipEventRecord(ev0, 0); checkHipError(); HIP_CHECK(ret); launch; checkHipError(); \
+        ret = hipEventRecord(ev1, 0); checkHipError(); HIP_CHECK(ret); \
+        ret = hipEventSynchronize(ev1); checkHipError(); HIP_CHECK(ret); \
+        ret = hipEventElapsedTime(&ev_ms, ev0, ev1); checkHipError(); HIP_CHECK(ret); (acc) += ev_ms; \
+    } while (0)
+#else
+    #define TIME_KERNEL(acc, launch) do { launch; checkHipError(); \
+        ret = hipDeviceSynchronize(); checkHipError(); HIP_CHECK(ret); } while (0)
+#endif
+
     OPENFISH_LOG_TRACE("%s", "bwd scan...");
-    bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
-    checkHipError(); 
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    TIME_KERNEL(t_bwd, (bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC)));
 
     OPENFISH_LOG_TRACE("%s", "beam search...");
-    beam_search<<<grid_size,block_size_beam>>>(
+    // dynamic shared memory holds the back-guide sort scratch (num_states floats)
+    TIME_KERNEL(t_beam, (beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->moves,
@@ -169,30 +187,21 @@ void openfish_decode_gpu(
         beam_cut,
         fixed_stay_score,
         1.0f
-    );
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    )));
 
     OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    TIME_KERNEL(t_fwd, (fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC)));
 
     OPENFISH_LOG_TRACE("%s", "compute qual data...");
-    compute_qual_data<<<grid_size,block_size_gen>>>(
+    TIME_KERNEL(t_qual, (compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->qual_data,
         1.0f
-    );
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
-    
+    )));
+
     OPENFISH_LOG_TRACE("%s", "gen sequence...");
-    generate_sequence<<<grid_size,block_size_gen>>>(
+    TIME_KERNEL(t_gen, (generate_sequence<<<grid_size,block_size_gen>>>(
         beam_args,
         gpubuf->moves,
         (state_t *)gpubuf->states,
@@ -203,10 +212,15 @@ void openfish_decode_gpu(
         gpubuf->qstring,
         q_shift,
         q_scale
-    );
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    )));
+
+#ifdef BENCH
+    ret = hipEventDestroy(ev0); checkHipError(); HIP_CHECK(ret);
+    ret = hipEventDestroy(ev1); checkHipError(); HIP_CHECK(ret);
+    OPENFISH_LOG_DEBUG("kernel ms totals after %d calls: bwd=%.1f beam=%.1f fwd_post=%.1f qual=%.1f gen=%.1f",
+        n_calls, t_bwd, t_beam, t_fwd, t_qual, t_gen);
+#endif
+    #undef TIME_KERNEL
 
     // copy beam_search results
     ret = hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * N * T, hipMemcpyDeviceToHost);

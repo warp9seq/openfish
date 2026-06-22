@@ -157,7 +157,8 @@ void openfish_decode_gpu(
     checkCudaError();
 
     OPENFISH_LOG_TRACE("%s", "beam search...");
-    beam_search<<<grid_size,block_size_beam>>>(
+    // dynamic shared memory holds the back-guide sort scratch (num_states floats)
+    beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->moves,

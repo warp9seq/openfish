@@ -2,6 +2,8 @@ CC = gcc
 AR = ar
 CPPFLAGS +=	-I include/
 CFLAGS += -g -Wall -O2
+# auto-generate header dependencies so editing a .h (e.g. beam_search_hip.h) rebuilds dependent objects
+DEPFLAGS = -MMD -MP
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
 
@@ -79,28 +81,28 @@ $(STATICLIB): $(OBJ) $(GPU_LIB)
 	$(AR) rcs $@ $(OBJ)
 
 $(BUILD_DIR)/main.o: src/main.c include/openfish/openfish.h
-	$(MAIN_CC) $(MAIN_CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(MAIN_CC) $(MAIN_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/misc.o: src/misc.c src/misc.h
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/error.o: src/error.c include/openfish/openfish_error.h
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/signal_prep.o: src/signal_prep.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/nn_cpu.o: src/nn_cpu.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/beam_search.o: src/beam_search.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/openfish.o: src/openfish.c include/openfish/openfish.h
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # cpu decoy
 $(BUILD_DIR)/cpu_decoy.a:
@@ -112,20 +114,23 @@ $(BUILD_DIR)/cuda.a: $(CUDA_OBJ)
 	$(AR) rcs $@ $^
 
 $(BUILD_DIR)/decode_cuda.o: src/decode_cuda.c
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/nn_cuda.o: src/nn_cuda.c
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # hip
 $(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
 	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC --hip-link $^ -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.c
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -fPIC -c $< -o $@
 
 $(BUILD_DIR)/nn_hip.o: src/nn_hip.c
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) -fPIC -c $< -o $@
+	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -fPIC -c $< -o $@
+
+# pull in auto-generated header dependencies (.d files emitted by -MMD)
+-include $(BUILD_DIR)/*.d
 
 clean:
 	rm -rf $(BINARY) $(BUILD_DIR)/*
