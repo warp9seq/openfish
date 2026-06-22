@@ -300,6 +300,72 @@ __global__ void rmsnorm_quant_fp8(
     res[idx] = float_to_e4m3fn(fp8_val);
 }
 
+// Standalone f16 → fp8 E4M3FN per-token quantize.
+// One block per row, hidden_dim threads per block.
+// scale[row] = max(amax/448, 1e-12);  x_fp8[row] = clamp(x/scale, -448, 448) as fp8.
+__global__ void quant_fp8(
+    const half*  x,        // [M, C] f16 input (row-major)
+    uint8_t*     x_fp8,    // [M, C] fp8 output
+    float*       scale,    // [M]    per-token scale output
+    int          M,
+    int          C
+) {
+    int row = blockIdx.x;
+    int idx = threadIdx.x;
+
+    if (row >= M || idx >= C) return;
+
+    float val = __half2float(x[(int64_t)row * C + idx]);
+
+    // ── Per-row amax reduce ───────────────────────────────────────────────────
+    __shared__ float shared_max[64];
+    int warp_id = idx / warpSize;
+    int lane_id = idx % warpSize;
+
+    float thread_max = fabsf(val);
+    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
+        thread_max = fmaxf(thread_max, __shfl_down(thread_max, offset));
+    if (lane_id == 0) shared_max[warp_id] = thread_max;
+    __syncthreads();
+
+    float abs_max = 0.0f;
+    if (idx < warpSize) {
+        int num_warps = (blockDim.x + warpSize - 1) / warpSize;
+        abs_max = (idx < num_warps) ? shared_max[idx] : 0.0f;
+        for (int offset = warpSize / 2; offset > 0; offset >>= 1)
+            abs_max = fmaxf(abs_max, __shfl_down(abs_max, offset));
+    }
+
+    __shared__ float fp8_scale_shared;
+    if (idx == 0) {
+        fp8_scale_shared = fmaxf(abs_max / 448.0f, 1e-12f);
+        scale[row] = fp8_scale_shared;
+    }
+    __syncthreads();
+
+    float fp8_val = fmaxf(-448.0f, fminf(448.0f, val / fp8_scale_shared));
+    x_fp8[(int64_t)row * C + idx] = float_to_e4m3fn(fp8_val);
+}
+
+// Dequantize fp8 [T,N,C] (× scalar scale) AND transpose to f16 [N,T,C], in one pass.
+//   out[n,t,c] = e4m3fn_to_float(in[t,n,c]) * scale
+// One block per (t,n) row, C threads. Reads/writes are coalesced along c (the contiguous
+// innermost of both layouts); the transpose lives only in the block→(n,t) index map.
+// Replaces torch's .to(kHalf).transpose(0,1).contiguous() (3 ops + intermediates).
+__global__ void dequant_fp8_transpose(
+    const uint8_t* in,    // [T, N, C] fp8 (row-major, contiguous)
+    half*          out,   // [N, T, C] f16
+    int T, int N, int C, float scale
+) {
+    int tn = blockIdx.x;           // 0 .. T*N-1
+    int c  = threadIdx.x;          // 0 .. C-1
+    if (c >= C) return;
+    int t = tn / N;
+    int n = tn - t * N;
+    float v = e4m3fn_to_float(in[(int64_t)tn * C + c]) * scale;
+    out[(((int64_t)n * T + t) * C) + c] = __float2half(v);
+}
+
 __global__ void rmsnorm_quant( // need to verify if works on rocm
     const half* input,
     const half* weight,

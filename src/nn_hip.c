@@ -56,6 +56,43 @@ void openfish_rmsnorm_quant_fp8_gpu(
     checkHipError(); HIP_CHECK(ret);
 }
 
+void openfish_quant_fp8_gpu(
+    const void* x,
+    void*       x_fp8,
+    void*       scale,
+    int         M,
+    int         C
+) {
+    hipError_t ret;
+    ASSERT(C <= 1024);
+
+    quant_fp8<<<M, C>>>(
+        (const half *)x, (uint8_t *)x_fp8, (float *)scale, M, C
+    );
+    checkHipError();
+    ret = hipDeviceSynchronize();
+    checkHipError(); HIP_CHECK(ret);
+}
+
+void openfish_dequant_fp8_transpose_gpu(
+    const void* in,    /* fp8  [T, N, C] */
+    void*       out,   /* f16  [N, T, C] */
+    int         T,
+    int         N,
+    int         C,
+    float       scale
+) {
+    hipError_t ret;
+    ASSERT(C <= 1024);
+
+    dequant_fp8_transpose<<<T * N, C>>>(
+        (const uint8_t *)in, (half *)out, T, N, C, scale
+    );
+    checkHipError();
+    ret = hipDeviceSynchronize();
+    checkHipError(); HIP_CHECK(ret);
+}
+
 void openfish_rmsnorm_gpu(
     const void* input,
     const void* residual,

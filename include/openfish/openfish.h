@@ -154,6 +154,23 @@ void openfish_rmsnorm_quant_fp8_gpu(
     float eps
 );
 
+void openfish_quant_fp8_gpu(
+    const void* x,      /* f16  [M, C] input  */
+    void*       x_fp8,  /* uint8[M, C] fp8 E4M3FN output */
+    void*       scale,  /* f32  [M]   per-token scale output */
+    int         M,
+    int         C
+);
+
+void openfish_dequant_fp8_transpose_gpu(
+    const void* in,     /* fp8  [T, N, C] input  */
+    void*       out,    /* f16  [N, T, C] output (dequant × scale, transposed) */
+    int         T,
+    int         N,
+    int         C,
+    float       scale
+);
+
 #endif // defined(HAVE_CUDA) || defined(HAVE_ROCM)
 
 #ifdef __cplusplus
