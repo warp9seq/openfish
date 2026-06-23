@@ -9,21 +9,21 @@
 
 static void rotary_emb(
 	float *x,
-    float *_cos,
-    float *_sin,
-    const uint64_t seqlen,
-    const uint64_t stride_batch,
-    const uint64_t stride_seq,
-    const uint64_t stride_head,
-    const uint64_t rotary_half,
-    const uint64_t batch,
-    const uint64_t head,
-    const uint64_t rot
+    const float *_cos,
+    const float *_sin,
+    uint64_t seq_len,
+    uint64_t stride_batch,
+    uint64_t stride_seq,
+    uint64_t stride_head,
+    uint64_t rotary_half,
+    uint64_t batch,
+    uint64_t head,
+    uint64_t rot
 ) {
     float *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
     float *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
 
-    for (int seq = 0; seq < seqlen; ++seq) {
+    for (int seq = 0; seq < seq_len; ++seq) {
         float cos_val = *(_cos + (seq * rotary_half) + rot);
         float sin_val = *(_sin + (seq * rotary_half) + rot);
 
@@ -40,12 +40,12 @@ static void rotary_emb(
 
 typedef struct {
     float *x;
-    float *sin_buf;
-    float *cos_buf;
+    const float *sin_buf;
+    const float *cos_buf;
     uint64_t start;
     uint64_t end;
-    uint64_t seqlen;
-    uint64_t nheads;
+    uint64_t seq_len;
+    uint64_t n_heads;
     uint64_t head_dim;
     uint64_t rotary_half;
     uint64_t stride_batch;
@@ -57,13 +57,13 @@ static void* pthread_single_rotary_emb(void* voidargs) {
     rotary_emb_thread_arg_t* args = (rotary_emb_thread_arg_t*)voidargs;
 
     for (uint64_t batch = args->start; batch < args->end; ++batch) {
-        for (uint64_t head = 0; head < args->nheads; ++head) {
+        for (uint64_t head = 0; head < args->n_heads; ++head) {
             for (uint64_t rot = 0; rot < args->rotary_half; ++rot) {
                 rotary_emb(
                     args->x,
                     args->cos_buf,
                     args->sin_buf,
-                    args->seqlen,
+                    args->seq_len,
                     args->stride_batch,
                     args->stride_seq,
                     args->stride_head,
@@ -79,11 +79,11 @@ static void* pthread_single_rotary_emb(void* voidargs) {
 
 void openfish_rotary_emb_cpu(
     void *x,
-    void *sin_buf,
-    void *cos_buf,
+    const void *sin_buf,
+    const void *cos_buf,
     int batch_size,
-    int seqlen,
-    int nheads,
+    int seq_len,
+    int n_heads,
     int head_dim,
     int rotary_half,
     int stride_batch,
@@ -108,10 +108,10 @@ void openfish_rotary_emb_cpu(
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
         pt_args[t].x = (float *)x;
-        pt_args[t].sin_buf = (float *)sin_buf;
-        pt_args[t].cos_buf = (float *)cos_buf;
-        pt_args[t].seqlen = seqlen;
-        pt_args[t].nheads = nheads;
+        pt_args[t].sin_buf = (const float *)sin_buf;
+        pt_args[t].cos_buf = (const float *)cos_buf;
+        pt_args[t].seq_len = seq_len;
+        pt_args[t].n_heads = n_heads;
         pt_args[t].head_dim = head_dim;
         pt_args[t].rotary_half = rotary_half;
         pt_args[t].stride_batch = stride_batch;

@@ -25,21 +25,21 @@ typedef struct beam_front_element {
 } beam_front_element_t;
 
 typedef struct beam_args {
-    void *scores_TNC;
+    const void *scores_TNC;
     float *bwd_NTC;
     float *post_NTC;
-    size_t T;
-    size_t N;
-    size_t C;
+    size_t n_timesteps;
+    size_t batch_size;
+    size_t n_channels;
     int num_state_bits;
 } beam_args_t;
 
 typedef struct scan_args {
-    void *scores_in;
+    const void *scores_in;
     uint64_t num_states;
-    uint64_t T;
-    uint64_t N;
-    uint64_t C;
+    uint64_t n_timesteps;
+    uint64_t batch_size;
+    uint64_t n_channels;
     float fixed_stay_score;
 } scan_args_t;
 

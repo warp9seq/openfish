@@ -13,19 +13,19 @@ void openfish_rmsnorm_quant_gpu(
     const void* weight,
     void* residual,
     void* residual_scale,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 ) {
-    ASSERT(K <= 1024);
+    ASSERT(hidden_dim <= 1024);
 
-    int threads = K;
-    int blocks = MN;
+    int threads = hidden_dim;
+    int blocks = n_tokens;
     size_t shared_mem_bytes = static_cast<size_t>(threads) * 2 * sizeof(float);
 
     rmsnorm_quant<<<blocks, threads, shared_mem_bytes>>>(
-        (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, MN, K, alpha, eps
+        (half *)input, (half *)weight, (int8_t *)residual, (float *)residual_scale, n_tokens, hidden_dim, alpha, eps
     );
     checkCudaError();
     cudaDeviceSynchronize();
@@ -37,13 +37,13 @@ void openfish_rmsnorm_quant_fp8_gpu(
     const void* weight,
     void* residual,
     void* residual_scale,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 ) {
     (void)input; (void)weight; (void)residual; (void)residual_scale;
-    (void)MN; (void)K; (void)alpha; (void)eps;
+    (void)n_tokens; (void)hidden_dim; (void)alpha; (void)eps;
     OPENFISH_ERROR("%s", "fp8 fused rmsnorm not implemented for CUDA");
     exit(EXIT_FAILURE);
 }
@@ -53,19 +53,19 @@ void openfish_rmsnorm_gpu(
     const void* residual,
     const void* weight,
     void* output,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 ) {
-    ASSERT(K <= 1024);
+    ASSERT(hidden_dim <= 1024);
 
-    int threads = K;
-    int blocks = MN;
+    int threads = hidden_dim;
+    int blocks = n_tokens;
     size_t shared_mem_bytes = static_cast<size_t>(threads) * sizeof(float);
 
     rmsnorm<<<blocks, threads, shared_mem_bytes>>>(
-        (half *)input, (half *)residual, (half *)weight, (half *)output, MN, K, alpha, eps
+        (half *)input, (half *)residual, (half *)weight, (half *)output, n_tokens, hidden_dim, alpha, eps
     );
     checkCudaError();
     cudaDeviceSynchronize();
@@ -73,19 +73,19 @@ void openfish_rmsnorm_gpu(
 }
 
 void openfish_silu_mul_gpu(
-    void *x_gpu,
+    const void *x_gpu,
     void *o_gpu,
-    uint64_t MN,
-    uint64_t K
+    uint64_t n_tokens,
+    uint64_t hidden_dim
 ) {
     int threads = 1024;
-    int blocks = (int)MN;
+    int blocks = (int)n_tokens;
 
     silu_mul<<<blocks, threads>>>(
-        (half *)x_gpu,
+        (const half *)x_gpu,
         (half *)o_gpu,
-        K,
-        MN
+        hidden_dim,
+        n_tokens
     );
     checkCudaError();
     cudaDeviceSynchronize();
@@ -110,11 +110,11 @@ void openfish_flstm_step_gpu(
 
 void openfish_rotary_emb_gpu(
     void *x_gpu,
-    void *sin_gpu,
-    void *cos_gpu,
+    const void *sin_gpu,
+    const void *cos_gpu,
     int batch_size,
-    int seqlen,
-    int nheads,
+    int seq_len,
+    int n_heads,
     int head_dim,
     int rotary_half,
     int stride_batch,
@@ -123,13 +123,13 @@ void openfish_rotary_emb_gpu(
 ) {
     int thread_h = 32;
     dim3 block_size(rotary_half, thread_h, 1);
-	dim3 grid_size(batch_size, nheads, 1);
+	dim3 grid_size(batch_size, n_heads, 1);
 
     rotary_emb<<<grid_size, block_size>>>(
         (half *)x_gpu,
-        (float *)cos_gpu,
-        (float *)sin_gpu,
-        seqlen,
+        (const float *)cos_gpu,
+        (const float *)sin_gpu,
+        seq_len,
         stride_batch,
         stride_seq,
         stride_head,

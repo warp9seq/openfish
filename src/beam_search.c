@@ -46,14 +46,14 @@ static float log_sum_exp(float x, float y) {
     return m + ((abs_diff < 17.0f) ? (log( 1.0 + exp(-abs_diff))) : 0.0f);
 }
 
-void generate_sequence_cpu(
+void openfish_generate_sequence_cpu(
     const uint8_t *moves,
     const state_t *states,
     const float *qual_data,
-    const float shift,
-    const float scale,
-    const size_t num_ts,
-    const size_t seq_len,
+    float shift,
+    float scale,
+    size_t n_timesteps,
+    size_t seq_len,
     float *base_probs,
     float *total_probs,
     char *sequence,
@@ -63,7 +63,7 @@ void generate_sequence_cpu(
 
     const char alphabet[4] = {'A', 'C', 'G', 'T'};
 
-    for (size_t blk = 0; blk < num_ts; ++blk) {
+    for (size_t blk = 0; blk < n_timesteps; ++blk) {
         int state = states[blk];
         int move = (int)moves[blk];
         int base = state & 3;
@@ -114,15 +114,15 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
     return crc;
 }
 
-void beam_search_cpu(
-    const float *const scores_TNC,
+void openfish_beam_search_cpu(
+    const float *scores_TNC,
     size_t scores_block_stride,
-    const float *const bwd_NTC,
-    const float *const post_NTC,
-    const int num_state_bits,
-    const size_t T,
-    const float beam_cut,
-    const float fixed_stay_score,
+    const float *bwd_NTC,
+    const float *post_NTC,
+    int num_state_bits,
+    size_t n_timesteps,
+    float beam_cut,
+    float fixed_stay_score,
     state_t *states,
     uint8_t *moves,
     float *qual_data,
@@ -188,7 +188,7 @@ void beam_search_cpu(
     bool step_hash_present[HASH_PRESENT_BITS];  // Default constructor zeros content.
 
     // iterate through blocks, extending beam
-    for (size_t block_idx = 0; block_idx < T; ++block_idx) {
+    for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
         const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
@@ -395,7 +395,7 @@ void beam_search_cpu(
 
         // at the last timestep, we need to ensure the best path corresponds to element 0
         // the other elements don't matter
-        if (block_idx == T - 1) {
+        if (block_idx == n_timesteps - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
             for (size_t i = 0; i < elem_count; i++) {
@@ -430,7 +430,7 @@ void beam_search_cpu(
     // write out sequence bases and move table
     // note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
     uint8_t element_index = 0;
-    for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
+    for (size_t beam_idx = n_timesteps; beam_idx != 0; --beam_idx) {
         size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
         states[beam_idx - 1] = (int32_t)beam_vector[beam_addr].state;
         moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
@@ -441,7 +441,7 @@ void beam_search_cpu(
     int shifted_states[2 * NUM_BASES];
 
     // compute per-base qual data
-    for (size_t block_idx = 0; block_idx < T; ++block_idx) {
+    for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
         int state = states[block_idx];
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];

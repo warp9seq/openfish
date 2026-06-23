@@ -34,12 +34,12 @@ typedef struct openfish_opt {
 openfish_opt_t openfish_decoder_default_opts(void);
 
 void openfish_decode_cpu(
-    const int T,
-    const int N,
-    const int C,
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
     int nthreads,
-    void *scores_TNC,
-    const int state_len,
+    const void *scores_TNC,
+    int state_len,
     const openfish_opt_t *options,
     uint8_t **moves,
     char **sequence,
@@ -48,11 +48,11 @@ void openfish_decode_cpu(
 
 void openfish_rotary_emb_cpu(
     void *x,
-    void *sin_buf,
-    void *cos_buf,
+    const void *sin_buf,
+    const void *cos_buf,
     int batch_size,
-    int seqlen,
-    int nheads,
+    int seq_len,
+    int n_heads,
     int head_dim,
     int rotary_half,
     int stride_batch,
@@ -62,19 +62,19 @@ void openfish_rotary_emb_cpu(
 );
 
 size_t openfish_gpubuf_size(
-    const int T,
-    const int N,
-    const int state_len
+    int n_timesteps,
+    int batch_size,
+    int state_len
 );
 
 #if defined(HAVE_CUDA) || defined(HAVE_ROCM)
 
 void openfish_decode_gpu(
-    const int T,
-    const int N,
-    const int C,
-    void *scores_TNC,
-    const int state_len,
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    const void *scores_TNC,
+    int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
     uint8_t **moves,
@@ -83,9 +83,9 @@ void openfish_decode_gpu(
 );
 
 openfish_gpubuf_t *openfish_gpubuf_init(
-    const int T,
-    const int N,
-    const int state_len
+    int n_timesteps,
+    int batch_size,
+    int state_len
 );
 
 void openfish_gpubuf_free(
@@ -94,11 +94,11 @@ void openfish_gpubuf_free(
 
 void openfish_rotary_emb_gpu(
     void *x_gpu,
-    void *sin_gpu,
-    void *cos_gpu,
+    const void *sin_gpu,
+    const void *cos_gpu,
     int batch_size,
-    int seqlen,
-    int nheads,
+    int seq_len,
+    int n_heads,
     int head_dim,
     int rotary_half,
     int stride_batch,
@@ -115,10 +115,10 @@ void openfish_flstm_step_gpu(
 );
 
 void openfish_silu_mul_gpu(
-    void *x_gpu,
+    const void *x_gpu,
     void *o_gpu,
-    uint64_t MN,
-    uint64_t K
+    uint64_t n_tokens,
+    uint64_t hidden_dim
 );
 
 void openfish_rmsnorm_gpu(
@@ -126,8 +126,8 @@ void openfish_rmsnorm_gpu(
     const void* residual,
     const void* weight,
     void* output,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 );
@@ -137,8 +137,8 @@ void openfish_rmsnorm_quant_gpu(
     const void* weight,
     void* residual,
     void* residual_scale,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 );
@@ -148,26 +148,26 @@ void openfish_rmsnorm_quant_fp8_gpu(
     const void* weight,
     void* residual,
     void* residual_scale,
-    int MN,
-    int K,
+    int n_tokens,
+    int hidden_dim,
     float alpha,
     float eps
 );
 
 void openfish_quant_fp8_gpu(
-    const void* x,      /* f16  [M, C] input  */
-    void*       x_fp8,  /* uint8[M, C] fp8 E4M3FN output */
-    void*       scale,  /* f32  [M]   per-token scale output */
-    int         M,
-    int         C
+    const void* x,      /* f16  [n_tokens, hidden_dim] input  */
+    void*       x_fp8,  /* uint8[n_tokens, hidden_dim] fp8 E4M3FN output */
+    void*       scale,  /* f32  [n_tokens]             per-token scale output */
+    int         n_tokens,
+    int         hidden_dim
 );
 
 void openfish_dequant_fp8_transpose_gpu(
-    const void* in,     /* fp8  [T, N, C] input  */
-    void*       out,    /* f16  [N, T, C] output (dequant × scale, transposed) */
-    int         T,
-    int         N,
-    int         C,
+    const void* in,     /* fp8  [n_timesteps, batch_size, n_channels] input  */
+    void*       out,    /* f16  [batch_size, n_timesteps, n_channels] output (dequant × scale, transposed) */
+    int         n_timesteps,
+    int         batch_size,
+    int         n_channels,
     float       scale
 );
 

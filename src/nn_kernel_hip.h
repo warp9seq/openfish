@@ -33,11 +33,11 @@
 extern "C" {
 #endif
 
-__global__ void rotary_emb(
+static __global__ void rotary_emb(
 	half *x,
-    float *_cos,
-    float *_sin,
-    const uint64_t seqlen,
+    const float *_cos,
+    const float *_sin,
+    const uint64_t seq_len,
     const uint64_t stride_batch,
     const uint64_t stride_seq,
     const uint64_t stride_head,
@@ -49,12 +49,12 @@ __global__ void rotary_emb(
     const uint64_t tid = threadIdx.y;
     const uint64_t nthreads = blockDim.y;
 
-    if (tid >= seqlen) return;
+    if (tid >= seq_len) return;
 
     half *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
     half *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
 
-    for (int seq = tid; seq < seqlen; seq += nthreads) {
+    for (int seq = tid; seq < seq_len; seq += nthreads) {
         float cos = *(_cos + (seq * rotary_half) + rot);
         float sin = *(_sin + (seq * rotary_half) + rot);
 
@@ -69,40 +69,40 @@ __global__ void rotary_emb(
     }
 }
 
-__global__ void silu_mul(
-	half *x_gpu,
+static __global__ void silu_mul(
+	const half *x_gpu,
 	half *o_gpu,
-    const uint64_t K,
-    const uint64_t MN
+    const uint64_t hidden_dim,
+    const uint64_t n_tokens
 ) {
     uint64_t j = blockIdx.x;
 
-    for (uint64_t k = threadIdx.x; k < K; k += blockDim.x) {
-        uint64_t i = k + j * (K * 2);
+    for (uint64_t k = threadIdx.x; k < hidden_dim; k += blockDim.x) {
+        uint64_t i = k + j * (hidden_dim * 2);
 
         half y = x_gpu[i];
-        half gate = x_gpu[i + K];
+        half gate = x_gpu[i + hidden_dim];
 
         float g = __half2float(gate);
         float silu = g / (1.0f + __expf(-g));
 
-        o_gpu[k + j * K] = __float2half(silu * __half2float(y));
+        o_gpu[k + j * hidden_dim] = __float2half(silu * __half2float(y));
     }
 }
 
-__global__ void rmsnorm(
+static __global__ void rmsnorm(
     const half* input,
     const half* residual,
     const half* weight,
     half* output,
-    int batch_size,
+    int n_tokens,
     int hidden_dim,
     float alpha,
     float eps
 ) {
     int row = blockIdx.x;  // Which sequence/batch element
     
-    if (row >= batch_size) return;
+    if (row >= n_tokens) return;
     
     const half* x = input + row * hidden_dim;
     const half* res = residual + row * hidden_dim;
@@ -218,13 +218,13 @@ static __device__ __forceinline__ uint8_t float_to_e4m3fn(float f) {
 
 // Combined rmsnorm + fp8 E4M3FN quantization kernel.
 // Fuses: dequant fp8 residual -> deepnorm add -> rmsnorm -> quant fp8 residual.
-// One thread per hidden-dim element; one block per row (MN rows total).
-__global__ void rmsnorm_quant_fp8(
+// One thread per hidden-dim element; one block per row (n_tokens rows total).
+static __global__ void rmsnorm_quant_fp8(
     const half*  input,
     const half*  weight,
     uint8_t*     residual,
     float*       residual_scale,
-    int          batch_size,
+    int          n_tokens,
     int          hidden_dim,
     float        alpha,
     float        eps
@@ -232,7 +232,7 @@ __global__ void rmsnorm_quant_fp8(
     int row = blockIdx.x;
     int idx = threadIdx.x;
 
-    if (row >= batch_size || idx >= hidden_dim) return;
+    if (row >= n_tokens || idx >= hidden_dim) return;
 
     const half* inp       = input  + (int64_t)row * hidden_dim;
     uint8_t*    res       = residual + (int64_t)row * hidden_dim;
@@ -303,19 +303,19 @@ __global__ void rmsnorm_quant_fp8(
 // Standalone f16 → fp8 E4M3FN per-token quantize.
 // One block per row, hidden_dim threads per block.
 // scale[row] = max(amax/448, 1e-12);  x_fp8[row] = clamp(x/scale, -448, 448) as fp8.
-__global__ void quant_fp8(
-    const half*  x,        // [M, C] f16 input (row-major)
-    uint8_t*     x_fp8,    // [M, C] fp8 output
-    float*       scale,    // [M]    per-token scale output
-    int          M,
-    int          C
+static __global__ void quant_fp8(
+    const half*  x,        // [n_tokens, hidden_dim] f16 input (row-major)
+    uint8_t*     x_fp8,    // [n_tokens, hidden_dim] fp8 output
+    float*       scale,    // [n_tokens]             per-token scale output
+    int          n_tokens,
+    int          hidden_dim
 ) {
     int row = blockIdx.x;
     int idx = threadIdx.x;
 
-    if (row >= M || idx >= C) return;
+    if (row >= n_tokens || idx >= hidden_dim) return;
 
-    float val = __half2float(x[(int64_t)row * C + idx]);
+    float val = __half2float(x[(int64_t)row * hidden_dim + idx]);
 
     // ── Per-row amax reduce ───────────────────────────────────────────────────
     __shared__ float shared_max[64];
@@ -344,34 +344,35 @@ __global__ void quant_fp8(
     __syncthreads();
 
     float fp8_val = fmaxf(-448.0f, fminf(448.0f, val / fp8_scale_shared));
-    x_fp8[(int64_t)row * C + idx] = float_to_e4m3fn(fp8_val);
+    x_fp8[(int64_t)row * hidden_dim + idx] = float_to_e4m3fn(fp8_val);
 }
 
-// Dequantize fp8 [T,N,C] (× scalar scale) AND transpose to f16 [N,T,C], in one pass.
+// Dequantize fp8 [n_timesteps,batch_size,n_channels] (× scalar scale) AND transpose to
+// f16 [batch_size,n_timesteps,n_channels], in one pass.
 //   out[n,t,c] = e4m3fn_to_float(in[t,n,c]) * scale
-// One block per (t,n) row, C threads. Reads/writes are coalesced along c (the contiguous
+// One block per (t,n) row, n_channels threads. Reads/writes are coalesced along c (the contiguous
 // innermost of both layouts); the transpose lives only in the block→(n,t) index map.
 // Replaces torch's .to(kHalf).transpose(0,1).contiguous() (3 ops + intermediates).
-__global__ void dequant_fp8_transpose(
-    const uint8_t* in,    // [T, N, C] fp8 (row-major, contiguous)
-    half*          out,   // [N, T, C] f16
-    int T, int N, int C, float scale
+static __global__ void dequant_fp8_transpose(
+    const uint8_t* in,    // [n_timesteps, batch_size, n_channels] fp8 (row-major, contiguous)
+    half*          out,   // [batch_size, n_timesteps, n_channels] f16
+    int n_timesteps, int batch_size, int n_channels, float scale
 ) {
-    int tn = blockIdx.x;           // 0 .. T*N-1
-    int c  = threadIdx.x;          // 0 .. C-1
-    if (c >= C) return;
-    int t = tn / N;
-    int n = tn - t * N;
-    float v = e4m3fn_to_float(in[(int64_t)tn * C + c]) * scale;
-    out[(((int64_t)n * T + t) * C) + c] = __float2half(v);
+    int tn = blockIdx.x;           // 0 .. n_timesteps*batch_size-1
+    int c  = threadIdx.x;          // 0 .. n_channels-1
+    if (c >= n_channels) return;
+    int t = tn / batch_size;
+    int n = tn - t * batch_size;
+    float v = e4m3fn_to_float(in[(int64_t)tn * n_channels + c]) * scale;
+    out[(((int64_t)n * n_timesteps + t) * n_channels) + c] = __float2half(v);
 }
 
-__global__ void rmsnorm_quant( // need to verify if works on rocm
+static __global__ void rmsnorm_quant( // need to verify if works on rocm
     const half* input,
     const half* weight,
     int8_t* residual,
     float* residual_scale,
-    int batch_size,
+    int n_tokens,
     int hidden_dim,
     float alpha,
     float eps
@@ -379,7 +380,7 @@ __global__ void rmsnorm_quant( // need to verify if works on rocm
     int row = blockIdx.x;  // Which sequence/batch element
     int idx = threadIdx.x;
     
-    if (row >= batch_size) return;
+    if (row >= n_tokens) return;
     
     const half* inp = input + row * hidden_dim;
     int8_t* res = residual + row * hidden_dim;
@@ -472,7 +473,7 @@ __global__ void rmsnorm_quant( // need to verify if works on rocm
     res[idx] = (int8_t)quantized;
 }
 
-__global__ void flstm_step(
+static __global__ void flstm_step(
     const half* scratch,
     const half* ih_t,
     half* c,

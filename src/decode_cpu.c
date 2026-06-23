@@ -10,21 +10,21 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
-static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
+static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t batch_size, const uint64_t num_states) {
     const float fixed_stay_score = 2.0f;
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
     const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
-    float* const chunk_out = out + chunk * (T+1) * num_states;
-    float* const alpha_init = chunk_out + num_states * T;
+    float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
+    float* const alpha_init = chunk_out + num_states * n_timesteps;
     for (uint64_t state = 0; state < num_states; ++state) { // (for GPU impl) its 1 thread per state, but below we iterate through all the states on 1 thread
         alpha_init[state] = 0.0f;
     }
 
-    for (uint64_t ts = 0; ts < T; ++ts) {
+    for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
         // threadgroup_barrier(mem_flags::medevice); // synchronize all threads before next time step (for GPU impl)
-        const float* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
+        const float* const ts_in = chunk_in + batch_size * ts_states * (n_timesteps - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -51,8 +51,8 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
     }
 }
 
-static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
-    const uint64_t T = _T+1; 
+static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t batch_size, const uint64_t num_states) {
+    const uint64_t n_ts = n_timesteps+1; // number of guide/posterior time steps
     const float kFixedStayScore = 2.0f;
     
     const uint64_t msb = num_states / NUM_BASES;
@@ -70,18 +70,18 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
     }
     // threadgroup_barrier(mem_flags::mem_threadgroup); // ------------------------------------------------------------------
 
-    for (uint64_t ts = 0; ts < T; ++ts) {
+    for (uint64_t ts = 0; ts < n_ts; ++ts) {
         // We read forward guide values written to TG memory in the previous step as
         // inputs to this step.  However, there has already been a TG barrier since
         // they were written.
-        const uint64_t ts_idx = (chunk * T + ts) * num_states;
+        const uint64_t ts_idx = (chunk * n_ts + ts) * num_states;
 
         // Alternating TG buffer twiddling.
         const float *const ts_alpha_in = ts_fwd[ts & 1];
         float *const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
         // Calculate the fwd/bwd guide product in log space for this time step's
-        // posterior. This is required for all T (= _T + 1) time steps.
+        // posterior. This is required for all n_ts (= n_timesteps + 1) time steps.
         for (uint64_t state = 0; state < num_states; ++state) {
             // The forward guide value at this time step (alpha[ts]), calculated
             // in the previous iteration.
@@ -91,12 +91,12 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
 
         // Calculate the next time step's forward guide from this time step's
         // scores and forward guide. It's written to threadgroup memory for use
-        // in the next iteration. The guide is only defined over the _T score
+        // in the next iteration. The guide is only defined over the n_timesteps score
         // time steps, so we skip the final iteration (which would otherwise read
         // past the scores buffer to produce a result that is never read).
-        if (ts < _T) {
+        if (ts < n_timesteps) {
             // This time step's scores.
-            const float *const ts_scores = chunk_scores + N * ts_states * ts;
+            const float *const ts_scores = chunk_scores + batch_size * ts_states * ts;
 
             for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
                 const uint64_t stay_state_idx = state;
@@ -119,10 +119,10 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
     }
 }
 
-static void softmax(const float *fwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t num_states) {
-    const uint64_t T = _T+1; 
-    for (uint64_t ts = 0; ts < T; ++ts) {
-        const uint64_t ts_idx = (chunk * T + ts) * num_states;
+static void softmax(const float *fwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states) {
+    const uint64_t n_ts = n_timesteps+1; // number of guide/posterior time steps
+    for (uint64_t ts = 0; ts < n_ts; ++ts) {
+        const uint64_t ts_idx = (chunk * n_ts + ts) * num_states;
 
         float max_val = fwd[ts_idx];
         for (uint64_t state = 0; state < num_states; ++state) {
@@ -156,9 +156,9 @@ typedef struct {
     int32_t start;
     int32_t end;
     int32_t state_len;
-    int32_t T;
-    int32_t N;
-    int32_t C;
+    int32_t n_timesteps;
+    int32_t batch_size;
+    int32_t n_channels;
     state_t *states;
     uint8_t *moves;
     float *qual_data;
@@ -169,32 +169,32 @@ typedef struct {
     beam_element_t *beam_vector;
 } decode_thread_arg_t;
 
-void* pthread_single_scan_score(void* voidargs) {
+static void* pthread_single_scan_score(void* voidargs) {
     decode_thread_arg_t* args = (decode_thread_arg_t*)voidargs;
 
     const int num_states = pow(NUM_BASES, args->state_len);
 
-    const int T = args->T;
-    const int N = args->N;
+    const int n_timesteps = args->n_timesteps;
+    const int batch_size = args->batch_size;
 
     for (int c = args->start; c < args->end; c++) {
-        backward_scan(args->scores_TNC, args->bwd_NTC, c, T, N, num_states);
-        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, T, N, num_states);
-        softmax(args->fwd_NTC, args->post_NTC, c, T, num_states);
+        backward_scan(args->scores_TNC, args->bwd_NTC, c, n_timesteps, batch_size, num_states);
+        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, n_timesteps, batch_size, num_states);
+        softmax(args->fwd_NTC, args->post_NTC, c, n_timesteps, num_states);
     }
 
     pthread_exit(0);
 }
 
-void *pthread_single_beam_search(void *voidargs) {
+static void *pthread_single_beam_search(void *voidargs) {
     decode_thread_arg_t *args = (decode_thread_arg_t *)voidargs;
     const openfish_opt_t *options = args->options;
     
     const int num_states = pow(NUM_BASES, args->state_len);
     const int num_state_bits = (int)log2(num_states);
-    const int T = args->T;
-    const int N = args->N;
-    const int C = args->C;
+    const int n_timesteps = args->n_timesteps;
+    const int batch_size = args->batch_size;
+    const int n_channels = args->n_channels;
 
     const float fixed_stay_score = options->blank_score;
     const float q_scale = options->q_scale;
@@ -203,39 +203,39 @@ void *pthread_single_beam_search(void *voidargs) {
 
     for (int c = args->start; c < args->end; c++) {
         const float *scores = args->scores_TNC + c * (num_states * NUM_BASES);
-        float *bwd = args->bwd_NTC + c * num_states * (T+1);
-        float *post = args->post_NTC + c * num_states * (T+1);
-        state_t *states = args->states + c * T;
-        uint8_t *moves = args->moves + c * T;
-        float *qual_data = args->qual_data + c * (T * NUM_BASES);
-        float *base_probs = args->base_probs + c * T;
-        float *total_probs = args->total_probs + c * T;
-        char *sequence = args->sequence + c * T;
-        char *qstring = args->qstring + c * T;
-        beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
+        float *bwd = args->bwd_NTC + c * num_states * (n_timesteps+1);
+        float *post = args->post_NTC + c * num_states * (n_timesteps+1);
+        state_t *states = args->states + c * n_timesteps;
+        uint8_t *moves = args->moves + c * n_timesteps;
+        float *qual_data = args->qual_data + c * (n_timesteps * NUM_BASES);
+        float *base_probs = args->base_probs + c * n_timesteps;
+        float *total_probs = args->total_probs + c * n_timesteps;
+        char *sequence = args->sequence + c * n_timesteps;
+        char *qstring = args->qstring + c * n_timesteps;
+        beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (n_timesteps+1);
 
-        beam_search_cpu(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        openfish_beam_search_cpu(scores, batch_size * n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
-        for (int i = 0; i < T; ++i) {
+        for (int i = 0; i < n_timesteps; ++i) {
             seq_len += moves[i];
             total_probs[i] = 0;
             base_probs[i] = 0;
         }
 
-        generate_sequence_cpu(moves, states, qual_data, q_shift, q_scale, T, seq_len, base_probs, total_probs, sequence, qstring);
+        openfish_generate_sequence_cpu(moves, states, qual_data, q_shift, q_scale, n_timesteps, seq_len, base_probs, total_probs, sequence, qstring);
     }
 
     pthread_exit(0);
 }
 
 void openfish_decode_cpu(
-    const int T,
-    const int N,
-    const int C,
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
     int nthreads,
-    void *scores_TNC,
-    const int state_len,
+    const void *scores_TNC,
+    int state_len,
     const openfish_opt_t *options,
     uint8_t **moves,
     char **sequence,
@@ -243,42 +243,42 @@ void openfish_decode_cpu(
 ) {
     const int num_states = pow(NUM_BASES, state_len);
 
-    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
+    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", n_timesteps, batch_size, n_channels);
 
-    float *bwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
-    float *fwd_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
-    float *post_NTC = (float *)calloc(N * (T + 1) * num_states, sizeof(float));
+    float *bwd_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
+    float *fwd_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
+    float *post_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
 
     // init results
-    *moves = (uint8_t *)calloc(N * T, sizeof(uint8_t));
+    *moves = (uint8_t *)calloc(batch_size * n_timesteps, sizeof(uint8_t));
     MALLOC_CHK(*moves);
 
-    *sequence = (char *)calloc(N * T, sizeof(char));
+    *sequence = (char *)calloc(batch_size * n_timesteps, sizeof(char));
     MALLOC_CHK(*sequence);
 
-    *qstring = (char *)calloc(N * T, sizeof(char));
+    *qstring = (char *)calloc(batch_size * n_timesteps, sizeof(char));
     MALLOC_CHK(*qstring);
 
     // intermediate
-    beam_element_t *beam_vector = (beam_element_t *)malloc(N * MAX_BEAM_WIDTH * (T + 1) * sizeof(beam_element_t));
+    beam_element_t *beam_vector = (beam_element_t *)malloc(batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1) * sizeof(beam_element_t));
     MALLOC_CHK(beam_vector);
 
-    state_t *states = (state_t *)malloc(N * T * sizeof(state_t));
+    state_t *states = (state_t *)malloc(batch_size * n_timesteps * sizeof(state_t));
     MALLOC_CHK(states);
 
-    float *qual_data = (float *)malloc(N * T * NUM_BASES * sizeof(float));
+    float *qual_data = (float *)malloc(batch_size * n_timesteps * NUM_BASES * sizeof(float));
     MALLOC_CHK(qual_data);
 
-    float *base_probs = (float *)malloc(N * T * sizeof(float));
+    float *base_probs = (float *)malloc(batch_size * n_timesteps * sizeof(float));
     MALLOC_CHK(base_probs);
 
-    float *total_probs = (float *)malloc(N * T * sizeof(float));
+    float *total_probs = (float *)malloc(batch_size * n_timesteps * sizeof(float));
     MALLOC_CHK(total_probs);
     
     // create threads
-    nthreads = N < nthreads ? N : nthreads;
-    const int chunks_per_thread = N / nthreads;
-    const int num_threads_with_one_more_chunk = N % nthreads;
+    nthreads = batch_size < nthreads ? batch_size : nthreads;
+    const int chunks_per_thread = batch_size / nthreads;
+    const int num_threads_with_one_more_chunk = batch_size % nthreads;
 
     OPENFISH_LOG_TRACE("dispatching %d threads for cpu decoding", nthreads);
 
@@ -291,15 +291,15 @@ void openfish_decode_cpu(
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
-        pt_args[t].scores_TNC = (float *)scores_TNC;
+        pt_args[t].scores_TNC = (const float *)scores_TNC;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].fwd_NTC = fwd_NTC;
         pt_args[t].post_NTC = post_NTC;
         pt_args[t].options = options;
         pt_args[t].state_len = state_len;
-        pt_args[t].T = T;
-        pt_args[t].N = N;
-        pt_args[t].C = C;
+        pt_args[t].n_timesteps = n_timesteps;
+        pt_args[t].batch_size = batch_size;
+        pt_args[t].n_channels = n_channels;
         pt_args[t].states = states;
         pt_args[t].moves = *moves;
         pt_args[t].qual_data = qual_data;
@@ -338,7 +338,7 @@ void openfish_decode_cpu(
     
     fp = fopen("bwd_NTC.blob", "w");
     F_CHK(fp, "bwd_NTC.blob");
-    if (fwrite(bwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+    if (fwrite(bwd_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -346,7 +346,7 @@ void openfish_decode_cpu(
 
     fp = fopen("fwd_NTC.blob", "w");
     F_CHK(fp, "fwd_NTC.blob");
-    if (fwrite(fwd_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+    if (fwrite(fwd_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -354,7 +354,7 @@ void openfish_decode_cpu(
 
     fp = fopen("post_NTC.blob", "w");
     F_CHK(fp, "post_NTC.blob");
-    if (fwrite(post_NTC, sizeof(float), N * (T + 1) * num_states, fp) != N * (T + 1) * num_states) {
+    if (fwrite(post_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -363,7 +363,7 @@ void openfish_decode_cpu(
     // write beam results
     fp = fopen("qual_data.blob", "w");
     F_CHK(fp, "qual_data.blob");
-    if (fwrite(qual_data, sizeof(float), N * T * NUM_BASES, fp) != N * T * NUM_BASES) {
+    if (fwrite(qual_data, sizeof(float), batch_size * n_timesteps * NUM_BASES, fp) != batch_size * n_timesteps * NUM_BASES) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -371,7 +371,7 @@ void openfish_decode_cpu(
 
     fp = fopen("base_probs.blob", "w");
     F_CHK(fp, "base_probs.blob");
-    if (fwrite(base_probs, sizeof(float), N * T, fp) != N * T) {
+    if (fwrite(base_probs, sizeof(float), batch_size * n_timesteps, fp) != batch_size * n_timesteps) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -379,7 +379,7 @@ void openfish_decode_cpu(
 
     fp = fopen("total_probs.blob", "w");
     F_CHK(fp, "total_probs.blob");
-    if (fwrite(total_probs, sizeof(float), N * T, fp) != N * T) {
+    if (fwrite(total_probs, sizeof(float), batch_size * n_timesteps, fp) != batch_size * n_timesteps) {
         fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }

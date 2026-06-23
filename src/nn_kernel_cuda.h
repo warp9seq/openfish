@@ -32,11 +32,11 @@
 extern "C" {
 #endif
 
-__global__ void rotary_emb(
+static __global__ void rotary_emb(
 	half *x,
-    float *_cos,
-    float *_sin,
-    const uint64_t seqlen,
+    const float *_cos,
+    const float *_sin,
+    const uint64_t seq_len,
     const uint64_t stride_batch,
     const uint64_t stride_seq,
     const uint64_t stride_head,
@@ -48,12 +48,12 @@ __global__ void rotary_emb(
     const uint64_t tid = threadIdx.y;
     const uint64_t nthreads = blockDim.y;
 
-    if (tid >= seqlen) return;
+    if (tid >= seq_len) return;
 
     half *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
     half *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
 
-    for (int seq = tid; seq < seqlen; seq += nthreads) {
+    for (int seq = tid; seq < seq_len; seq += nthreads) {
         float cos = *(_cos + (seq * rotary_half) + rot);
         float sin = *(_sin + (seq * rotary_half) + rot);
 
@@ -68,40 +68,40 @@ __global__ void rotary_emb(
     }
 }
 
-__global__ void silu_mul(
-	half *x_gpu,
+static __global__ void silu_mul(
+	const half *x_gpu,
 	half *o_gpu,
-    const uint64_t K,
-    const uint64_t MN
+    const uint64_t hidden_dim,
+    const uint64_t n_tokens
 ) {
     uint64_t j = blockIdx.x;
 
-    for (uint64_t k = threadIdx.x; k < K; k += blockDim.x) {
-        uint64_t i = k + j * (K * 2);
+    for (uint64_t k = threadIdx.x; k < hidden_dim; k += blockDim.x) {
+        uint64_t i = k + j * (hidden_dim * 2);
 
         half y = x_gpu[i];
-        half gate = x_gpu[i + K];
+        half gate = x_gpu[i + hidden_dim];
 
         float g = __half2float(gate);
         float silu = g / (1.0f + __expf(-g));
 
-        o_gpu[k + j * K] = __float2half(silu * __half2float(y));
+        o_gpu[k + j * hidden_dim] = __float2half(silu * __half2float(y));
     }
 }
 
-__global__ void rmsnorm(
+static __global__ void rmsnorm(
     const half* input,
     const half* residual,
     const half* weight,
     half* output,
-    int batch_size,
+    int n_tokens,
     int hidden_dim,
     float alpha,
     float eps
 ) {
     int row = blockIdx.x;  // Which sequence/batch element
     
-    if (row >= batch_size) return;
+    if (row >= n_tokens) return;
     
     const half* x = input + row * hidden_dim;
     const half* res = residual + row * hidden_dim;
@@ -161,12 +161,12 @@ __global__ void rmsnorm(
     }
 }
 
-__global__ void rmsnorm_quant(
+static __global__ void rmsnorm_quant(
     const half* input,
     const half* weight,
     int8_t* residual,
     float* residual_scale,
-    int batch_size,
+    int n_tokens,
     int hidden_dim,
     float alpha,
     float eps
@@ -174,7 +174,7 @@ __global__ void rmsnorm_quant(
     int row = blockIdx.x;  // Which sequence/batch element
     int idx = threadIdx.x;
     
-    if (row >= batch_size) return;
+    if (row >= n_tokens) return;
     
     const half* inp = input + row * hidden_dim;
     int8_t* res = residual + row * hidden_dim;
@@ -273,7 +273,7 @@ __global__ void rmsnorm_quant(
 // c:       (N, C)   — cell state, updated in-place
 // hh_next: (N, C)   — output hidden state h[t+1]
 // Launch: flstm_step<<<N, min(C, 1024)>>>(...)
-__global__ void flstm_step(
+static __global__ void flstm_step(
     const half* scratch,
     const half* ih_t,
     half* c,

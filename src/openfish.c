@@ -7,20 +7,20 @@ openfish_opt_t openfish_decoder_default_opts(void) {
 }
 
 size_t openfish_gpubuf_size(
-    const int T,
-    const int N,
-    const int state_len
+    int n_timesteps,
+    int batch_size,
+    int state_len
 ) {
     const size_t num_states = (size_t)1 << (2 * state_len);
     return
-        sizeof(float) * (size_t)N * (T + 1) * num_states +          // bwd_NTC
-        sizeof(float) * (size_t)N * (T + 1) * num_states +          // post_NTC
-        sizeof(uint8_t) * (size_t)N * T +                            // moves
-        sizeof(char) * (size_t)N * T +                               // sequence
-        sizeof(char) * (size_t)N * T +                               // qstring
-        sizeof(beam_element_t) * (size_t)N * MAX_BEAM_WIDTH * (T + 1) + // beam_vector
-        sizeof(state_t) * (size_t)N * T +                            // states
-        sizeof(float) * (size_t)N * T * NUM_BASES +                  // qual_data
-        sizeof(float) * (size_t)N * T +                              // base_probs
-        sizeof(float) * (size_t)N * T;                               // total_probs
+        sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states +          // bwd_NTC
+        sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states +          // post_NTC
+        sizeof(uint8_t) * (size_t)batch_size * n_timesteps +                            // moves
+        sizeof(char) * (size_t)batch_size * n_timesteps +                               // sequence
+        sizeof(char) * (size_t)batch_size * n_timesteps +                               // qstring
+        sizeof(beam_element_t) * (size_t)batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1) + // beam_vector
+        sizeof(state_t) * (size_t)batch_size * n_timesteps +                            // states
+        sizeof(float) * (size_t)batch_size * n_timesteps * NUM_BASES +                  // qual_data
+        sizeof(float) * (size_t)batch_size * n_timesteps +                              // base_probs
+        sizeof(float) * (size_t)batch_size * n_timesteps;                               // total_probs
 }

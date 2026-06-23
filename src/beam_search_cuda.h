@@ -50,7 +50,7 @@ __device__ static __forceinline__ float log_sum_exp(float x, float y) {
     return m + ((abs_diff < 17.0f) ? (__logf(1.0 + __expf(-abs_diff))) : 0.0f);
 }
 
-__global__ void generate_sequence(
+static __global__ void generate_sequence(
     const beam_args_t args,
     const uint8_t *_moves,
     const state_t *_states,
@@ -64,21 +64,21 @@ __global__ void generate_sequence(
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 
-    if (chunk >= args.N) {
+    if (chunk >= args.batch_size) {
 		return;
 	}
 
-    const uint64_t T = args.T;
-    const uint8_t *moves = _moves + chunk * T;
-    const state_t *states = _states + chunk * T;
-    const float *qual_data = _qual_data + chunk * T * NUM_BASES;
-    float *base_probs = _base_probs + chunk * T;
-    float *total_probs = _total_probs + chunk * T;
-    char *sequence = _sequence + chunk * T;
-    char *qstring = _qstring + chunk * T;
+    const uint64_t n_timesteps = args.n_timesteps;
+    const uint8_t *moves = _moves + chunk * n_timesteps;
+    const state_t *states = _states + chunk * n_timesteps;
+    const float *qual_data = _qual_data + chunk * n_timesteps * NUM_BASES;
+    float *base_probs = _base_probs + chunk * n_timesteps;
+    float *total_probs = _total_probs + chunk * n_timesteps;
+    char *sequence = _sequence + chunk * n_timesteps;
+    char *qstring = _qstring + chunk * n_timesteps;
 
     size_t seq_len = 0;
-    for (size_t i = 0; i < T; ++i) {
+    for (size_t i = 0; i < n_timesteps; ++i) {
         seq_len += moves[i];
         base_probs[i] = 0.0f;
         total_probs[i] = 0.0f;
@@ -88,7 +88,7 @@ __global__ void generate_sequence(
 
     const char alphabet[4] = {'A', 'C', 'G', 'T'};
 
-    for (size_t blk = 0; blk < T; ++blk) {
+    for (size_t blk = 0; blk < n_timesteps; ++blk) {
         int state = states[blk];
         int move = (int)moves[blk];
         int base = state & 3;
@@ -137,7 +137,7 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
     return crc;
 }
 
-__global__ void beam_search(
+static __global__ void beam_search(
     const beam_args_t beam_args,
     state_t *_states,
     uint8_t *_moves,
@@ -154,27 +154,27 @@ __global__ void beam_search(
     const unsigned mask = 0xFFFFFFFFU;
     (void)mask;
 
-    if (chunk >= beam_args.N || tid >= nthreads) {
+    if (chunk >= beam_args.batch_size || tid >= nthreads) {
 		return;
 	}
 
-    const uint64_t T = beam_args.T;
-    const uint64_t N = beam_args.N;
-    const uint64_t C = beam_args.C;
+    const uint64_t n_timesteps = beam_args.n_timesteps;
+    const uint64_t batch_size = beam_args.batch_size;
+    const uint64_t n_channels = beam_args.n_channels;
 
     const int num_state_bits = beam_args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
     const state_t states_mask = (state_t)(num_states - 1);
-    const size_t scores_block_stride = N * C;
+    const size_t scores_block_stride = batch_size * n_channels;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
-    const half *scores_TNC = (half *)beam_args.scores_TNC + chunk * (num_states * NUM_BASES);
-    const float *bwd_NTC = beam_args.bwd_NTC + chunk * num_states * (T + 1);
-    state_t *states = _states + chunk * T;
-    uint8_t *moves = _moves + chunk * T;
+    const half *scores_TNC = (const half *)beam_args.scores_TNC + chunk * (num_states * NUM_BASES);
+    const float *bwd_NTC = beam_args.bwd_NTC + chunk * num_states * (n_timesteps + 1);
+    state_t *states = _states + chunk * n_timesteps;
+    uint8_t *moves = _moves + chunk * n_timesteps;
 
     // this contains all the beams we're keeping track of
-    beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (T + 1);
+    beam_element_t *beam_vector = _beam_vector + chunk * MAX_BEAM_WIDTH * (n_timesteps + 1);
 
     // create the previous and current beam fronts
     // each existing beam element can be extended by one of NUM_BASES, or be a stay (for a single beam).
@@ -267,7 +267,7 @@ __global__ void beam_search(
     __shared__ float beam_cutoff_score;
     __shared__ int entered_search;                // 1 if first count > MAX_BEAM_WIDTH
     __shared__ int bs_active;                      // cooperative binary-search continue/stop flag
-    for (size_t block_idx = 0; block_idx < T; ++block_idx) {
+    for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
         const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
@@ -589,7 +589,7 @@ __global__ void beam_search(
 
         // at the last timestep, we need to ensure the best path corresponds to element 0
         // the other elements don't matter
-        if (tid == 0 && block_idx == T - 1) {
+        if (tid == 0 && block_idx == n_timesteps - 1) {
             float best_score = -FLT_MAX;
             size_t best_score_index = 0;
             for (size_t i = 0; i < elem_count; i++) {
@@ -627,7 +627,7 @@ __global__ void beam_search(
     if (tid == 0) {
         // note that we don't emit the seed state at the front of the beam, hence the -1 offset when copying the path
         uint8_t element_index = 0;
-        for (size_t beam_idx = T; beam_idx != 0; --beam_idx) {
+        for (size_t beam_idx = n_timesteps; beam_idx != 0; --beam_idx) {
             size_t beam_addr = beam_idx * MAX_BEAM_WIDTH + element_index;
             states[beam_idx - 1] = (int32_t)beam_vector[beam_addr].state;
             moves[beam_idx - 1] = beam_vector[beam_addr].stay ? 0 : 1;
@@ -637,30 +637,30 @@ __global__ void beam_search(
     }
 }
 
-__global__ void compute_qual_data(
+static __global__ void compute_qual_data(
     const beam_args_t beam_args,
     state_t *_states,
     float *_qual_data,
     const float posts_scale
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
-    if (chunk >= beam_args.N) {
+    if (chunk >= beam_args.batch_size) {
 		return;
 	}
 
-    const uint64_t T = beam_args.T;
+    const uint64_t n_timesteps = beam_args.n_timesteps;
 
     const size_t num_states = 1ull << beam_args.num_state_bits;
     const size_t num_state_bits = beam_args.num_state_bits;
 
-    const float *post_NTC = beam_args.post_NTC + chunk * num_states * (T + 1);
-    state_t *states = _states + chunk * T;
-    float *qual_data = _qual_data + chunk * (T * NUM_BASES);
+    const float *post_NTC = beam_args.post_NTC + chunk * num_states * (n_timesteps + 1);
+    state_t *states = _states + chunk * n_timesteps;
+    float *qual_data = _qual_data + chunk * (n_timesteps * NUM_BASES);
 
     int shifted_states[2 * NUM_BASES];
 
     // compute per-base qual data
-    for (size_t block_idx = 0; block_idx < T; ++block_idx) {
+    for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
         int state = states[block_idx];
         states[block_idx] = states[block_idx] % NUM_BASES;
         int base_to_emit = states[block_idx];

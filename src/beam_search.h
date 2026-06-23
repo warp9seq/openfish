@@ -11,29 +11,29 @@
 extern "C" {
 #endif
 
-void generate_sequence_cpu(
+void openfish_generate_sequence_cpu(
     const uint8_t *moves,
     const state_t *states,
     const float *qual_data,
-    const float shift,
-    const float scale,
-    const size_t num_ts,
-    const size_t seq_len,
+    float shift,
+    float scale,
+    size_t n_timesteps,
+    size_t seq_len,
     float *base_probs,
     float *total_probs,
     char *sequence,
     char *qstring
 );
 
-void beam_search_cpu(
-    const float *const scores,
+void openfish_beam_search_cpu(
+    const float *scores,
     size_t scores_block_stride,
-    const float *const back_guide,
-    const float *const posts,
-    const int num_state_bits,
-    const size_t num_ts,
-    const float beam_cut,
-    const float fixed_stay_score,
+    const float *back_guide,
+    const float *posts,
+    int num_state_bits,
+    size_t n_timesteps,
+    float beam_cut,
+    float fixed_stay_score,
     state_t *states,
     uint8_t *moves,
     float *qual_data,

@@ -16,18 +16,18 @@
 extern "C" {
 #endif
 
-double realtime(void);
+double openfish_realtime(void);
 
-double cputime(void);
+double openfish_cputime(void);
 
-long peakrss(void);
+long openfish_peakrss(void);
 
 // prints to the provided buffer a nice number of bytes (KB, MB, GB, etc)
-void print_size(const char* name, uint64_t bytes);
+void openfish_print_size(const char* name, uint64_t bytes);
 
-int64_t mm_parse_num(const char* str);
+int64_t openfish_mm_parse_num(const char* str);
 
-void yes_or_no(uint64_t* flag_a, uint64_t flag, const char* opt_name, const char* arg, int yes_to_set);
+void openfish_yes_or_no(uint64_t* flag_a, uint64_t flag, const char* opt_name, const char* arg, int yes_to_set);
 
 #ifdef __cplusplus
 }

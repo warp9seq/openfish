@@ -9,7 +9,7 @@
 
 #include "decode.h"
 
-__global__ void bwd_scan(
+static __global__ void bwd_scan(
 	const scan_args_t args,
 	float *out
 ) {
@@ -17,12 +17,12 @@ __global__ void bwd_scan(
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t state = tid;
 
-    const half *scores_in = (half *)args.scores_in;
+    const half *scores_in = (const half *)args.scores_in;
     const uint64_t num_states = args.num_states;
-    const uint64_t T = args.T;
-    const uint64_t N = args.N;
+    const uint64_t n_timesteps = args.n_timesteps;
+    const uint64_t batch_size = args.batch_size;
 
-	if (chunk >= args.N || tid >= num_states) {
+	if (chunk >= args.batch_size || tid >= num_states) {
 		return;
 	}
 
@@ -31,13 +31,13 @@ __global__ void bwd_scan(
     const uint64_t ts_states = num_states * NUM_BASES;
 
     const half *const chunk_in = scores_in + chunk * ts_states;
-    float* const chunk_out = out + chunk * (T+1) * num_states;
-    float* const alpha_init = chunk_out + num_states * T;
+    float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
+    float* const alpha_init = chunk_out + num_states * n_timesteps;
     alpha_init[state] = 0.0f;
 
-    for (uint64_t ts = 0; ts < T; ++ts) {
+    for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
         __syncthreads();
-        const half *const ts_in = chunk_in + N * ts_states * (T - ts - 1);
+        const half *const ts_in = chunk_in + batch_size * ts_states * (n_timesteps - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -60,7 +60,7 @@ __global__ void bwd_scan(
     }
 }
 
-__global__ void fwd_post_scan(
+static __global__ void fwd_post_scan(
     const scan_args_t args,
     const float *bwd,
     float *out
@@ -74,13 +74,13 @@ __global__ void fwd_post_scan(
     (void)mask;
     const uint64_t state = tid;
 
-    const half *scores_in = (half *)args.scores_in;
+    const half *scores_in = (const half *)args.scores_in;
     const uint64_t num_states = args.num_states;
-    const uint64_t _T = args.T;
-    const uint64_t T = args.T + 1;
-    const uint64_t N = args.N;
+    const uint64_t n_timesteps = args.n_timesteps;
+    const uint64_t n_ts = args.n_timesteps + 1;
+    const uint64_t batch_size = args.batch_size;
 
-	if (chunk >= N || tid >= num_states) {
+	if (chunk >= batch_size || tid >= num_states) {
 		return;
 	}
 
@@ -107,11 +107,11 @@ __global__ void fwd_post_scan(
     }
     __syncthreads();
 
-    for (uint64_t ts = 0; ts < T; ++ts) {
+    for (uint64_t ts = 0; ts < n_ts; ++ts) {
         warp_max = -FLT_MAX;
         // we read forward guide values written to TG memory in the previous step as inputs to this step
         // however, there has already been a TG barrier since they were written
-        const uint64_t ts_idx = (chunk * T + ts) * num_states;
+        const uint64_t ts_idx = (chunk * n_ts + ts) * num_states;
 
         // alternating TG buffer twiddling
         const float* const ts_alpha_in = ts_fwd[ts & 1];
@@ -119,11 +119,11 @@ __global__ void fwd_post_scan(
 
         // calculate the next time step's forward guide from this time step's scores and forward guide
         // it's written to threadgroup memory for use in the next iteration. the guide is only defined
-        // over the _T score time steps, so we skip the final iteration (which would otherwise read
+        // over the n_timesteps score time steps, so we skip the final iteration (which would otherwise read
         // past the scores buffer to produce a result that is never read)
-        if (ts < _T) {
+        if (ts < n_timesteps) {
             // this time step's scores
-            const half *const ts_scores = chunk_scores + N * ts_states * ts;
+            const half *const ts_scores = chunk_scores + batch_size * ts_states * ts;
 
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / NUM_BASES;
