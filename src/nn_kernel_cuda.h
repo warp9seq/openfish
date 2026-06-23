@@ -161,7 +161,7 @@ static __global__ void rmsnorm(
     }
 }
 
-static __global__ void rmsnorm_quant(
+static __global__ void rmsnorm_quant_int8(
     const half* in,
     const half* weight,
     int8_t* residual,

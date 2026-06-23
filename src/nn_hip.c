@@ -8,7 +8,7 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
-void openfish_rmsnorm_quant_gpu(
+void openfish_rmsnorm_quant_int8_gpu(
     const void* in,
     const void* weight,
     void* residual,
@@ -24,7 +24,7 @@ void openfish_rmsnorm_quant_gpu(
     int threads = hidden_dim;
     int blocks = n_tokens;
 
-    rmsnorm_quant<<<blocks, threads>>>(
+    rmsnorm_quant_int8<<<blocks, threads>>>(
         (half *)in, (half *)weight, (int8_t *)residual, (float *)residual_scale, n_tokens, hidden_dim, alpha, eps
     );
     checkHipError();

@@ -8,7 +8,7 @@
 #include <cuda_fp16.h>
 #include <stdlib.h>
 
-void openfish_rmsnorm_quant_gpu(
+void openfish_rmsnorm_quant_int8_gpu(
     const void* in,
     const void* weight,
     void* residual,
@@ -24,7 +24,7 @@ void openfish_rmsnorm_quant_gpu(
     int blocks = n_tokens;
     size_t shared_mem_bytes = static_cast<size_t>(threads) * 2 * sizeof(float);
 
-    rmsnorm_quant<<<blocks, threads, shared_mem_bytes>>>(
+    rmsnorm_quant_int8<<<blocks, threads, shared_mem_bytes>>>(
         (half *)in, (half *)weight, (int8_t *)residual, (float *)residual_scale, n_tokens, hidden_dim, alpha, eps
     );
     checkCudaError();

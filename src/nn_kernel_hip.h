@@ -367,7 +367,7 @@ static __global__ void dequant_fp8_transpose(
     out[(((int64_t)n * n_timesteps + t) * n_channels) + c] = __float2half(v);
 }
 
-static __global__ void rmsnorm_quant( // need to verify if works on rocm
+static __global__ void rmsnorm_quant_int8( // need to verify if works on rocm
     const half* in,
     const half* weight,
     int8_t* residual,

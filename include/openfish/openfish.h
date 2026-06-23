@@ -133,7 +133,7 @@ void openfish_rmsnorm_gpu(
     float eps
 );
 
-void openfish_rmsnorm_quant_gpu(
+void openfish_rmsnorm_quant_int8_gpu(
     const void* in,
     const void* weight,
     void* residual,
