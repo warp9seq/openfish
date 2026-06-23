@@ -89,21 +89,21 @@ void openfish_rotary_emb_cpu(
     int stride_batch,
     int stride_seq,
     int stride_head,
-    int nthreads
+    int n_threads
 ) {
     // create threads
-    nthreads = batch_size < nthreads ? batch_size : nthreads;
-    const int chunks_per_thread = batch_size / nthreads;
-    const int num_threads_with_one_more_chunk = batch_size % nthreads;
+    n_threads = batch_size < n_threads ? batch_size : n_threads;
+    const int chunks_per_thread = batch_size / n_threads;
+    const int num_threads_with_one_more_chunk = batch_size % n_threads;
 
-    OPENFISH_LOG_TRACE("dispatching %d threads for cpu decoding", nthreads);
+    OPENFISH_LOG_TRACE("dispatching %d threads for cpu decoding", n_threads);
 
-    pthread_t tids[nthreads];
-    rotary_emb_thread_arg_t pt_args[nthreads];
+    pthread_t tids[n_threads];
+    rotary_emb_thread_arg_t pt_args[n_threads];
     int32_t t, ret;
 
     // set the data structures
-    for (t = 0; t < nthreads; t++) {
+    for (t = 0; t < n_threads; t++) {
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
@@ -120,12 +120,12 @@ void openfish_rotary_emb_cpu(
     }
 
     // score tensors
-    for (t = 0; t < nthreads; t++) {
+    for (t = 0; t < n_threads; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single_rotary_emb, (void *)(&pt_args[t]));
         NEG_CHK(ret);
     }
 
-    for (t = 0; t < nthreads; t++) {
+    for (t = 0; t < n_threads; t++) {
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }

@@ -153,13 +153,13 @@ static __global__ void beam_search(
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-    const uint64_t nthreads = MAX_BEAM_WIDTH * NUM_BASES;
+    const uint64_t n_threads = MAX_BEAM_WIDTH * NUM_BASES;
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
     const unsigned mask = 0xFFFFFFFFU;
     (void)mask;
 
-    if (chunk >= beam_args.batch_size || tid >= nthreads) {
+    if (chunk >= beam_args.batch_size || tid >= n_threads) {
 		return;
 	}
 
@@ -211,7 +211,7 @@ static __global__ void beam_search(
     // keeping it out of static LDS lowers the kernel's static LDS footprint, raising occupancy / blocks-per-CU.
     extern __shared__ float sorted_back_guides[];
 
-    for (size_t beam_element = tid; beam_element < MAX_BEAM_CANDIDATES; beam_element += nthreads) {
+    for (size_t beam_element = tid; beam_element < MAX_BEAM_CANDIDATES; beam_element += n_threads) {
         current_beam_front[beam_element] = (beam_front_element_t){0};
         prev_beam_front[beam_element] = (beam_front_element_t){0};
         current_scores[beam_element] = 0.0f;
@@ -226,7 +226,7 @@ static __global__ void beam_search(
 
     if (MAX_BEAM_WIDTH < num_states) {
         // copy the first set of back guides and sort to extract max_beam_width highest elements
-        for (size_t i = tid; i < num_states; i += nthreads) {
+        for (size_t i = tid; i < num_states; i += n_threads) {
             sorted_back_guides[i] = bwd_NTC[i];
         }
         __syncthreads();
@@ -254,7 +254,7 @@ static __global__ void beam_search(
     __syncthreads();
 
     // copy all beam fronts into the beam persistent state
-    for (size_t element_idx = tid; element_idx < current_beam_width; element_idx += nthreads) {
+    for (size_t element_idx = tid; element_idx < current_beam_width; element_idx += n_threads) {
         beam_vector[element_idx].state = prev_beam_front[element_idx].state;
         beam_vector[element_idx].prev_element_index = prev_beam_front[element_idx].prev_element_index;
         beam_vector[element_idx].stay = prev_beam_front[element_idx].stay;
@@ -283,14 +283,14 @@ static __global__ void beam_search(
         }
 
         // reset bloom filter
-        for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += nthreads) {
+        for (uint32_t i = tid; i < HASH_PRESENT_BITS; i += n_threads) {
             step_hash_present[i] = false;
         }
         __syncthreads();
 
         // generate list of candidate elements for this timestep (block)
         // update the max score and scores for each possible transition for each beam
-        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += n_threads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
             const int new_base = tid % NUM_BASES;
 
@@ -360,7 +360,7 @@ static __global__ void beam_search(
         //          p0{state: ATCG, stay: false} -> p1{state: TCGG, stay: false}
         //
         //      note: both must also have stemmed from the same sequence, so we keep a hash to keep track
-        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += n_threads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
             uint32_t new_elem_idx = new_elem_count + prev_elem_idx;
 
@@ -433,7 +433,7 @@ static __global__ void beam_search(
 
         // set max val in all warps
         if (warp_id == 0) {
-            warp_max = (tid < nthreads/warpSize) ? max_buf[lane_id] : 0;
+            warp_max = (tid < n_threads/warpSize) ? max_buf[lane_id] : 0;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_max = max(warp_max, __shfl_down(warp_max, offset));
@@ -455,14 +455,14 @@ static __global__ void beam_search(
         // and the result lands in count_buf[0]. warp-size agnostic (mirrors the max reduction above).
         {
             int local = 0;
-            for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+            for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                 if (current_scores[i] >= beam_cutoff_score) ++local;
             }
             for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
             if (lane_id == 0) count_buf[warp_id] = local;
             __syncthreads();
             if (warp_id == 0) {
-                int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
                 for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
                 if (tid == 0) count_buf[0] = v;
             }
@@ -508,14 +508,14 @@ static __global__ void beam_search(
                 // recount at the new beam_cutoff_score
                 {
                     int local = 0;
-                    for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+                    for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                         if (current_scores[i] >= beam_cutoff_score) ++local;
                     }
                     for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
                     if (lane_id == 0) count_buf[warp_id] = local;
                     __syncthreads();
                     if (warp_id == 0) {
-                        int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                        int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
                         for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
                         if (tid == 0) count_buf[0] = v;
                     }
@@ -539,14 +539,14 @@ static __global__ void beam_search(
             __syncthreads();
             if (bs_active) {
                 int local = 0;
-                for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+                for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                     if (current_scores[i] >= beam_cutoff_score) ++local;
                 }
                 for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down(local, offset);
                 if (lane_id == 0) count_buf[warp_id] = local;
                 __syncthreads();
                 if (warp_id == 0) {
-                    int v = (tid < (int)(nthreads/warpSize)) ? count_buf[lane_id] : 0;
+                    int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
                     for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down(v, offset);
                     if (tid == 0) count_buf[0] = v;
                 }
@@ -563,13 +563,13 @@ static __global__ void beam_search(
         // write current scores and beam fronts to prev (parallel stream compaction preserving read order).
         // an exclusive prefix-sum of the predicate gives each passing element a destination == its serial write_idx,
         // and gating on dst < MAX_BEAM_WIDTH reproduces "keep the first 32 passing elements in read order".
-        for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+        for (int i = tid; i < (int)new_elem_count; i += n_threads) {
             compact_offsets[i] = (current_scores[i] >= beam_cutoff_score) ? 1 : 0;
         }
         __syncthreads();
         for (int d = 1; d < (int)new_elem_count; d <<= 1) {
             int a0 = 0, a1 = 0;
-            int i0 = tid, i1 = tid + nthreads;
+            int i0 = tid, i1 = tid + n_threads;
             if (i0 < (int)new_elem_count && i0 >= d) a0 = compact_offsets[i0 - d];
             if (i1 < (int)new_elem_count && i1 >= d) a1 = compact_offsets[i1 - d];
             __syncthreads();
@@ -577,7 +577,7 @@ static __global__ void beam_search(
             if (i1 < (int)new_elem_count && i1 >= d) compact_offsets[i1] += a1;
             __syncthreads();
         }
-        for (int i = tid; i < (int)new_elem_count; i += nthreads) {
+        for (int i = tid; i < (int)new_elem_count; i += n_threads) {
             if (current_scores[i] >= beam_cutoff_score) {
                 int dst = compact_offsets[i] - 1;  // exclusive prefix == serial write_idx
                 if (dst < MAX_BEAM_WIDTH) {
@@ -616,7 +616,7 @@ static __global__ void beam_search(
 
         // copy this new beam front into the beam persistent state
         size_t beam_offset = (block_idx + 1) * MAX_BEAM_WIDTH;
-        for (size_t i = tid; i < elem_count; i += nthreads) {
+        for (size_t i = tid; i < elem_count; i += n_threads) {
             // remove backwards contribution from score
             prev_scores[i] -= (float)block_back_scores[prev_beam_front[i].state];
 

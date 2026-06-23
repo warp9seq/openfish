@@ -37,7 +37,7 @@ void openfish_decode_cpu(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    int nthreads,
+    int n_threads,
     const void *scores_TNC,
     int state_len,
     const openfish_opt_t *options,
@@ -58,7 +58,7 @@ void openfish_rotary_emb_cpu(
     int stride_batch,
     int stride_seq,
     int stride_head,
-    int nthreads
+    int n_threads
 );
 
 size_t openfish_gpubuf_size(

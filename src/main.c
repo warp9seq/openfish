@@ -106,8 +106,8 @@ int main(int argc, char* argv[]) {
 #if defined HAVE_CUDA || defined HAVE_ROCM
         openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
-        int nthreads = 8;
-        openfish_decode_cpu(n_timesteps, batch_size, n_channels, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+        int n_threads = 8;
+        openfish_decode_cpu(n_timesteps, batch_size, n_channels, n_threads, scores, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
 #ifdef BENCH

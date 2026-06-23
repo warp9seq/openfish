@@ -67,7 +67,7 @@ static __global__ void fwd_post_scan(
 ) {
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
-    const uint64_t nthreads = blockDim.x * blockDim.y;
+    const uint64_t n_threads = blockDim.x * blockDim.y;
     const int lane_id = tid % warpSize;
     const int warp_id = tid / warpSize;
     const unsigned mask = 0xFFFFFFFFU;
@@ -102,7 +102,7 @@ static __global__ void fwd_post_scan(
     __shared__ float ts_fwd[2][MAX_STATES];
 
     // the forward guide input for the first step is 0
-    for (uint64_t state = tid; state < num_states; state += nthreads) {
+    for (uint64_t state = tid; state < num_states; state += n_threads) {
         ts_fwd[0][state] = 0.0f;
     }
     __syncthreads();
