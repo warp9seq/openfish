@@ -70,8 +70,8 @@ static __global__ void rotary_emb(
 }
 
 static __global__ void silu_mul(
-	const half *x_gpu,
-	half *o_gpu,
+	const half *in,
+	half *out,
     const uint64_t hidden_dim,
     const uint64_t n_tokens
 ) {
@@ -80,21 +80,21 @@ static __global__ void silu_mul(
     for (uint64_t k = threadIdx.x; k < hidden_dim; k += blockDim.x) {
         uint64_t i = k + j * (hidden_dim * 2);
 
-        half y = x_gpu[i];
-        half gate = x_gpu[i + hidden_dim];
+        half y = in[i];
+        half gate = in[i + hidden_dim];
 
         float g = __half2float(gate);
         float silu = g / (1.0f + __expf(-g));
 
-        o_gpu[k + j * hidden_dim] = __float2half(silu * __half2float(y));
+        out[k + j * hidden_dim] = __float2half(silu * __half2float(y));
     }
 }
 
 static __global__ void rmsnorm(
-    const half* input,
+    const half* in,
     const half* residual,
     const half* weight,
-    half* output,
+    half* out,
     int n_tokens,
     int hidden_dim,
     float alpha,
@@ -104,9 +104,9 @@ static __global__ void rmsnorm(
     
     if (row >= n_tokens) return;
     
-    const half* x = input + row * hidden_dim;
+    const half* x = in + row * hidden_dim;
     const half* res = residual + row * hidden_dim;
-    half* y = output + row * hidden_dim;
+    half* y = out + row * hidden_dim;
     
     // Step 1: Compute sum of squares using shared memory reduction
     __shared__ float shared_sum[64];  // For warp reduction
@@ -220,7 +220,7 @@ static __device__ __forceinline__ uint8_t float_to_e4m3fn(float f) {
 // Fuses: dequant fp8 residual -> deepnorm add -> rmsnorm -> quant fp8 residual.
 // One thread per hidden-dim element; one block per row (n_tokens rows total).
 static __global__ void rmsnorm_quant_fp8(
-    const half*  input,
+    const half*  in,
     const half*  weight,
     uint8_t*     residual,
     float*       residual_scale,
@@ -234,13 +234,13 @@ static __global__ void rmsnorm_quant_fp8(
 
     if (row >= n_tokens || idx >= hidden_dim) return;
 
-    const half* inp       = input  + (int64_t)row * hidden_dim;
+    const half* inp       = in  + (int64_t)row * hidden_dim;
     uint8_t*    res       = residual + (int64_t)row * hidden_dim;
     float*      res_scale = residual_scale + row;
 
     float w = __half2float(weight[idx]);
 
-    // Dequantize fp8 residual, add scaled to new input (DeepNorm: input + alpha*residual)
+    // Dequantize fp8 residual, add scaled to new in (DeepNorm: in + alpha*residual)
     float val = __half2float(inp[idx])
               + e4m3fn_to_float(res[idx]) * (*res_scale) * alpha;
 
@@ -302,10 +302,10 @@ static __global__ void rmsnorm_quant_fp8(
 
 // Standalone f16 → fp8 E4M3FN per-token quantize.
 // One block per row, hidden_dim threads per block.
-// scale[row] = max(amax/448, 1e-12);  x_fp8[row] = clamp(x/scale, -448, 448) as fp8.
+// scale[row] = max(amax/448, 1e-12);  out[row] = clamp(x/scale, -448, 448) as fp8.
 static __global__ void quant_fp8(
-    const half*  x,        // [n_tokens, hidden_dim] f16 input (row-major)
-    uint8_t*     x_fp8,    // [n_tokens, hidden_dim] fp8 output
+    const half*  in,       // [n_tokens, hidden_dim] f16 input (row-major)
+    uint8_t*     out,      // [n_tokens, hidden_dim] fp8 output
     float*       scale,    // [n_tokens]             per-token scale output
     int          n_tokens,
     int          hidden_dim
@@ -315,7 +315,7 @@ static __global__ void quant_fp8(
 
     if (row >= n_tokens || idx >= hidden_dim) return;
 
-    float val = __half2float(x[(int64_t)row * hidden_dim + idx]);
+    float val = __half2float(in[(int64_t)row * hidden_dim + idx]);
 
     // ── Per-row amax reduce ───────────────────────────────────────────────────
     __shared__ float shared_max[64];
@@ -344,7 +344,7 @@ static __global__ void quant_fp8(
     __syncthreads();
 
     float fp8_val = fmaxf(-448.0f, fminf(448.0f, val / fp8_scale_shared));
-    x_fp8[(int64_t)row * hidden_dim + idx] = float_to_e4m3fn(fp8_val);
+    out[(int64_t)row * hidden_dim + idx] = float_to_e4m3fn(fp8_val);
 }
 
 // Dequantize fp8 [n_timesteps,batch_size,n_channels] (× scalar scale) AND transpose to
@@ -368,7 +368,7 @@ static __global__ void dequant_fp8_transpose(
 }
 
 static __global__ void rmsnorm_quant( // need to verify if works on rocm
-    const half* input,
+    const half* in,
     const half* weight,
     int8_t* residual,
     float* residual_scale,
@@ -382,7 +382,7 @@ static __global__ void rmsnorm_quant( // need to verify if works on rocm
     
     if (row >= n_tokens) return;
     
-    const half* inp = input + row * hidden_dim;
+    const half* inp = in + row * hidden_dim;
     int8_t* res = residual + row * hidden_dim;
     float* res_scale = residual_scale + row;
     float w = __half2float(weight[idx]);
@@ -476,24 +476,24 @@ static __global__ void rmsnorm_quant( // need to verify if works on rocm
 static __global__ void flstm_step(
     const half* scratch,
     const half* ih_t,
-    half* c,
+    half* cell,
     half* hh_next,
-    int C4, int C
+    int gate_dim, int hidden_dim
 ) {
     int n = blockIdx.x;
-    for (int ch = threadIdx.x; ch < C; ch += blockDim.x) {
-        int base = n * C4 + ch;
-        float gi = __half2float(scratch[base + 0*C]) + __half2float(ih_t[base + 0*C]);
-        float gf = __half2float(scratch[base + 1*C]) + __half2float(ih_t[base + 1*C]);
-        float gg = __half2float(scratch[base + 2*C]) + __half2float(ih_t[base + 2*C]);
-        float go = __half2float(scratch[base + 3*C]) + __half2float(ih_t[base + 3*C]);
+    for (int ch = threadIdx.x; ch < hidden_dim; ch += blockDim.x) {
+        int base = n * gate_dim + ch;
+        float gi = __half2float(scratch[base + 0*hidden_dim]) + __half2float(ih_t[base + 0*hidden_dim]);
+        float gf = __half2float(scratch[base + 1*hidden_dim]) + __half2float(ih_t[base + 1*hidden_dim]);
+        float gg = __half2float(scratch[base + 2*hidden_dim]) + __half2float(ih_t[base + 2*hidden_dim]);
+        float go = __half2float(scratch[base + 3*hidden_dim]) + __half2float(ih_t[base + 3*hidden_dim]);
         float i_g = fmaxf(0.f, fminf(1.f, gi * 0.2f + 0.5f));
         float f_g = fmaxf(0.f, fminf(1.f, gf * 0.2f + 0.5f));
         float g_g = fmaxf(-1.f, fminf(1.f, gg));
         float o_g = fmaxf(0.f, fminf(1.f, go * 0.2f + 0.5f));
-        float c_new = f_g * __half2float(c[n * C + ch]) + i_g * g_g;
-        c[n * C + ch]       = __float2half(c_new);
-        hh_next[n * C + ch] = __float2half(o_g * tanhf(c_new));
+        float c_new = f_g * __half2float(cell[n * hidden_dim + ch]) + i_g * g_g;
+        cell[n * hidden_dim + ch]    = __float2half(c_new);
+        hh_next[n * hidden_dim + ch] = __float2half(o_g * tanhf(c_new));
     }
 }
 
