@@ -10,6 +10,8 @@ build/*
 log.txt
 lib/*
 test/blob/
+test/__pycache__/*
+pyvenv
 
 # Local Claude Code instructions (kept locally, not in repo)
 CLAUDE.md

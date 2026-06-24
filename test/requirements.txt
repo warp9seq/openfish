@@ -1,0 +1,9 @@
+# Reference/test deps for the rotary embedding kernel (test/*.py).
+#
+# test_rotary_cuda.py JIT-compiles a CUDA binding with ninja and runs it on the
+# GPU, so it needs a CUDA-enabled torch (NOT the +cpu build) plus a CUDA toolkit
+# (CUDA_HOME, default /usr/local/cuda). Matches the working ../quantrnn setup.
+#
+#   pip install --index-url https://download.pytorch.org/whl/cu126 -r test/requirements.txt
+torch==2.7.1
+ninja==1.11.*
