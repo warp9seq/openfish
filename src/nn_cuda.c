@@ -23,8 +23,7 @@ void openfish_rmsnorm_quant_int8_gpu(
 
     int threads = hidden_dim / 2;
     int blocks = n_tokens;
-
-    // Reductions use static __shared__ arrays; no dynamic shared memory needed.
+    
     rmsnorm_quant_int8<<<blocks, threads>>>(
         (half *)in, (half *)weight, (int8_t *)residual, (float *)residual_scale, n_tokens, hidden_dim, alpha, eps
     );
@@ -65,7 +64,6 @@ void openfish_rmsnorm_gpu(
     int threads = hidden_dim / 2;
     int blocks = n_tokens;
 
-    // Reductions use static __shared__ arrays; no dynamic shared memory needed.
     rmsnorm<<<blocks, threads>>>(
         (half *)in, (half *)residual, (half *)weight, (half *)out, n_tokens, hidden_dim, alpha, eps
     );

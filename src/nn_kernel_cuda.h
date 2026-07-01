@@ -92,7 +92,7 @@ static __global__ void silu_mul(
 // ── Block-wide reductions ─────────────────────────────────────────────────────
 // Warp-level primitives, then a block-level reduction that broadcasts the result
 // to all threads via a caller-supplied shared scratch buffer (>= blockDim.x/warpSize
-// floats). The trailing double-sync leaves `shared` safe to reuse for a second
+// floats). The trailing double-sync leaves the buffer safe to reuse for a second
 // reduction in the same kernel. blockDim.x <= 1024 => num_warps <= 32 == warpSize,
 // so the final reduction fits in a single warp.
 static __device__ __forceinline__ float warp_reduce_sum(float v) {
@@ -105,33 +105,33 @@ static __device__ __forceinline__ float warp_reduce_max(float v) {
         v = fmaxf(v, __shfl_down_sync(0xffffffff, v, offset));
     return v;
 }
-static __device__ __forceinline__ float block_reduce_sum(float v, float* shared) {
+static __device__ __forceinline__ float block_reduce_sum(float v, float* warp_reduce_buf) {
     int warp_id = threadIdx.x / warpSize;
     int lane_id = threadIdx.x % warpSize;
     v = warp_reduce_sum(v);
-    if (lane_id == 0) shared[warp_id] = v;
+    if (lane_id == 0) warp_reduce_buf[warp_id] = v;
     __syncthreads();
     int num_warps = (blockDim.x + warpSize - 1) / warpSize;
-    float r = (threadIdx.x < num_warps) ? shared[threadIdx.x] : 0.0f;
+    float r = (threadIdx.x < num_warps) ? warp_reduce_buf[threadIdx.x] : 0.0f;
     if (warp_id == 0) r = warp_reduce_sum(r);
-    if (threadIdx.x == 0) shared[0] = r;
+    if (threadIdx.x == 0) warp_reduce_buf[0] = r;
     __syncthreads();
-    float result = shared[0];
+    float result = warp_reduce_buf[0];
     __syncthreads();
     return result;
 }
-static __device__ __forceinline__ float block_reduce_max(float v, float* shared) {
+static __device__ __forceinline__ float block_reduce_max(float v, float* warp_reduce_buf) {
     int warp_id = threadIdx.x / warpSize;
     int lane_id = threadIdx.x % warpSize;
     v = warp_reduce_max(v);
-    if (lane_id == 0) shared[warp_id] = v;
+    if (lane_id == 0) warp_reduce_buf[warp_id] = v;
     __syncthreads();
     int num_warps = (blockDim.x + warpSize - 1) / warpSize;
-    float r = (threadIdx.x < num_warps) ? shared[threadIdx.x] : 0.0f;
+    float r = (threadIdx.x < num_warps) ? warp_reduce_buf[threadIdx.x] : 0.0f;
     if (warp_id == 0) r = warp_reduce_max(r);
-    if (threadIdx.x == 0) shared[0] = r;
+    if (threadIdx.x == 0) warp_reduce_buf[0] = r;
     __syncthreads();
-    float result = shared[0];
+    float result = warp_reduce_buf[0];
     __syncthreads();
     return result;
 }
@@ -157,7 +157,7 @@ static __global__ void rmsnorm(
     half2* y = reinterpret_cast<half2*>(out + row * hidden_dim);
     int hd2 = hidden_dim >> 1;
 
-    __shared__ float shared[32];
+    __shared__ float warp_reduce_buf[32];
 
     float thread_sum = 0.0f;
     float2 v_new; // valid because blockDim.x == hidden_dim/2, so this loop runs exactly once per thread
@@ -169,7 +169,7 @@ static __global__ void rmsnorm(
         thread_sum += val.x * val.x + val.y * val.y;
     }
 
-    float sum_sq = block_reduce_sum(thread_sum, shared);
+    float sum_sq = block_reduce_sum(thread_sum, warp_reduce_buf);
     float rms_inv = rsqrtf(sum_sq / hidden_dim + eps);
 
     for (int i = threadIdx.x; i < hd2; i += blockDim.x) {
@@ -200,7 +200,7 @@ static __global__ void rmsnorm_quant_int8(
     char2* res = reinterpret_cast<char2*>(residual + row * hidden_dim);
     float* res_scale = residual_scale + row;
 
-    __shared__ float shared[32];
+    __shared__ float warp_reduce_buf[32];
 
     float2 wf = __half22float2(w2[idx]);
 
@@ -210,12 +210,12 @@ static __global__ void rmsnorm_quant_int8(
     float rs = *res_scale;
     float2 val = make_float2(xf.x + ((float)rq.x * rs) * alpha,
                              xf.y + ((float)rq.y * rs) * alpha);
-    float sum_sq = block_reduce_sum(val.x * val.x + val.y * val.y, shared);
+    float sum_sq = block_reduce_sum(val.x * val.x + val.y * val.y, warp_reduce_buf);
     float rms_inv = rsqrtf(sum_sq / hidden_dim + eps);
 
     // Step 2: amax of the normalized values for the output quant scale
     float2 normalized = make_float2(val.x * rms_inv * wf.x, val.y * rms_inv * wf.y);
-    float abs_max = block_reduce_max(fmaxf(fabsf(normalized.x), fabsf(normalized.y)), shared);
+    float abs_max = block_reduce_max(fmaxf(fabsf(normalized.x), fabsf(normalized.y)), warp_reduce_buf);
 
     float quant_scale = (abs_max > 0.0f) ? (127.0f / abs_max) : 1.0f;
     if (idx == 0) *res_scale = 1.0f / quant_scale;  // all threads already read old *res_scale into val
