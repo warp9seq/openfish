@@ -201,8 +201,9 @@ static __global__ void beam_search(
     __shared__ bool cand_scratch[HASH_PRESENT_BITS];
     bool *const step_hash_present = cand_scratch;        // bloom-filter view (candidate/stay generation)
     int  *const compact_offsets   = (int *)cand_scratch; // prefix-sum write-offset view (pruning/compaction)
-    static_assert(MAX_BEAM_CANDIDATES * sizeof(int) <= HASH_PRESENT_BITS * sizeof(bool),
-                  "compact_offsets overlay does not fit in cand_scratch");
+    // NOTE: the compact_offsets overlay must fit in cand_scratch, i.e.
+    // MAX_BEAM_CANDIDATES * sizeof(int) <= HASH_PRESENT_BITS * sizeof(bool).
+    // This is asserted host-side before the kernel launch (see decode_hip.c).
 
     __shared__ size_t current_beam_width;
     __shared__ float beam_init_threshold;

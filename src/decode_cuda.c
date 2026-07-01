@@ -157,6 +157,9 @@ void openfish_decode_gpu(
     checkCudaError();
 
     OPENFISH_LOG_TRACE("%s", "beam search...");
+    // the compact_offsets prefix-sum view overlays cand_scratch in the beam_search kernel,
+    // so the int offsets must fit within the bool bloom-filter storage.
+    ASSERT(MAX_BEAM_CANDIDATES * sizeof(int) <= HASH_PRESENT_BITS * sizeof(bool));
     // dynamic shared memory holds the back-guide sort scratch (num_states floats)
     beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
         beam_args,
