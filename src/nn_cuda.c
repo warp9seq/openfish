@@ -19,12 +19,13 @@ void openfish_rmsnorm_quant_int8_gpu(
     float eps
 ) {
     ASSERT(hidden_dim <= 1024);
+    ASSERT(hidden_dim % 2 == 0);  // kernel is half2-vectorized: one thread per adjacent pair
 
-    int threads = hidden_dim;
+    int threads = hidden_dim / 2;
     int blocks = n_tokens;
-    size_t shared_mem_bytes = static_cast<size_t>(threads) * 2 * sizeof(float);
 
-    rmsnorm_quant_int8<<<blocks, threads, shared_mem_bytes>>>(
+    // Reductions use static __shared__ arrays; no dynamic shared memory needed.
+    rmsnorm_quant_int8<<<blocks, threads>>>(
         (half *)in, (half *)weight, (int8_t *)residual, (float *)residual_scale, n_tokens, hidden_dim, alpha, eps
     );
     checkCudaError();
@@ -59,12 +60,13 @@ void openfish_rmsnorm_gpu(
     float eps
 ) {
     ASSERT(hidden_dim <= 1024);
+    ASSERT(hidden_dim % 2 == 0);  // kernel is half2-vectorized: one thread per adjacent pair
 
-    int threads = hidden_dim;
+    int threads = hidden_dim / 2;
     int blocks = n_tokens;
-    size_t shared_mem_bytes = static_cast<size_t>(threads) * sizeof(float);
 
-    rmsnorm<<<blocks, threads, shared_mem_bytes>>>(
+    // Reductions use static __shared__ arrays; no dynamic shared memory needed.
+    rmsnorm<<<blocks, threads>>>(
         (half *)in, (half *)residual, (half *)weight, (half *)out, n_tokens, hidden_dim, alpha, eps
     );
     checkCudaError();

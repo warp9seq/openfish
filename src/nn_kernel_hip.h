@@ -90,6 +90,53 @@ static __global__ void silu_mul(
     }
 }
 
+// ── Block-wide reductions ─────────────────────────────────────────────────────
+// Warp-level primitives, then a block-level reduction that broadcasts the result
+// to all threads via a caller-supplied shared scratch buffer (>= blockDim.x/warpSize
+// floats). The trailing double-sync leaves `shared` safe to reuse for a second
+// reduction in the same kernel. blockDim.x <= 1024 => num_warps <= 16 (warpSize 64),
+// so the final reduction fits in a single warp.
+static __device__ __forceinline__ float warp_reduce_sum(float v) {
+    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
+        v += __shfl_down(v, offset);
+    return v;
+}
+static __device__ __forceinline__ float warp_reduce_max(float v) {
+    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
+        v = fmaxf(v, __shfl_down(v, offset));
+    return v;
+}
+static __device__ __forceinline__ float block_reduce_sum(float v, float* shared) {
+    int warp_id = threadIdx.x / warpSize;
+    int lane_id = threadIdx.x % warpSize;
+    v = warp_reduce_sum(v);
+    if (lane_id == 0) shared[warp_id] = v;
+    __syncthreads();
+    int num_warps = (blockDim.x + warpSize - 1) / warpSize;
+    float r = (threadIdx.x < num_warps) ? shared[threadIdx.x] : 0.0f;
+    if (warp_id == 0) r = warp_reduce_sum(r);
+    if (threadIdx.x == 0) shared[0] = r;
+    __syncthreads();
+    float result = shared[0];
+    __syncthreads();
+    return result;
+}
+static __device__ __forceinline__ float block_reduce_max(float v, float* shared) {
+    int warp_id = threadIdx.x / warpSize;
+    int lane_id = threadIdx.x % warpSize;
+    v = warp_reduce_max(v);
+    if (lane_id == 0) shared[warp_id] = v;
+    __syncthreads();
+    int num_warps = (blockDim.x + warpSize - 1) / warpSize;
+    float r = (threadIdx.x < num_warps) ? shared[threadIdx.x] : 0.0f;
+    if (warp_id == 0) r = warp_reduce_max(r);
+    if (threadIdx.x == 0) shared[0] = r;
+    __syncthreads();
+    float result = shared[0];
+    __syncthreads();
+    return result;
+}
+
 static __global__ void rmsnorm(
     const half* in,
     const half* residual,
@@ -101,64 +148,35 @@ static __global__ void rmsnorm(
     float eps
 ) {
     int row = blockIdx.x;  // Which sequence/batch element
-    
+
     if (row >= n_tokens) return;
-    
-    const half* x = in + row * hidden_dim;
-    const half* res = residual + row * hidden_dim;
-    half* y = out + row * hidden_dim;
-    
-    // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[64];  // For warp reduction
-    
+
+    // Vectorized half2: each thread owns one adjacent pair. blockDim.x == hidden_dim/2.
+    const half2* x = reinterpret_cast<const half2*>(in + row * hidden_dim);
+    const half2* res = reinterpret_cast<const half2*>(residual + row * hidden_dim);
+    const half2* w2 = reinterpret_cast<const half2*>(weight);
+    half2* y = reinterpret_cast<half2*>(out + row * hidden_dim);
+    int hd2 = hidden_dim >> 1;
+
+    __shared__ float shared[64];
+
     float thread_sum = 0.0f;
-    float x_new; // if this for loop happens more than once it will break, in this case we need to cache more than one x
-    for (int i = threadIdx.x; i < hidden_dim; i += blockDim.x) {
-        float val = __half2float(x[i]) + (__half2float(res[i]) * alpha);
-        x_new = val;
-        thread_sum += val * val;
+    float2 v_new; // valid because blockDim.x == hidden_dim/2, so this loop runs exactly once per thread
+    for (int i = threadIdx.x; i < hd2; i += blockDim.x) {
+        float2 xf = __half22float2(x[i]);
+        float2 rf = __half22float2(res[i]);
+        float2 val = make_float2(xf.x + rf.x * alpha, xf.y + rf.y * alpha);
+        v_new = val;
+        thread_sum += val.x * val.x + val.y * val.y;
     }
-    
-    // Warp-level reduction
-    int warp_id = threadIdx.x / warpSize;
-    int lane_id = threadIdx.x % warpSize;
-    
-    // Reduce within warp
-    for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-        thread_sum += __shfl_down(thread_sum, offset);
-    }
-    
-    // First thread in each warp writes to shared memory
-    if (lane_id == 0) {
-        shared_sum[warp_id] = thread_sum;
-    }
-    __syncthreads();
-    
-    // First warp reduces the warp sums
-    float sum_sq = 0.0f;
-    if (threadIdx.x < warpSize) {
-        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
-        sum_sq = (threadIdx.x < num_warps) ? shared_sum[threadIdx.x] : 0.0f;
-        
-        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            sum_sq += __shfl_down(sum_sq, offset);
-        }
-    }
-    
-    // Broadcast RMS to all threads
-    __shared__ float rms_shared;
-    if (threadIdx.x == 0) {
-        float mean_sq = sum_sq / hidden_dim;
-        rms_shared = rsqrtf(mean_sq + eps);  // 1 / sqrt(mean_sq + eps)
-    }
-    __syncthreads();
-    
-    float rms_inv = rms_shared;
-    
-    // Step 2: Normalize and apply weight
-    for (int i = threadIdx.x; i < hidden_dim; i += blockDim.x) {
-        float w = __half2float(weight[i]);
-        y[i] = __float2half(x_new * rms_inv * w);
+
+    float sum_sq = block_reduce_sum(thread_sum, shared);
+    float rms_inv = rsqrtf(sum_sq / hidden_dim + eps);
+
+    for (int i = threadIdx.x; i < hd2; i += blockDim.x) {
+        float2 wf = __half22float2(w2[i]);
+        y[i] = __float22half2_rn(make_float2(v_new.x * rms_inv * wf.x,
+                                             v_new.y * rms_inv * wf.y));
     }
 }
 
@@ -218,7 +236,7 @@ static __device__ __forceinline__ uint8_t float_to_e4m3fn(float f) {
 
 // Combined rmsnorm + fp8 E4M3FN quantization kernel.
 // Fuses: dequant fp8 residual -> deepnorm add -> rmsnorm -> quant fp8 residual.
-// One thread per hidden-dim element; one block per row (n_tokens rows total).
+// half2-vectorized: each thread owns one adjacent pair; one block per row (n_tokens rows total).
 static __global__ void rmsnorm_quant_fp8(
     const half*  in,
     const half*  weight,
@@ -230,74 +248,43 @@ static __global__ void rmsnorm_quant_fp8(
     float        eps
 ) {
     int row = blockIdx.x;
-    int idx = threadIdx.x;
+    int idx = threadIdx.x;  // owns adjacent pair (2*idx, 2*idx+1); blockDim.x == hidden_dim/2
 
-    if (row >= n_tokens || idx >= hidden_dim) return;
+    if (row >= n_tokens) return;
 
-    const half* inp       = in  + (int64_t)row * hidden_dim;
-    uint8_t*    res       = residual + (int64_t)row * hidden_dim;
-    float*      res_scale = residual_scale + row;
+    const half2* inp      = reinterpret_cast<const half2*>(in + (int64_t)row * hidden_dim);
+    const half2* w2       = reinterpret_cast<const half2*>(weight);
+    uchar2*      res      = reinterpret_cast<uchar2*>(residual + (int64_t)row * hidden_dim);
+    float*       res_scale = residual_scale + row;
 
-    float w = __half2float(weight[idx]);
+    __shared__ float shared[64];
+
+    float2 wf = __half22float2(w2[idx]);
 
     // Dequantize fp8 residual, add scaled to new in (DeepNorm: in + alpha*residual)
-    float val = __half2float(inp[idx])
-              + e4m3fn_to_float(res[idx]) * (*res_scale) * alpha;
+    float rs = *res_scale;
+    uchar2 rq = res[idx];
+    float2 xf = __half22float2(inp[idx]);
+    float2 val = make_float2(xf.x + e4m3fn_to_float(rq.x) * rs * alpha,
+                             xf.y + e4m3fn_to_float(rq.y) * rs * alpha);
 
     // ── Reduce sum-of-squares for RMS ─────────────────────────────────────────
-    __shared__ float shared_sum[64];
+    float sum_sq = block_reduce_sum(val.x * val.x + val.y * val.y, shared);
+    float rms_inv = rsqrtf(sum_sq / hidden_dim + eps);
 
-    float thread_sum = val * val;
-    int warp_id = threadIdx.x / warpSize;
-    int lane_id = threadIdx.x % warpSize;
-
-    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-        thread_sum += __shfl_down(thread_sum, offset);
-    if (lane_id == 0) shared_sum[warp_id] = thread_sum;
-    __syncthreads();
-
-    float sum_sq = 0.0f;
-    if (threadIdx.x < warpSize) {
-        int num_warps = (blockDim.x + warpSize - 1) / warpSize;
-        sum_sq = (threadIdx.x < num_warps) ? shared_sum[threadIdx.x] : 0.0f;
-        for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-            sum_sq += __shfl_down(sum_sq, offset);
-    }
-
-    __shared__ float rms_shared;
-    if (threadIdx.x == 0) rms_shared = rsqrtf(sum_sq / hidden_dim + eps);
-    __syncthreads();
-
-    float normalized = val * rms_shared * w;
+    float2 normalized = make_float2(val.x * rms_inv * wf.x, val.y * rms_inv * wf.y);
 
     // ── Reduce amax for fp8 quantization scale ────────────────────────────────
-    __shared__ float shared_max[64];
+    float abs_max = block_reduce_max(fmaxf(fabsf(normalized.x), fabsf(normalized.y)), shared);
 
-    float thread_max = fabsf(normalized);
-    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-        thread_max = fmaxf(thread_max, __shfl_down(thread_max, offset));
-    if (lane_id == 0) shared_max[warp_id] = thread_max;
-    __syncthreads();
-
-    float abs_max = 0.0f;
-    if (threadIdx.x < warpSize) {
-        int num_warps = (blockDim.x + warpSize - 1) / warpSize;
-        abs_max = (threadIdx.x < num_warps) ? shared_max[threadIdx.x] : 0.0f;
-        for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-            abs_max = fmaxf(abs_max, __shfl_down(abs_max, offset));
-    }
-
-    __shared__ float fp8_scale_shared;
-    if (threadIdx.x == 0) {
-        float amax = fmaxf(abs_max, 1e-12f);
-        fp8_scale_shared = amax / 448.0f;
-        *res_scale = fp8_scale_shared;
-    }
-    __syncthreads();
+    float fp8_scale = fmaxf(abs_max, 1e-12f) / 448.0f;
+    if (idx == 0) *res_scale = fp8_scale;  // all threads already read old *res_scale into val
 
     // ── Write quantized fp8 residual ──────────────────────────────────────────
-    float fp8_val = fmaxf(-448.0f, fminf(448.0f, normalized / fp8_scale_shared));
-    res[idx] = float_to_e4m3fn(fp8_val);
+    uchar2 out;
+    out.x = float_to_e4m3fn(fmaxf(-448.0f, fminf(448.0f, normalized.x / fp8_scale)));
+    out.y = float_to_e4m3fn(fmaxf(-448.0f, fminf(448.0f, normalized.y / fp8_scale)));
+    res[idx] = out;
 }
 
 // Standalone f16 → fp8 E4M3FN per-token quantize.
@@ -318,32 +305,13 @@ static __global__ void quant_fp8(
     float val = __half2float(in[(int64_t)row * hidden_dim + idx]);
 
     // ── Per-row amax reduce ───────────────────────────────────────────────────
-    __shared__ float shared_max[64];
-    int warp_id = idx / warpSize;
-    int lane_id = idx % warpSize;
+    __shared__ float shared[64];
+    float abs_max = block_reduce_max(fabsf(val), shared);
 
-    float thread_max = fabsf(val);
-    for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-        thread_max = fmaxf(thread_max, __shfl_down(thread_max, offset));
-    if (lane_id == 0) shared_max[warp_id] = thread_max;
-    __syncthreads();
+    float fp8_scale = fmaxf(abs_max / 448.0f, 1e-12f);
+    if (idx == 0) scale[row] = fp8_scale;
 
-    float abs_max = 0.0f;
-    if (idx < warpSize) {
-        int num_warps = (blockDim.x + warpSize - 1) / warpSize;
-        abs_max = (idx < num_warps) ? shared_max[idx] : 0.0f;
-        for (int offset = warpSize / 2; offset > 0; offset >>= 1)
-            abs_max = fmaxf(abs_max, __shfl_down(abs_max, offset));
-    }
-
-    __shared__ float fp8_scale_shared;
-    if (idx == 0) {
-        fp8_scale_shared = fmaxf(abs_max / 448.0f, 1e-12f);
-        scale[row] = fp8_scale_shared;
-    }
-    __syncthreads();
-
-    float fp8_val = fmaxf(-448.0f, fminf(448.0f, val / fp8_scale_shared));
+    float fp8_val = fmaxf(-448.0f, fminf(448.0f, val / fp8_scale));
     out[(int64_t)row * hidden_dim + idx] = float_to_e4m3fn(fp8_val);
 }
 
@@ -378,99 +346,41 @@ static __global__ void rmsnorm_quant_int8( // need to verify if works on rocm
     float eps
 ) {
     int row = blockIdx.x;  // Which sequence/batch element
-    int idx = threadIdx.x;
-    
-    if (row >= n_tokens) return;
-    
-    const half* inp = in + row * hidden_dim;
-    int8_t* res = residual + row * hidden_dim;
-    float* res_scale = residual_scale + row;
-    float w = __half2float(weight[idx]);
-    
-    // Step 1: Compute sum of squares using shared memory reduction
-    __shared__ float shared_sum[64];  // For warp reduction
-    
-    float thread_sum = 0.0f;
-    float val = __half2float(inp[idx]) + (((float)res[idx] * (*res_scale)) * alpha);
-    thread_sum += val * val;
-    
-    // Warp-level reduction
-    int warp_id = threadIdx.x / warpSize;
-    int lane_id = threadIdx.x % warpSize;
-    
-    // Reduce within warp
-    for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-        thread_sum += __shfl_down(thread_sum, offset);
-    }
-    
-    // First thread in each warp writes to shared memory
-    if (lane_id == 0) {
-        shared_sum[warp_id] = thread_sum;
-    }
-    __syncthreads();
-    
-    // First warp reduces the warp sums
-    float sum_sq = 0.0f;
-    if (threadIdx.x < warpSize) {
-        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
-        sum_sq = (threadIdx.x < num_warps) ? shared_sum[threadIdx.x] : 0.0f;
-        
-        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            sum_sq += __shfl_down(sum_sq, offset);
-        }
-    }
-    
-    // Broadcast RMS to all threads
-    __shared__ float rms_shared;
-    if (threadIdx.x == 0) {
-        float mean_sq = sum_sq / hidden_dim;
-        rms_shared = rsqrtf(mean_sq + eps);  // 1 / sqrt(mean_sq + eps)
-    }
-    __syncthreads();
-    
-    float rms_inv = rms_shared;
+    int idx = threadIdx.x;  // owns adjacent pair (2*idx, 2*idx+1); blockDim.x == hidden_dim/2
 
-    // Step 2: Find max absolute value for output quantization
-    __shared__ float shared_max[64];
-    
-    float thread_max = 0.0f;
-    float normalized = val * rms_inv * w;
-    thread_max = fmaxf(thread_max, fabsf(normalized));
-    
-    // Reduce to find max
-    for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-        thread_max = fmaxf(thread_max, __shfl_down(thread_max, offset));
-    }
-    
-    if (lane_id == 0) {
-        shared_max[warp_id] = thread_max;
-    }
-    __syncthreads();
-    
-    float abs_max = 0.0f;
-    if (threadIdx.x < warpSize) {
-        int num_warps = (blockDim.x + (warpSize-1)) / warpSize;
-        abs_max = (threadIdx.x < num_warps) ? shared_max[threadIdx.x] : 0.0f;
-        
-        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            abs_max = fmaxf(abs_max, __shfl_down(abs_max, offset));
-        }
-    }
-    
-    // write to quant scale
-    __shared__ float quant_scale_shared;
-    if (threadIdx.x == 0) {
-        quant_scale_shared = (abs_max > 0.0f) ? (127.0f / abs_max) : 1.0f;
-        *res_scale = 1.0f / quant_scale_shared;
-    }
-    __syncthreads();
-    
-    
+    if (row >= n_tokens) return;
+
+    // Vectorized half2 in / weight, char2 int8 residual.
+    const half2* inp = reinterpret_cast<const half2*>(in + row * hidden_dim);
+    const half2* w2 = reinterpret_cast<const half2*>(weight);
+    char2* res = reinterpret_cast<char2*>(residual + row * hidden_dim);
+    float* res_scale = residual_scale + row;
+
+    __shared__ float shared[64];
+
+    float2 wf = __half22float2(w2[idx]);
+
+    // Step 1: RMS over (in + alpha * dequant(residual))
+    float2 xf = __half22float2(inp[idx]);
+    char2 rq = res[idx];
+    float rs = *res_scale;
+    float2 val = make_float2(xf.x + ((float)rq.x * rs) * alpha,
+                             xf.y + ((float)rq.y * rs) * alpha);
+    float sum_sq = block_reduce_sum(val.x * val.x + val.y * val.y, shared);
+    float rms_inv = rsqrtf(sum_sq / hidden_dim + eps);
+
+    // Step 2: amax of the normalized values for the output quant scale
+    float2 normalized = make_float2(val.x * rms_inv * wf.x, val.y * rms_inv * wf.y);
+    float abs_max = block_reduce_max(fmaxf(fabsf(normalized.x), fabsf(normalized.y)), shared);
+
+    float quant_scale = (abs_max > 0.0f) ? (127.0f / abs_max) : 1.0f;
+    if (idx == 0) *res_scale = 1.0f / quant_scale;  // all threads already read old *res_scale into val
+
     // clamp and write quantized norm
-    float quant_scale = quant_scale_shared;
-    int quantized = __float2int_rn(normalized * quant_scale);
-    quantized = max(-127, min(127, quantized));
-    res[idx] = (int8_t)quantized;
+    char2 q;
+    q.x = (int8_t)max(-127, min(127, __float2int_rn(normalized.x * quant_scale)));
+    q.y = (int8_t)max(-127, min(127, __float2int_rn(normalized.y * quant_scale)));
+    res[idx] = q;
 }
 
 static __global__ void flstm_step(

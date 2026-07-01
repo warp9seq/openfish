@@ -20,8 +20,9 @@ void openfish_rmsnorm_quant_int8_gpu(
 ) {
     hipError_t ret;
     ASSERT(hidden_dim <= 1024);
+    ASSERT(hidden_dim % 2 == 0);  // kernel is half2-vectorized: one thread per adjacent pair
 
-    int threads = hidden_dim;
+    int threads = hidden_dim / 2;
     int blocks = n_tokens;
 
     rmsnorm_quant_int8<<<blocks, threads>>>(
@@ -44,8 +45,9 @@ void openfish_rmsnorm_quant_fp8_gpu(
 ) {
     hipError_t ret;
     ASSERT(hidden_dim <= 1024);
+    ASSERT(hidden_dim % 2 == 0);  // kernel is half2-vectorized: one thread per adjacent pair
 
-    int threads = hidden_dim;
+    int threads = hidden_dim / 2;
     int blocks = n_tokens;
 
     rmsnorm_quant_fp8<<<blocks, threads>>>(
@@ -105,8 +107,9 @@ void openfish_rmsnorm_gpu(
 ) {
     hipError_t ret;
     ASSERT(hidden_dim <= 1024);
+    ASSERT(hidden_dim % 2 == 0);  // kernel is half2-vectorized: one thread per adjacent pair
 
-    int threads = hidden_dim;
+    int threads = hidden_dim / 2;
     int blocks = n_tokens;
 
     rmsnorm<<<blocks, threads>>>(
