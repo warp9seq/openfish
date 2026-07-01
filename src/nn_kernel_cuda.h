@@ -40,7 +40,7 @@ static __global__ void rotary_emb(
     const uint64_t stride_batch,
     const uint64_t stride_seq,
     const uint64_t stride_head,
-    const uint64_t rotary_half
+    const uint64_t sincos_width
 ) {
     const uint64_t batch = blockIdx.x;
     const uint64_t head = blockIdx.y;
@@ -51,11 +51,11 @@ static __global__ void rotary_emb(
     if (tid >= seq_len) return;
 
     half *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
-    half *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
+    half *_o1 = x + (batch * stride_batch) + (head * stride_head) + sincos_width + rot;
 
     for (int seq = tid; seq < seq_len; seq += n_threads) {
-        float cos = *(_cos + (seq * rotary_half) + rot);
-        float sin = *(_sin + (seq * rotary_half) + rot);
+        float cos = *(_cos + (seq * sincos_width) + rot);
+        float sin = *(_sin + (seq * sincos_width) + rot);
 
         half *o0 = _o0 + (seq * stride_seq);
         half *o1 = _o1 + (seq * stride_seq);

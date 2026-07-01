@@ -15,17 +15,17 @@ static void rotary_emb(
     uint64_t stride_batch,
     uint64_t stride_seq,
     uint64_t stride_head,
-    uint64_t rotary_half,
+    uint64_t sincos_width,
     uint64_t batch,
     uint64_t head,
     uint64_t rot
 ) {
     float *_o0 = x + (batch * stride_batch) + (head * stride_head) + rot;
-    float *_o1 = x + (batch * stride_batch) + (head * stride_head) + rotary_half + rot;
+    float *_o1 = x + (batch * stride_batch) + (head * stride_head) + sincos_width + rot;
 
     for (int seq = 0; seq < seq_len; ++seq) {
-        float cos_val = *(_cos + (seq * rotary_half) + rot);
-        float sin_val = *(_sin + (seq * rotary_half) + rot);
+        float cos_val = *(_cos + (seq * sincos_width) + rot);
+        float sin_val = *(_sin + (seq * sincos_width) + rot);
 
         float *o0 = _o0 + (seq * stride_seq);
         float *o1 = _o1 + (seq * stride_seq);
@@ -47,7 +47,7 @@ typedef struct {
     uint64_t seq_len;
     uint64_t n_heads;
     uint64_t head_dim;
-    uint64_t rotary_half;
+    uint64_t sincos_width;
     uint64_t stride_batch;
     uint64_t stride_seq;
     uint64_t stride_head;
@@ -58,7 +58,7 @@ static void* pthread_single_rotary_emb(void* voidargs) {
 
     for (uint64_t batch = args->start; batch < args->end; ++batch) {
         for (uint64_t head = 0; head < args->n_heads; ++head) {
-            for (uint64_t rot = 0; rot < args->rotary_half; ++rot) {
+            for (uint64_t rot = 0; rot < args->sincos_width; ++rot) {
                 rotary_emb(
                     args->x,
                     args->cos_buf,
@@ -67,7 +67,7 @@ static void* pthread_single_rotary_emb(void* voidargs) {
                     args->stride_batch,
                     args->stride_seq,
                     args->stride_head,
-                    args->rotary_half,
+                    args->sincos_width,
                     batch, head, rot
                 );
             }
@@ -85,7 +85,7 @@ void openfish_rotary_emb_cpu(
     int seq_len,
     int n_heads,
     int head_dim,
-    int rotary_half,
+    int sincos_width,
     int stride_batch,
     int stride_seq,
     int stride_head,
@@ -113,7 +113,7 @@ void openfish_rotary_emb_cpu(
         pt_args[t].seq_len = seq_len;
         pt_args[t].n_heads = n_heads;
         pt_args[t].head_dim = head_dim;
-        pt_args[t].rotary_half = rotary_half;
+        pt_args[t].sincos_width = sincos_width;
         pt_args[t].stride_batch = stride_batch;
         pt_args[t].stride_seq = stride_seq;
         pt_args[t].stride_head = stride_head;

@@ -163,7 +163,7 @@ void openfish_rotary_emb_gpu(
     int seq_len,
     int n_heads,
     int head_dim,
-    int rotary_half,
+    int sincos_width,
     int stride_batch,
     int stride_seq,
     int stride_head
@@ -171,7 +171,7 @@ void openfish_rotary_emb_gpu(
     hipError_t ret;
 
     int thread_h = 32;
-    dim3 block_size(rotary_half, thread_h, 1);
+    dim3 block_size(sincos_width, thread_h, 1);
 	dim3 grid_size(batch_size, n_heads, 1);
 
     rotary_emb<<<grid_size, block_size>>>(
@@ -182,7 +182,7 @@ void openfish_rotary_emb_gpu(
         stride_batch,
         stride_seq,
         stride_head,
-        rotary_half
+        sincos_width
     );
     checkHipError();
     ret = hipDeviceSynchronize();
