@@ -5,7 +5,7 @@
 #include <float.h>
 #include <cuda_fp16.h>
 
-#include "decode.h"
+#include "openfish_defs.h"
 
 __device__ static __forceinline__ void swapf(float *a, float *b) {
     float temp = *a;
@@ -51,7 +51,7 @@ __device__ static __forceinline__ float log_sum_exp(float x, float y) {
 }
 
 static __global__ void generate_sequence(
-    const beam_args_t args,
+    const beam_params_t args,
     const uint8_t *_moves,
     const state_t *_states,
     const float *_qual_data,
@@ -138,7 +138,9 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 }
 
 static __global__ void beam_search(
-    const beam_args_t beam_args,
+    const beam_params_t beam_args,
+    const void *_scores_TNC,
+    const float *_bwd_NTC,
     state_t *_states,
     uint8_t *_moves,
     beam_element_t *_beam_vector,
@@ -168,8 +170,8 @@ static __global__ void beam_search(
     const size_t scores_block_stride = batch_size * n_channels;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
-    const half *scores_TNC = (const half *)beam_args.scores_TNC + chunk * (num_states * NUM_BASES);
-    const float *bwd_NTC = beam_args.bwd_NTC + chunk * num_states * (n_timesteps + 1);
+    const half *scores_TNC = (const half *)_scores_TNC + chunk * (num_states * NUM_BASES);
+    const float *bwd_NTC = _bwd_NTC + chunk * num_states * (n_timesteps + 1);
     state_t *states = _states + chunk * n_timesteps;
     uint8_t *moves = _moves + chunk * n_timesteps;
 
@@ -639,7 +641,8 @@ static __global__ void beam_search(
 }
 
 static __global__ void compute_qual_data(
-    const beam_args_t beam_args,
+    const beam_params_t beam_args,
+    const float *_post_NTC,
     state_t *_states,
     float *_qual_data,
     const float posts_scale
@@ -654,7 +657,7 @@ static __global__ void compute_qual_data(
     const size_t num_states = 1ull << beam_args.num_state_bits;
     const size_t num_state_bits = beam_args.num_state_bits;
 
-    const float *post_NTC = beam_args.post_NTC + chunk * num_states * (n_timesteps + 1);
+    const float *post_NTC = _post_NTC + chunk * num_states * (n_timesteps + 1);
     state_t *states = _states + chunk * n_timesteps;
     float *qual_data = _qual_data + chunk * (n_timesteps * NUM_BASES);
 

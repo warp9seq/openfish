@@ -88,7 +88,7 @@ free(qstring);
 
 ## GPU decoding
 
-Requires a `cuda=1` or `rocm=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32).
+Requires a `cuda=1`, `rocm=1` or `metal=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32). For the Metal backend a device buffer is an `MTLBuffer` (the `scores_TNC` handle returned by the harness upload helper); on Apple Silicon's unified memory the `gpubuf` result pointers alias the shared buffers directly.
 
 ```c
 // Allocate persistent GPU working buffers (once per n_timesteps/batch_size/state_len combination)

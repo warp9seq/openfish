@@ -55,6 +55,17 @@ else ifdef rocm
 	CPPFLAGS += -DHAVE_ROCM=1
 	MAIN_CC = $(HIPCC)
 	MAIN_CFLAGS = -x hip $(ROCM_CFLAGS) -fPIC
+else ifdef metal
+	# Apple Silicon GPU backend. Objective-C++ glue is built with Apple clang (xcrun),
+	# and the .metal shaders are compiled at runtime via newLibraryWithSource:, so no
+	# offline metal toolchain (full Xcode) is required — only the Metal runtime framework.
+	METAL_CXX ?= xcrun clang++
+	METAL_OBJ += $(BUILD_DIR)/decode_metal.o
+	GPU_LIB = $(BUILD_DIR)/metal_code.a
+	METAL_LDFLAGS = -framework Metal -framework Foundation -framework CoreFoundation -lc++ -lobjc
+	CPPFLAGS += -DHAVE_METAL=1
+	MAIN_CC = $(CC)
+	MAIN_CFLAGS = $(CFLAGS)
 else
 	GPU_LIB = $(BUILD_DIR)/cpu_decoy.a
 	MAIN_CC = $(CC)
@@ -72,7 +83,7 @@ endif
 .PHONY: clean distclean test
 
 $(BINARY): $(BUILD_DIR)/main.o $(STATICLIB)
-	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(ROCM_LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(ROCM_LDFLAGS) $(METAL_LDFLAGS) -o $@
 
 $(STATICLIB): $(OBJ) $(GPU_LIB)
 	cp $(GPU_LIB) $@
@@ -116,6 +127,23 @@ $(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.c
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -fPIC -c $< -o $@
+
+# metal
+$(BUILD_DIR)/metal_code.a: $(METAL_OBJ)
+	$(AR) rcs $@ $^
+
+# embed the shader source as a C string (compiled at runtime with newLibraryWithSource:).
+# openfish_defs.h is prepended so the shader and the host code share one copy of the constants,
+# structs and arg blocks (newLibraryWithSource: can't resolve local #includes, so we concatenate
+# at build time). each line is wrapped as a C string literal with a trailing \n; adjacent literals concatenate.
+$(BUILD_DIR)/openfish_metal_src.h: src/openfish_defs.h src/openfish_metal.metal
+	printf 'static const char OPENFISH_METAL_SRC[] =\n' > $@
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    src/openfish_defs.h src/openfish_metal.metal >> $@
+	printf ';\n' >> $@
+
+$(BUILD_DIR)/decode_metal.o: src/decode_metal.mm src/openfish_defs.h $(BUILD_DIR)/openfish_metal_src.h
+	$(METAL_CXX) -x objective-c++ -fobjc-arc -std=c++17 $(CFLAGS) $(CPPFLAGS) -I$(BUILD_DIR) $(DEPFLAGS) -c $< -o $@
 
 # pull in auto-generated header dependencies (.d files emitted by -MMD)
 -include $(BUILD_DIR)/*.d

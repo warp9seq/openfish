@@ -1,5 +1,5 @@
 #include "beam_search.h"
-#include "decode.h"
+#include "openfish_defs.h"
 
 #include <math.h>
 #include <float.h>

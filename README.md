@@ -1,6 +1,6 @@
 # openfish
 
-*openfish* is a library for CRF-CTC beam-search decoding used in nanopore basecalling. It supports CPU, NVIDIA GPU (CUDA) and AMD GPU (ROCm/HIP).
+*openfish* is a library for CRF-CTC beam-search decoding used in nanopore basecalling. It supports CPU, NVIDIA GPU (CUDA), AMD GPU (ROCm/HIP) and Apple Silicon GPU (Metal).
 
 The CPU implementation was adopted from the C++ beam-search implementation in [ONT Dorado](https://github.com/nanoporetech/dorado) (licensed under the [Oxford Nanopore Technologies PLC. Public License Version 1.0](https://github.com/nanoporetech/dorado/blob/release-v0.8/LICENCE.txt)) and re-written in C. GPU backends were then built on top of that C implementation.
 
@@ -12,6 +12,7 @@ The CPU implementation was adopted from the C++ beam-search implementation in [O
   - [CPU-only](#cpu-only)
   - [NVIDIA GPU (CUDA)](#nvidia-gpu-cuda)
   - [AMD GPU (ROCm)](#amd-gpu-rocm)
+  - [Apple Silicon GPU (Metal)](#apple-silicon-gpu-metal)
   - [Optional build flags](#optional-build-flags)
 - [Usage](#usage)
   - [Integrating as a library](#integrating-as-a-library)
@@ -63,6 +64,22 @@ To target a specific GPU architecture, pass the `hipcc` architecture flag:
 make rocm=1 ROCM_ARCH="--offload-arch=gfx90a"
 ```
 
+### Apple Silicon GPU (Metal)
+
+Requires macOS on Apple Silicon (M-series). Only the **Xcode Command Line Tools** are needed
+(`xcode-select --install`) — the full Xcode / offline Metal toolchain is *not* required, because
+the shaders in `src/openfish_metal.metal` are compiled at runtime via `newLibraryWithSource:`.
+
+```sh
+make metal=1
+```
+
+The Objective-C++ glue (`src/decode_metal.mm`) is compiled with Apple clang (`xcrun clang++`) and
+linked against the `Metal` and `Foundation` frameworks. All buffers use unified (shared) memory, so
+there are no explicit host/device copies. Override the compiler with `METAL_CXX=... make metal=1`.
+
+The CPU-only build (`make`) also runs natively on Apple Silicon.
+
 ### Optional build flags
 
 | Flag | Description |
@@ -93,6 +110,12 @@ gcc [OPTIONS] -I path/to/openfish/include your_program.c \
 gcc [OPTIONS] -I path/to/openfish/include your_program.c \
     path/to/openfish/lib/libopenfish.a -lz -lm -lpthread \
     -L/opt/rocm/lib -lamdhip64 -lrt -ldl -o your_program
+
+# static linking (Metal build, Apple Silicon)
+clang [OPTIONS] -I path/to/openfish/include your_program.c \
+    path/to/openfish/lib/libopenfish.a -lz -lm -lpthread \
+    -framework Metal -framework Foundation -framework CoreFoundation \
+    -lc++ -lobjc -o your_program
 
 ```
 
@@ -128,6 +151,18 @@ scripts/gpu_quick_run.sh sup
 
 ```sh
 make rocm=1 debug=1
+scripts/gpu_quick_run.sh fast
+scripts/gpu_quick_run.sh hac
+scripts/gpu_quick_run.sh sup
+```
+
+**GPU (Metal, Apple Silicon):**
+
+Like the CUDA/ROCm paths, the Metal backend consumes float16 scores, so `scripts/gpu_quick_run.sh`
+works unchanged:
+
+```sh
+make metal=1 debug=1
 scripts/gpu_quick_run.sh fast
 scripts/gpu_quick_run.sh hac
 scripts/gpu_quick_run.sh sup

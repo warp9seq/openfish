@@ -52,7 +52,7 @@ size_t openfish_gpubuf_size(
     int state_len
 );
 
-#if defined(HAVE_CUDA) || defined(HAVE_ROCM)
+#if defined(HAVE_CUDA) || defined(HAVE_ROCM) || defined(HAVE_METAL)
 
 void openfish_decode_gpu(
     int n_timesteps,
@@ -77,7 +77,7 @@ void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 );
 
-#endif // defined(HAVE_CUDA) || defined(HAVE_ROCM)
+#endif // defined(HAVE_CUDA) || defined(HAVE_ROCM) || defined(HAVE_METAL)
 
 #ifdef __cplusplus
 }
