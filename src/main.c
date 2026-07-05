@@ -7,7 +7,6 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include <omp.h>
 
 #if defined HAVE_CUDA
 #include "test_utils_cuda.h"
@@ -26,7 +25,7 @@ int main(int argc, char* argv[]) {
     }
     set_openfish_log_level(OPENFISH_LOG_DBUG);
 
-    const int device = omp_get_thread_num();
+    const int device = 0;
 #if defined HAVE_CUDA
     set_device_cuda(device);
 #elif defined HAVE_ROCM

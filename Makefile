@@ -15,7 +15,6 @@ STATICLIB = $(BUILD_DIR)/libopenfish.a
 OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
-	  $(BUILD_DIR)/nn_cpu.o \
 	  $(BUILD_DIR)/openfish.o \
 	  $(BUILD_DIR)/beam_search.o \
 
@@ -34,7 +33,7 @@ endif
 ifdef cuda
 	CUDA_ROOT ?= /usr/local/cuda
     CUDA_LIB ?= $(CUDA_ROOT)/lib64
-    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o $(BUILD_DIR)/nn_cuda.o
+    CUDA_OBJ += $(BUILD_DIR)/decode_cuda.o
     NVCC ?= $(CUDA_ROOT)/bin/nvcc
     CUDA_CFLAGS += -g -O2 -lineinfo $(CUDA_ARCH) -Xcompiler -Wall
     CUDA_LDFLAGS = -L$(CUDA_LIB) -lcudart_static -lrt -ldl
@@ -50,7 +49,7 @@ else ifdef rocm
 # 	ifneq (,$(findstring gfx1150,$(ROCM_ARCH)))
 # 		ROCM_CFLAGS += -D__AMDGCN_WAVEFRONT_SIZE=32
 # 	endif
-	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o $(BUILD_DIR)/nn_hip.o
+	ROCM_OBJ += $(BUILD_DIR)/decode_hip.o
 	GPU_LIB = $(BUILD_DIR)/hip_code.a
 	ROCM_LDFLAGS = -L$(ROCM_LIB) -lamdhip64 -lrt -ldl
 	CPPFLAGS += -DHAVE_ROCM=1
@@ -68,7 +67,6 @@ endif
 
 ifdef debug
 	CPPFLAGS += -DDEBUG=1
-	CFLAGS += -fopenmp
 endif
 
 .PHONY: clean distclean test
@@ -89,13 +87,7 @@ $(BUILD_DIR)/misc.o: src/misc.c src/misc.h
 $(BUILD_DIR)/error.o: src/error.c include/openfish/openfish_error.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/signal_prep.o: src/signal_prep.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
-
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/nn_cpu.o: src/nn_cpu.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/beam_search.o: src/beam_search.c
@@ -104,10 +96,12 @@ $(BUILD_DIR)/beam_search.o: src/beam_search.c
 $(BUILD_DIR)/openfish.o: src/openfish.c include/openfish/openfish.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
-# cpu decoy
+# cpu decoy: an empty static archive that $(STATICLIB) copies as its base before
+# adding $(OBJ). BSD/macOS ar cannot create an archive with no members, so write
+# the archive magic directly — both GNU and BSD ar accept this as a valid empty archive.
 $(BUILD_DIR)/cpu_decoy.a:
 	rm -f $@
-	$(AR) -r $@
+	printf '!<arch>\n' > $@
 
 # cuda
 $(BUILD_DIR)/cuda.a: $(CUDA_OBJ)
@@ -116,17 +110,11 @@ $(BUILD_DIR)/cuda.a: $(CUDA_OBJ)
 $(BUILD_DIR)/decode_cuda.o: src/decode_cuda.c
 	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/nn_cuda.o: src/nn_cuda.c
-	$(NVCC) -x cu $(CUDA_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
-
 # hip
 $(BUILD_DIR)/hip_code.a: $(ROCM_OBJ)
 	$(HIPCC) $(ROCM_CFLAGS) --emit-static-lib -fPIC --hip-link $^ -o $@
 
 $(BUILD_DIR)/decode_hip.o: src/decode_hip.c
-	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -fPIC -c $< -o $@
-
-$(BUILD_DIR)/nn_hip.o: src/nn_hip.c
 	$(HIPCC) -x hip $(ROCM_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -fPIC -c $< -o $@
 
 # pull in auto-generated header dependencies (.d files emitted by -MMD)
