@@ -250,11 +250,26 @@ void openfish_decode_cpu(
 ) {
     const int num_states = pow(NUM_BASES, state_len);
 
-    // The CPU path operates on float32 scores only. int8 (dorado-style) decode is GPU-only;
-    // slorado keeps CPU decode on the float path. score_scale is still honored (1.0 = unscaled).
-    if (score_dtype != OPENFISH_SCORE_F16) {
-        OPENFISH_ERROR("%s", "CPU decode only supports OPENFISH_SCORE_F16 (float32) scores; use the GPU path for int8");
-        exit(EXIT_FAILURE);
+    // The CPU pipeline operates on float32 scores. For int8 input we widen and
+    // dequantize once up front, then run the standard float path with the scale already applied.
+    // This keeps the float hot loops untouched (float decode stays byte-identical) at the cost of
+    // one float scratch copy of the scores. slorado still calls the CPU path with float scores.
+    const float *scores_f32;
+    float *dequant_scores = NULL;
+    float pipeline_scale;
+    if (score_dtype == OPENFISH_SCORE_I8) {
+        const size_t n = (size_t)batch_size * n_timesteps * n_channels;
+        dequant_scores = (float *)malloc(n * sizeof(float));
+        MALLOC_CHK(dequant_scores);
+        const int8_t *q = (const int8_t *)scores_NTC;
+        for (size_t i = 0; i < n; ++i) {
+            dequant_scores[i] = (float)q[i] * score_scale;
+        }
+        scores_f32 = dequant_scores;
+        pipeline_scale = 1.0f; // dequant already folded in above
+    } else {
+        scores_f32 = (const float *)scores_NTC;
+        pipeline_scale = score_scale;
     }
 
     OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
@@ -304,8 +319,8 @@ void openfish_decode_cpu(
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
-        pt_args[t].scores_NTC = (const float *)scores_NTC;
-        pt_args[t].score_scale = score_scale;
+        pt_args[t].scores_NTC = scores_f32;
+        pt_args[t].score_scale = pipeline_scale;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].post_NTC = post_NTC;
         pt_args[t].options = options;
@@ -392,6 +407,7 @@ void openfish_decode_cpu(
 #endif
 
     // cleanup
+    free(dequant_scores); // NULL for the float path
     free(bwd_NTC);
     free(post_NTC);
 

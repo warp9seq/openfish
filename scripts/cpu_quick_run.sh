@@ -20,15 +20,30 @@ DOWNLOAD_TEST_DATA() {
 
 	mkdir -p test
 	tar_path=test/data.tgz
-	wget -O $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	if command -v wget >/dev/null 2>&1; then
+		wget -O $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	else
+		curl -L -o $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	fi
 	echo "Extracting. Please wait."
 	tar -xf $tar_path -C test || rm -rf $tar_path ${testdir}
 	rm -f $tar_path
 }
 
+# portable timing wrapper: GNU time uses --verbose, BSD/macOS time uses -l; fall back to none.
+if /usr/bin/time --verbose true >/dev/null 2>&1; then
+    TIME="/usr/bin/time --verbose"
+elif /usr/bin/time -l true >/dev/null 2>&1; then
+    TIME="/usr/bin/time -l"
+else
+    TIME=""
+fi
 
-if [ "$#" -ne 1 ]; then
-    die "usage: ./quick_run.sh <model>"
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    die "usage: ./cpu_quick_run.sh <model> [f16|i8]
+  f16 (default): decode float32 scores and compare against the reference blobs
+  i8           : decode float32 and int8 (quantised, score_scale = 5/127) and report their divergence"
 fi
 
 if [ ! -f "compare_blob" ]; then
@@ -36,9 +51,13 @@ if [ ! -f "compare_blob" ]; then
 fi
 
 MODEL=$1
+MODE=${2:-f16}
+if [ "$MODE" != "f16" ] && [ "$MODE" != "i8" ]; then
+    die "unknown mode '$MODE' (expected f16 or i8)"
+fi
 
 STATE_LEN=3
-BATCH_SIZE=1
+BATCH_SIZE=1000
 TIMESTEPS=1666
 TENS_LEN=0
 INTENS_LEN=0
@@ -61,16 +80,44 @@ if [ "$MODEL" = "sup" ]; then
     INTENS_LEN=$(( BATCH_SIZE*(TIMESTEPS) ))
 fi
 
-
 SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC.blob
 
 DOWNLOAD_TEST_DATA
 
-OMP_NUM_THREADS=1 /usr/bin/time --verbose ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+if [ "$MODE" = "i8" ]; then
+    # int8 quantised path. The same float32 score blob is decoded twice: once as float32 (the
+    # reference), and once as int8 (main.c quantises it on the host to round(tanh(x)*127) and
+    # decodes with score_scale = 5/127). We then report how far the int8 result diverges from
+    # float32 -- int8 is inherently lossy, so this is a divergence report, not a pass/fail check.
+    echo "=== decoding float32 (reference) ==="
+    ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} 0 || die "float32 decode failed"
+    for f in bwd_NTC post_NTC qual_data total_probs moves sequence qstring; do
+        mv ${f}.blob ${f}.ref.blob
+    done
 
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob $TENS_LEN
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_fwd_NTC.blob fwd_NTC.blob $TENS_LEN
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob $TENS_LEN
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob $(( 4*(INTENS_LEN) ))
-./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob $INTENS_LEN
-# ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob $INTENS_LEN
+    echo "=== decoding int8 (quantised, score_scale = 5/127) ==="
+    $TIME ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} 1 || die "int8 decode failed"
+
+    echo "=== int8 vs float32: guide / posterior tensor divergence (max & avg elem diff) ==="
+    ./compare_blob bwd_NTC.ref.blob     bwd_NTC.blob
+    ./compare_blob post_NTC.ref.blob    post_NTC.blob
+    ./compare_blob qual_data.ref.blob   qual_data.blob
+    ./compare_blob total_probs.ref.blob total_probs.blob
+
+    echo "=== int8 vs float32: output divergence (moves is the primary signal; sequence/qstring"
+    echo "    byte diffs are inflated by move-shift realignment) ==="
+    for f in moves sequence qstring; do
+        total=$(wc -c < ${f}.blob)
+        ndiff=$(cmp -l ${f}.blob ${f}.ref.blob 2>/dev/null | wc -l)
+        pct=$(awk "BEGIN{printf \"%.3f\", ($total>0)?100*$ndiff/$total:0}")
+        echo "${f}: ${ndiff} / ${total} bytes differ (${pct}%)"
+    done
+else
+    $TIME ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+
+    ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob
+    ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob
+    ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_qual_data.blob qual_data.blob
+    ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_total_probs.blob total_probs.blob
+    # ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_base_probs.blob base_probs.blob
+fi

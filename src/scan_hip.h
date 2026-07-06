@@ -10,7 +10,7 @@
 #include "openfish_defs.h"
 
 // Dequantize a raw emission score to float. f16 uses the fp16->float intrinsic; i8 is a plain cast.
-// The caller multiplies by score_scale (1.0 for the native float path, e.g. 5/127 for dorado int8).
+// The caller multiplies by score_scale (1.0 for the native float path, e.g. 5/127 for int8).
 template<typename ScoreT> __device__ __forceinline__ float load_score(ScoreT s);
 template<> __device__ __forceinline__ float load_score<half>(half s) { return __half2float(s); }
 template<> __device__ __forceinline__ float load_score<int8_t>(int8_t s) { return (float)s; }

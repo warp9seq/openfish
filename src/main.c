@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
 
     // optional score dtype selector: 0 = native float (f16 GPU / f32 CPU), 1 = int8 (GPU only).
     // int8 mode reuses the native score blob and quantizes it on the host, then decodes with the
-    // dorado dequant multiplier (5/127) so the output can be compared against the native decode.
+    // dequant multiplier (5/127) so the output can be compared against the native decode.
     const int req_dtype = (argc > 4) ? (int)strtol(argv[4], NULL, 10) : 0;
     // optional score_scale override (arg 6): defaults to 1.0 (f16) or 5/127 (i8) when < 0. test-only.
     const float req_scale = (argc > 5) ? (float)strtod(argv[5], NULL) : -1.0f;
@@ -99,14 +99,21 @@ int main(int argc, char* argv[]) {
     int up_elem_size = elem_size;
 
     if (req_dtype == 1) {
-#if defined HAVE_CUDA || defined HAVE_ROCM
-        // quantize the native fp16 scores to int8: q = round(clamp(tanh(x)*5, -5, 5) * 127/5).
-        // the stored fp16 value is already tanh(x)*5, so we just rescale and round.
-        const half *src = (const half *)scores;
+#if defined HAVE_METAL
+        OPENFISH_ERROR("%s", "int8 score dtype is not supported on the Metal path");
+        exit(EXIT_FAILURE);
+#else
+        // quantize the native scores to int8: q = round(clamp(tanh(x)*5, -5, 5) * 127/5).
+        // the stored value is already tanh(x)*5 (fp16 on the GPU path, fp32 on the CPU path),
+        // so we just rescale and round.
         int8_t *q = (int8_t *)malloc(scores_len);
         MALLOC_CHK(q);
         for (size_t i = 0; i < scores_len; ++i) {
-            float f = __half2float(src[i]) * (127.0f / 5.0f);
+#if defined HAVE_CUDA || defined HAVE_ROCM
+            float f = __half2float(((const half *)scores)[i]) * (127.0f / 5.0f);
+#else
+            float f = ((const float *)scores)[i] * (127.0f / 5.0f);
+#endif
             f = roundf(f);
             if (f > 127.0f) f = 127.0f;
             if (f < -127.0f) f = -127.0f;
@@ -118,9 +125,6 @@ int main(int argc, char* argv[]) {
         of_scale = (req_scale >= 0.0f) ? req_scale : 5.0f / 127.0f;
         up_elem_size = sizeof(int8_t);
         OPENFISH_LOG_DEBUG("quantized scores to int8 (score_scale = %g)", of_scale);
-#else
-        OPENFISH_ERROR("%s", "int8 score dtype is only supported on the CUDA/ROCm GPU path");
-        exit(EXIT_FAILURE);
 #endif
     }
 

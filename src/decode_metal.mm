@@ -184,7 +184,7 @@ extern "C" void openfish_decode_gpu(
 ) {
     ensure_metal_init();
 
-    // The Metal path currently supports float16 scores only; int8 (dorado-style) decode is
+    // The Metal path currently supports float16 scores only; int8 decode is
     // wired for the CUDA/HIP backends. score_scale is honored in the beam search.
     if (score_dtype != OPENFISH_SCORE_F16) {
         OPENFISH_ERROR("%s", "Metal decode only supports OPENFISH_SCORE_F16 (float16) scores");
