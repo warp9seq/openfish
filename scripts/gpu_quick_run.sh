@@ -20,11 +20,24 @@ DOWNLOAD_TEST_DATA() {
 
 	mkdir -p test
 	tar_path=test/data.tgz
-	wget -O $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	if command -v wget >/dev/null 2>&1; then
+		wget -O $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	else
+		curl -L -o $tar_path ${DATA_URL} || rm -rf $tar_path ${testdir}
+	fi
 	echo "Extracting. Please wait."
 	tar -xf $tar_path -C test || rm -rf $tar_path ${testdir}
 	rm -f $tar_path
 }
+
+# portable timing wrapper: GNU time uses --verbose, BSD/macOS time uses -l; fall back to none.
+if /usr/bin/time --verbose true >/dev/null 2>&1; then
+    TIME="/usr/bin/time --verbose"
+elif /usr/bin/time -l true >/dev/null 2>&1; then
+    TIME="/usr/bin/time -l"
+else
+    TIME=""
+fi
 
 
 if [ "$#" -ne 1 ]; then
@@ -65,7 +78,7 @@ SCORES=${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_scores_TNC_half.blob
 
 DOWNLOAD_TEST_DATA
 
-OMP_NUM_THREADS=1 /usr/bin/time --verbose  ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
+OMP_NUM_THREADS=1 $TIME ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_bwd_NTC.blob bwd_NTC.blob
 ./compare_blob ${DATA_DIR}/${MODEL}_${BATCH_SIZE}c_post_NTC.blob post_NTC.blob

@@ -1,7 +1,7 @@
 #ifndef BEAMSEARCH_CPU_H
 #define BEAMSEARCH_CPU_H
 
-#include "decode.h"
+#include "openfish_defs.h"
 
 #include <stdint.h>
 #include <stdlib.h>

@@ -1,5 +1,5 @@
 #include <openfish/openfish.h>
-#include "decode.h"
+#include "openfish_defs.h"
 #include "scan_hip.h"
 #include "beam_search_hip.h"
 #include "error.h"
@@ -112,8 +112,7 @@ void openfish_decode_gpu(
 
     OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", n_timesteps, batch_size, n_channels);
 
-    scan_args_t scan_args = {0};
-    scan_args.scores_in = scores_TNC;
+    scan_params_t scan_args = {0};
     scan_args.n_timesteps = n_timesteps;
     scan_args.batch_size = batch_size;
     scan_args.n_channels = n_channels;
@@ -141,10 +140,7 @@ void openfish_decode_gpu(
     const float q_shift = options->q_shift;
     const float beam_cut = options->beam_cut;
 
-    beam_args_t beam_args = {0};
-    beam_args.scores_TNC = (const half *)scores_TNC;
-    beam_args.bwd_NTC = gpubuf->bwd_NTC;
-    beam_args.post_NTC = gpubuf->post_NTC;
+    beam_params_t beam_args = {0};
     beam_args.n_timesteps = n_timesteps;
     beam_args.batch_size = batch_size;
     beam_args.n_channels = n_channels;
@@ -155,7 +151,7 @@ void openfish_decode_gpu(
     // beam search
 
     OPENFISH_LOG_TRACE("%s", "bwd scan...");
-    bwd_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC);
+    bwd_scan<<<grid_size,block_size>>>(scan_args, scores_TNC, gpubuf->bwd_NTC);
     checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
@@ -167,6 +163,8 @@ void openfish_decode_gpu(
     // dynamic shared memory holds the back-guide sort scratch (num_states floats)
     beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
         beam_args,
+        scores_TNC,
+        gpubuf->bwd_NTC,
         (state_t *)gpubuf->states,
         gpubuf->moves,
         (beam_element_t *)gpubuf->beam_vector,
@@ -179,7 +177,7 @@ void openfish_decode_gpu(
     checkHipError(); HIP_CHECK(ret);
 
     OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    fwd_post_scan<<<grid_size,block_size>>>(scan_args, scores_TNC, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkHipError();
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
@@ -187,6 +185,7 @@ void openfish_decode_gpu(
     OPENFISH_LOG_TRACE("%s", "compute qual data...");
     compute_qual_data<<<grid_size,block_size_gen>>>(
         beam_args,
+        gpubuf->post_NTC,
         (state_t *)gpubuf->states,
         gpubuf->qual_data,
         1.0f

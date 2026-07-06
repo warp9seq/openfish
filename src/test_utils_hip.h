@@ -1,7 +1,7 @@
 #pragma once
 
 #include <openfish/openfish.h>
-#include "decode.h"
+#include "openfish_defs.h"
 #include "error.h"
 #include "hip_utils.h"
 

@@ -7,7 +7,6 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include <omp.h>
 
 #if defined HAVE_CUDA
 #include "test_utils_cuda.h"
@@ -15,6 +14,14 @@
 
 #if defined HAVE_ROCM
 #include "test_utils_hip.h"
+#endif
+
+#if defined HAVE_METAL
+#include "test_utils_metal.h"
+#endif
+
+#if defined(HAVE_CUDA) || defined(HAVE_ROCM) || defined(HAVE_METAL)
+#define HAVE_GPU 1
 #endif
 
 int main(int argc, char* argv[]) {
@@ -26,11 +33,13 @@ int main(int argc, char* argv[]) {
     }
     set_openfish_log_level(OPENFISH_LOG_DBUG);
 
-    const int device = omp_get_thread_num();
+    const int device = 0;
 #if defined HAVE_CUDA
     set_device_cuda(device);
 #elif defined HAVE_ROCM
     set_device_hip(device);
+#elif defined HAVE_METAL
+    set_device_metal(device);
 #endif
 
     OPENFISH_LOG_DEBUG("simulating batches on device %d", device);
@@ -44,7 +53,7 @@ int main(int argc, char* argv[]) {
 
     // read scores from file
     size_t scores_len = n_timesteps * batch_size * n_channels;
-#if defined HAVE_CUDA || defined HAVE_ROCM
+#if defined HAVE_CUDA || defined HAVE_ROCM || defined HAVE_METAL
     const int elem_size = sizeof(uint16_t);
 #else
     const int elem_size = sizeof(float);
@@ -67,9 +76,11 @@ int main(int argc, char* argv[]) {
     void *scores_gpu = upload_scores_to_cuda(n_timesteps, batch_size, n_channels, scores);
 #elif defined HAVE_ROCM
     void *scores_gpu = upload_scores_to_hip(n_timesteps, batch_size, n_channels, scores);
+#elif defined HAVE_METAL
+    void *scores_gpu = upload_scores_to_metal(n_timesteps, batch_size, n_channels, scores);
 #endif
 
-#if defined HAVE_CUDA || defined HAVE_ROCM
+#if defined HAVE_GPU
     openfish_gpubuf_t *gpubuf = openfish_gpubuf_init(n_timesteps, batch_size, state_len);
 #endif
     openfish_opt_t options = openfish_decoder_default_opts();
@@ -103,7 +114,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     // decode scores
-#if defined HAVE_CUDA || defined HAVE_ROCM
+#if defined HAVE_GPU
         openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
         int n_threads = 8;
@@ -163,7 +174,11 @@ int main(int argc, char* argv[]) {
     write_gpubuf_hip(n_timesteps, batch_size, state_len, gpubuf);
 #endif
 
-#if defined HAVE_CUDA || defined HAVE_ROCM
+#if defined DEBUG && defined HAVE_METAL
+    write_gpubuf_metal(n_timesteps, batch_size, state_len, gpubuf);
+#endif
+
+#if defined HAVE_GPU
     openfish_gpubuf_free(gpubuf);
 #endif
 
@@ -171,6 +186,8 @@ int main(int argc, char* argv[]) {
     free_scores_cuda(scores_gpu);
 #elif defined HAVE_ROCM
     free_scores_hip(scores_gpu);
+#elif defined HAVE_METAL
+    free_scores_metal(scores_gpu);
 #endif
 #endif
     return 0;

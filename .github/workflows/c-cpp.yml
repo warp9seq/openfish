@@ -163,3 +163,19 @@ jobs:
       run: make clean && make asan=1 -j2 debug=1
     - name: asan
       run: export DEVICE=cpu && make test
+  macos_cpu:
+    name: macOS Apple Silicon (CPU)
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v2
+    - name: build
+      run: make -j3 debug=1
+    - name: test
+      run: make test
+  macos_metal:
+    name: macOS Apple Silicon (Metal)
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v2
+    - name: build metal=1
+      run: make -j3 metal=1 debug=1

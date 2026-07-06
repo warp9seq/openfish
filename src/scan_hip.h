@@ -7,17 +7,18 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 
-#include "decode.h"
+#include "openfish_defs.h"
 
 static __global__ void bwd_scan(
-	const scan_args_t args,
+	const scan_params_t args,
+	const void *_scores_in,
 	float *out
 ) {
 	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t state = tid;
 
-    const half *scores_in = (const half *)args.scores_in;
+    const half *scores_in = (const half *)_scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t n_timesteps = args.n_timesteps;
     const uint64_t batch_size = args.batch_size;
@@ -61,7 +62,8 @@ static __global__ void bwd_scan(
 }
 
 static __global__ void fwd_post_scan(
-    const scan_args_t args,
+    const scan_params_t args,
+    const void *_scores_in,
     const float *bwd,
     float *out
 ) {
@@ -74,7 +76,7 @@ static __global__ void fwd_post_scan(
     (void)mask;
     const uint64_t state = tid;
 
-    const half *scores_in = (const half *)args.scores_in;
+    const half *scores_in = (const half *)_scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t n_timesteps = args.n_timesteps;
     const uint64_t n_ts = args.n_timesteps + 1;

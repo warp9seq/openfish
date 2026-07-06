@@ -88,7 +88,7 @@ free(qstring);
 
 ## GPU decoding
 
-Requires a `cuda=1` or `rocm=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32).
+Requires a `cuda=1`, `rocm=1` or `metal=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32). For the Metal backend a device buffer is an `MTLBuffer` (the `scores_TNC` handle returned by the harness upload helper); on Apple Silicon's unified memory the `gpubuf` result pointers alias the shared buffers directly.
 
 ```c
 // Allocate persistent GPU working buffers (once per n_timesteps/batch_size/state_len combination)
@@ -111,28 +111,3 @@ openfish_gpubuf_free(gpubuf);
 ```
 
 `openfish_gpubuf_size(n_timesteps, batch_size, state_len)` returns the total number of device bytes a `gpubuf` of those dimensions occupies (useful for VRAM accounting before `openfish_gpubuf_init`).
-
-## Rotary embeddings
-
-Used by transformer-based models; applied in place to `x`. The GPU variant requires a `cuda=1` / `rocm=1` build and device pointers.
-
-```c
-// CPU
-void openfish_rotary_emb_cpu(
-    void *x,                         // [batch, seq, heads, head_dim] (modified in place)
-    const void *sin_buf,
-    const void *cos_buf,
-    int batch_size, int seq_len, int n_heads, int head_dim, int rotary_half,
-    int stride_batch, int stride_seq, int stride_head,
-    int n_threads
-);
-
-// GPU (all pointers are device pointers)
-void openfish_rotary_emb_gpu(
-    void *x,                         // modified in place
-    const void *sin_gpu,
-    const void *cos_gpu,
-    int batch_size, int seq_len, int n_heads, int head_dim, int rotary_half,
-    int stride_batch, int stride_seq, int stride_head
-);
-```

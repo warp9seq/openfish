@@ -1,5 +1,5 @@
 #include <openfish/openfish.h>
-#include "decode.h"
+#include "openfish_defs.h"
 
 openfish_opt_t openfish_decoder_default_opts(void) {
     openfish_opt_t opt = {100.0f, 2.0f, 0.0f, 1.0f};
