@@ -71,6 +71,21 @@ int main(int argc, char* argv[]) {
     }
     fclose(fp);
 
+    // The test blobs are stored TNC (timestep-major); the library now consumes NTC
+    // (batch-major). Transpose once here so the harness matches the new contract.
+    // In production, slorado provides scores already in NTC and skips this step.
+    void *scores_ntc = calloc(scores_len, elem_size);
+    MALLOC_CHK(scores_ntc);
+    for (int t = 0; t < n_timesteps; ++t) {
+        for (int n = 0; n < batch_size; ++n) {
+            memcpy((char *)scores_ntc + ((size_t)(n * n_timesteps + t) * n_channels) * elem_size,
+                   (char *)scores     + ((size_t)(t * batch_size + n) * n_channels) * elem_size,
+                   (size_t)n_channels * elem_size);
+        }
+    }
+    free(scores);
+    scores = scores_ntc;
+
     // upload scores to gpu
 #if defined HAVE_CUDA
     void *scores_gpu = upload_scores_to_cuda(n_timesteps, batch_size, n_channels, scores);

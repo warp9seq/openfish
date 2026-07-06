@@ -115,7 +115,7 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
 }
 
 void openfish_beam_search_cpu(
-    const float *scores_TNC,
+    const float *scores_NTC,
     size_t scores_block_stride,
     const float *bwd_NTC,
     const float *post_NTC,
@@ -189,7 +189,7 @@ void openfish_beam_search_cpu(
 
     // iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
-        const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const float *const block_scores = scores_NTC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float max_score = -FLT_MAX;

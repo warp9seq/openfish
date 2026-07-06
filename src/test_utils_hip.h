@@ -22,20 +22,20 @@ static inline void *upload_scores_to_hip(
     const int n_timesteps,
     const int batch_size,
     const int n_channels,
-    const void *scores_TNC
+    const void *scores_NTC
 ) {
     hipError_t ret;
-    void *scores_TNC_gpu;
-    ret = hipMalloc((void **)&scores_TNC_gpu, sizeof(half) * n_timesteps * batch_size * n_channels);
+    void *scores_NTC_gpu;
+    ret = hipMalloc((void **)&scores_NTC_gpu, sizeof(half) * n_timesteps * batch_size * n_channels);
     checkHipError(); HIP_CHECK(ret);
-    ret = hipMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * n_timesteps * batch_size * n_channels, hipMemcpyHostToDevice);
+    ret = hipMemcpy(scores_NTC_gpu, scores_NTC, sizeof(half) * n_timesteps * batch_size * n_channels, hipMemcpyHostToDevice);
     checkHipError(); HIP_CHECK(ret);
-    return scores_TNC_gpu;
+    return scores_NTC_gpu;
 }
 
-static inline void free_scores_hip(void *scores_TNC_gpu) {
+static inline void free_scores_hip(void *scores_NTC_gpu) {
     hipError_t ret;
-    ret = hipFree(scores_TNC_gpu);
+    ret = hipFree(scores_NTC_gpu);
     checkHipError(); HIP_CHECK(ret);
 }
 

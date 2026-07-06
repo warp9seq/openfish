@@ -82,7 +82,7 @@ void openfish_decode_gpu(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_TNC,
+    const void *scores_NTC,
     int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
@@ -147,7 +147,7 @@ void openfish_decode_gpu(
     // beam search
 
     OPENFISH_LOG_TRACE("%s", "bwd scan...");
-    bwd_scan<<<grid_size,block_size>>>(scan_args, scores_TNC, gpubuf->bwd_NTC);
+    bwd_scan<<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();
@@ -159,7 +159,7 @@ void openfish_decode_gpu(
     // dynamic shared memory holds the back-guide sort scratch (num_states floats)
     beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
         beam_args,
-        scores_TNC,
+        scores_NTC,
         gpubuf->bwd_NTC,
         (state_t *)gpubuf->states,
         gpubuf->moves,
@@ -173,7 +173,7 @@ void openfish_decode_gpu(
     checkCudaError();
 
     OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, scores_TNC, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    fwd_post_scan<<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();

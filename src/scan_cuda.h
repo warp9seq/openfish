@@ -19,7 +19,6 @@ static __global__ void bwd_scan(
     const half *scores_in = (const half *)_scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t n_timesteps = args.n_timesteps;
-    const uint64_t batch_size = args.batch_size;
 
 	if (chunk >= args.batch_size || tid >= num_states) {
 		return;
@@ -29,14 +28,15 @@ static __global__ void bwd_scan(
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const half *const chunk_in = scores_in + chunk * ts_states;
+    // scores are NTC: each batch element's [T,C] block is contiguous
+    const half *const chunk_in = scores_in + chunk * n_timesteps * ts_states;
     float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
     float* const alpha_init = chunk_out + num_states * n_timesteps;
     alpha_init[state] = 0.0f;
 
     for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
         __syncthreads();
-        const half *const ts_in = chunk_in + batch_size * ts_states * (n_timesteps - ts - 1);
+        const half *const ts_in = chunk_in + ts_states * (n_timesteps - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -95,8 +95,8 @@ static __global__ void fwd_post_scan(
     __shared__ float exp_sums[32]; // threadblock sum stored in [0]
     float warp_max;
 
-    // scores for this batch
-    const half *const chunk_scores = scores_in + chunk * ts_states;
+    // scores for this batch (NTC: [T,C] block contiguous per batch element)
+    const half *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
 
     // alternating forward guide buffers used for successive time steps
     __shared__ float ts_fwd[2][MAX_STATES];
@@ -123,7 +123,7 @@ static __global__ void fwd_post_scan(
         // past the scores buffer to produce a result that is never read)
         if (ts < n_timesteps) {
             // this time step's scores
-            const half *const ts_scores = chunk_scores + batch_size * ts_states * ts;
+            const half *const ts_scores = chunk_scores + ts_states * ts;
 
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / NUM_BASES;

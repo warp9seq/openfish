@@ -139,7 +139,7 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 
 static __global__ void beam_search(
     const beam_params_t beam_args,
-    const void *_scores_TNC,
+    const void *_scores_NTC,
     const float *_bwd_NTC,
     state_t *_states,
     uint8_t *_moves,
@@ -161,16 +161,17 @@ static __global__ void beam_search(
 	}
 
     const uint64_t n_timesteps = beam_args.n_timesteps;
-    const uint64_t batch_size = beam_args.batch_size;
     const uint64_t n_channels = beam_args.n_channels;
 
     const int num_state_bits = beam_args.num_state_bits;
     const size_t num_states = 1ull << num_state_bits;
     const state_t states_mask = (state_t)(num_states - 1);
-    const size_t scores_block_stride = batch_size * n_channels;
+    // scores are NTC: successive timesteps for a batch element are one C-stride apart,
+    // and the batch element's block is at chunk * T * C.
+    const size_t scores_block_stride = n_channels;
     const float log_beam_cut = (beam_cut > 0.0f) ? __logf(beam_cut) : FLT_MAX;
 
-    const half *scores_TNC = (const half *)_scores_TNC + chunk * (num_states * NUM_BASES);
+    const half *scores_NTC = (const half *)_scores_NTC + chunk * n_timesteps * (num_states * NUM_BASES);
     const float *bwd_NTC = _bwd_NTC + chunk * num_states * (n_timesteps + 1);
     state_t *states = _states + chunk * n_timesteps;
     uint8_t *moves = _moves + chunk * n_timesteps;
@@ -271,7 +272,7 @@ static __global__ void beam_search(
     __shared__ int entered_search;                // 1 if first count > MAX_BEAM_WIDTH
     __shared__ int bs_active;                      // cooperative binary-search continue/stop flag
     for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
-        const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const half *const block_scores = scores_NTC + (block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -FLT_MAX;

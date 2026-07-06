@@ -13,13 +13,13 @@ extern "C" {
 
 void set_device_metal(int device);
 
-// scores_TNC is host float16 [T,N,C] (same as the CUDA/ROCm GPU path).
-// returns an opaque handle (an MTLBuffer) to pass as scores_TNC into openfish_decode_gpu.
+// scores_NTC is host float16 [N,T,C] (same as the CUDA/ROCm GPU path).
+// returns an opaque handle (an MTLBuffer) to pass as scores_NTC into openfish_decode_gpu.
 void *upload_scores_to_metal(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_TNC
+    const void *scores_NTC
 );
 
 void free_scores_metal(void *scores_gpu);

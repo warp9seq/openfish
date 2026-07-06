@@ -10,12 +10,14 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
-static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t batch_size, const uint64_t num_states) {
+static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states) {
     const float fixed_stay_score = 2.0f;
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
+    // scores are NTC: each batch element's [T,C] block is contiguous, so its base
+    // offset is chunk * T * C and successive timesteps are one C-stride apart.
+    const float* const chunk_in = scores_in + chunk * n_timesteps * ts_states; // should be half float (for GPU impl)
     float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
     float* const alpha_init = chunk_out + num_states * n_timesteps;
     for (uint64_t state = 0; state < num_states; ++state) { // (for GPU impl) its 1 thread per state, but below we iterate through all the states on 1 thread
@@ -24,7 +26,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
 
     for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
         // threadgroup_barrier(mem_flags::medevice); // synchronize all threads before next time step (for GPU impl)
-        const float* const ts_in = chunk_in + batch_size * ts_states * (n_timesteps - ts - 1);
+        const float* const ts_in = chunk_in + ts_states * (n_timesteps - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -51,15 +53,15 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
     }
 }
 
-static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t batch_size, const uint64_t num_states) {
+static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states) {
     const uint64_t n_ts = n_timesteps+1; // number of guide/posterior time steps
     const float kFixedStayScore = 2.0f;
-    
+
     const uint64_t msb = num_states / NUM_BASES;
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    // This batch element's scores.
-    const float *const chunk_scores = scores_in + chunk * ts_states;
+    // This batch element's scores (NTC: [T,C] block contiguous per batch element).
+    const float *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
 
     // Alternating forward guide buffers used for successive time steps.
     float ts_fwd[2][MAX_STATES]; // threadgroup
@@ -96,7 +98,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         // past the scores buffer to produce a result that is never read).
         if (ts < n_timesteps) {
             // This time step's scores.
-            const float *const ts_scores = chunk_scores + batch_size * ts_states * ts;
+            const float *const ts_scores = chunk_scores + ts_states * ts;
 
             for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
                 const uint64_t stay_state_idx = state;
@@ -149,9 +151,8 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
 
 typedef struct {
     const openfish_opt_t *options;
-    const float *scores_TNC;
+    const float *scores_NTC;
     float *bwd_NTC;
-    float *fwd_NTC;
     float *post_NTC;
     int32_t start;
     int32_t end;
@@ -175,12 +176,14 @@ static void* pthread_single_scan_score(void* voidargs) {
     const int num_states = pow(NUM_BASES, args->state_len);
 
     const int n_timesteps = args->n_timesteps;
-    const int batch_size = args->batch_size;
 
     for (int c = args->start; c < args->end; c++) {
-        backward_scan(args->scores_TNC, args->bwd_NTC, c, n_timesteps, batch_size, num_states);
-        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, n_timesteps, batch_size, num_states);
-        softmax(args->fwd_NTC, args->post_NTC, c, n_timesteps, num_states);
+        backward_scan(args->scores_NTC, args->bwd_NTC, c, n_timesteps, num_states);
+        // forward_scan writes the fwd/bwd guide product into post_NTC, then softmax
+        // normalises it in place. post_NTC doubles as the forward buffer, so no
+        // separate fwd_NTC allocation is needed (mirrors the fused GPU fwd_post_scan).
+        forward_scan(args->scores_NTC, args->bwd_NTC, args->post_NTC, c, n_timesteps, num_states);
+        softmax(args->post_NTC, args->post_NTC, c, n_timesteps, num_states);
     }
 
     pthread_exit(0);
@@ -193,7 +196,6 @@ static void *pthread_single_beam_search(void *voidargs) {
     const int num_states = pow(NUM_BASES, args->state_len);
     const int num_state_bits = (int)log2(num_states);
     const int n_timesteps = args->n_timesteps;
-    const int batch_size = args->batch_size;
     const int n_channels = args->n_channels;
 
     const float fixed_stay_score = options->blank_score;
@@ -202,7 +204,7 @@ static void *pthread_single_beam_search(void *voidargs) {
     const float beam_cut = options->beam_cut;
 
     for (int c = args->start; c < args->end; c++) {
-        const float *scores = args->scores_TNC + c * (num_states * NUM_BASES);
+        const float *scores = args->scores_NTC + c * n_timesteps * (num_states * NUM_BASES);
         float *bwd = args->bwd_NTC + c * num_states * (n_timesteps+1);
         float *post = args->post_NTC + c * num_states * (n_timesteps+1);
         state_t *states = args->states + c * n_timesteps;
@@ -214,7 +216,7 @@ static void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * n_timesteps;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (n_timesteps+1);
 
-        openfish_beam_search_cpu(scores, batch_size * n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        openfish_beam_search_cpu(scores, n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < n_timesteps; ++i) {
@@ -234,7 +236,7 @@ void openfish_decode_cpu(
     int batch_size,
     int n_channels,
     int n_threads,
-    const void *scores_TNC,
+    const void *scores_NTC,
     int state_len,
     const openfish_opt_t *options,
     uint8_t **moves,
@@ -243,10 +245,9 @@ void openfish_decode_cpu(
 ) {
     const int num_states = pow(NUM_BASES, state_len);
 
-    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", n_timesteps, batch_size, n_channels);
+    OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
 
     float *bwd_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
-    float *fwd_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
     float *post_NTC = (float *)calloc(batch_size * (n_timesteps + 1) * num_states, sizeof(float));
 
     // init results
@@ -291,9 +292,8 @@ void openfish_decode_cpu(
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
-        pt_args[t].scores_TNC = (const float *)scores_TNC;
+        pt_args[t].scores_NTC = (const float *)scores_NTC;
         pt_args[t].bwd_NTC = bwd_NTC;
-        pt_args[t].fwd_NTC = fwd_NTC;
         pt_args[t].post_NTC = post_NTC;
         pt_args[t].options = options;
         pt_args[t].state_len = state_len;
@@ -344,14 +344,6 @@ void openfish_decode_cpu(
     }
     fclose(fp);
 
-    fp = fopen("fwd_NTC.blob", "w");
-    F_CHK(fp, "fwd_NTC.blob");
-    if (fwrite(fwd_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
     fp = fopen("post_NTC.blob", "w");
     F_CHK(fp, "post_NTC.blob");
     if (fwrite(post_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
@@ -388,7 +380,6 @@ void openfish_decode_cpu(
 
     // cleanup
     free(bwd_NTC);
-    free(fwd_NTC);
     free(post_NTC);
 
     free(beam_vector);

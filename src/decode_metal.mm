@@ -172,7 +172,7 @@ extern "C" void openfish_decode_gpu(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_TNC,
+    const void *scores_NTC,
     int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
@@ -183,7 +183,7 @@ extern "C" void openfish_decode_gpu(
     ensure_metal_init();
 
     metal_gpubuf *mg = (metal_gpubuf *)gpubuf;
-    id<MTLBuffer> scores = (__bridge id<MTLBuffer>)scores_TNC;
+    id<MTLBuffer> scores = (__bridge id<MTLBuffer>)scores_NTC;
 
     const int num_states = (int)pow(NUM_BASES, state_len);
     const int num_state_bits = (int)log2((double)num_states);
@@ -311,18 +311,18 @@ extern "C" void set_device_metal(int device) {
     ensure_metal_init();
 }
 
-// scores_TNC is host float16 [T,N,C] (matching the CUDA/ROCm GPU path); upload into a shared
+// scores_NTC is host float16 [N,T,C] (matching the CUDA/ROCm GPU path); upload into a shared
 // buffer. returns a +1 retained MTLBuffer bridged to void* (release with free_scores_metal).
 extern "C" void *upload_scores_to_metal(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_TNC
+    const void *scores_NTC
 ) {
     ensure_metal_init();
     const size_t bytes = (size_t)n_timesteps * batch_size * n_channels * sizeof(uint16_t);
     id<MTLBuffer> buf = new_shared_buffer(bytes);
-    memcpy([buf contents], scores_TNC, bytes);
+    memcpy([buf contents], scores_NTC, bytes);
     return (void *)CFBridgingRetain(buf);
 }
 

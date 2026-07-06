@@ -44,14 +44,15 @@ kernel void bwd_scan(
     const float fixed_stay_score = args.fixed_stay_score;
     const ulong ts_states = num_states * NUM_BASES;
 
-    device const half  *const chunk_in   = scores_in + chunk * ts_states;
+    // scores are NTC: each batch element's [T,C] block is contiguous
+    device const half  *const chunk_in   = scores_in + chunk * n_timesteps * ts_states;
     device float       *const chunk_out  = out + chunk * (n_timesteps + 1) * num_states;
     device float       *const alpha_init = chunk_out + num_states * n_timesteps;
     alpha_init[state] = 0.0f;
 
     for (ulong ts = 0; ts < n_timesteps; ++ts) {
         threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
-        device const half *const ts_in       = chunk_in + batch_size * ts_states * (n_timesteps - ts - 1);
+        device const half *const ts_in       = chunk_in + ts_states * (n_timesteps - ts - 1);
         device float      *const ts_alpha_in = alpha_init - num_states * ts;
         device float      *const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -109,7 +110,8 @@ kernel void fwd_post_scan(
     threadgroup float ts_fwd[2][MAX_STATES];
     float warp_max;
 
-    device const half *const chunk_scores = scores_in + chunk * ts_states;
+    // scores are NTC: [T,C] block contiguous per batch element
+    device const half *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
 
     for (ulong s = tid; s < num_states; s += nthreads) {
         ts_fwd[0][s] = 0.0f;
@@ -124,7 +126,7 @@ kernel void fwd_post_scan(
         threadgroup float       *const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
 
         if (ts < n_timesteps) {
-            device const half *const ts_scores = chunk_scores + batch_size * ts_states * ts;
+            device const half *const ts_scores = chunk_scores + ts_states * ts;
 
             const ulong stay_state_idx  = state;
             const ulong step_state_idx_a = state / NUM_BASES;
@@ -255,7 +257,7 @@ static inline uint crc32c(uint crc, uint new_bits, int num_new_bits) {
 
 kernel void beam_search(
     constant beam_params_t &beam_args        [[buffer(0)]],
-    device const half    *scores_TNC_in    [[buffer(1)]],
+    device const half    *scores_NTC_in    [[buffer(1)]],
     device const float   *bwd_NTC_in       [[buffer(2)]],
     device state_t       *_states          [[buffer(3)]],
     device uchar         *_moves           [[buffer(4)]],
@@ -276,16 +278,16 @@ kernel void beam_search(
     }
 
     const ulong n_timesteps = beam_args.n_timesteps;
-    const ulong batch_size  = beam_args.batch_size;
     const ulong n_channels  = beam_args.n_channels;
 
     const int num_state_bits = beam_args.num_state_bits;
     const ulong num_states = 1ull << num_state_bits;
     const state_t states_mask = (state_t)(num_states - 1);
-    const ulong scores_block_stride = batch_size * n_channels;
+    // scores are NTC: successive timesteps are one C-stride apart; batch block at chunk * T * C
+    const ulong scores_block_stride = n_channels;
     const float log_beam_cut = (beam_cut > 0.0f) ? log(beam_cut) : OF_FLT_MAX;
 
-    device const half *scores_TNC = scores_TNC_in + chunk * (num_states * NUM_BASES);
+    device const half *scores_NTC = scores_NTC_in + chunk * n_timesteps * (num_states * NUM_BASES);
     device const float *bwd_NTC = bwd_NTC_in + chunk * num_states * (n_timesteps + 1);
     device state_t *states = _states + chunk * n_timesteps;
     device uchar *moves = _moves + chunk * n_timesteps;
@@ -359,7 +361,7 @@ kernel void beam_search(
     threadgroup int bs_active;
 
     for (ulong block_idx = 0; block_idx < n_timesteps; ++block_idx) {
-        device const half *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        device const half *const block_scores = scores_NTC + (block_idx * scores_block_stride);
         device const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float warp_max = -OF_FLT_MAX;

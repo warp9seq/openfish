@@ -21,18 +21,18 @@ static inline void *upload_scores_to_cuda(
     const int n_timesteps,
     const int batch_size,
     const int n_channels,
-    const void *scores_TNC
+    const void *scores_NTC
 ) {
-    void *scores_TNC_gpu;
-    cudaMalloc((void **)&scores_TNC_gpu, sizeof(half) * n_timesteps * batch_size * n_channels);
+    void *scores_NTC_gpu;
+    cudaMalloc((void **)&scores_NTC_gpu, sizeof(half) * n_timesteps * batch_size * n_channels);
     checkCudaError();
-    cudaMemcpy(scores_TNC_gpu, scores_TNC, sizeof(half) * n_timesteps * batch_size * n_channels, cudaMemcpyHostToDevice);
+    cudaMemcpy(scores_NTC_gpu, scores_NTC, sizeof(half) * n_timesteps * batch_size * n_channels, cudaMemcpyHostToDevice);
     checkCudaError();
-    return scores_TNC_gpu;
+    return scores_NTC_gpu;
 }
 
-static inline void free_scores_cuda(void *scores_TNC_gpu) {
-    cudaFree(scores_TNC_gpu);
+static inline void free_scores_cuda(void *scores_NTC_gpu) {
+    cudaFree(scores_NTC_gpu);
     checkCudaError();
 }
 
