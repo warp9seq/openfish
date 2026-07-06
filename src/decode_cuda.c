@@ -106,7 +106,7 @@ void openfish_decode_gpu(
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(batch_size, 1, 1);
 
-    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", n_timesteps, batch_size, n_channels);
+    OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
 
     scan_params_t scan_args = {0};
     scan_args.n_timesteps = n_timesteps;

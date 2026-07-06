@@ -195,7 +195,7 @@ extern "C" void openfish_decode_gpu(
     const float score_scale = 1.0f;
     const float posts_scale = 1.0f;
 
-    OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", n_timesteps, batch_size, n_channels);
+    OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
 
     // host result buffers (freed by the caller, matching the CUDA/CPU API contract)
     *moves    = (uint8_t *)malloc((size_t)batch_size * n_timesteps * sizeof(uint8_t));

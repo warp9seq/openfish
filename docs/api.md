@@ -6,10 +6,14 @@ All public symbols are declared in `include/openfish/openfish.h` and prefixed wi
 
 | Name | Meaning |
 |------|---------|
-| `n_timesteps` | number of time steps (the `T` axis of the `scores_TNC` tensor) |
-| `batch_size`  | number of chunks/reads in the batch (the `N` axis) |
+| `n_timesteps` | number of time steps (the `T` axis of the `scores_NTC` tensor) |
+| `batch_size`  | number of chunks in the batch (the `N` axis) |
 | `n_channels`  | per-time-step score width = `4^state_len × 4` (the `C` axis) |
 | `state_len`   | CTC k-mer state length (3 = fast, 4 = hac, 5 = sup) |
+
+The score tensor is consumed in **`NTC` layout** (`[N × T × C]`, batch-major): each batch element's
+`[T × C]` block is contiguous in memory. This matches the natural output layout of the model, so no
+transpose is needed on the caller's side.
 
 **Decoder options** — call `openfish_decoder_default_opts()` for ONT DNA v4.2.0 model defaults:
 
@@ -33,7 +37,7 @@ void openfish_decode_cpu(
     int batch_size,              // number of chunks (N)
     int n_channels,              // per-time-step score width (C)
     int n_threads,                // number of CPU threads
-    const void *scores_TNC,      // input score tensor [T × N × C], float32 (read-only)
+    const void *scores_NTC,      // input score tensor [N × T × C], float32 (read-only)
     int state_len,               // CTC state length (3=fast, 4=hac, 5=sup)
     const openfish_opt_t *options,
     uint8_t **moves,             // output: move array
@@ -45,11 +49,11 @@ void openfish_decode_cpu(
 Example usage:
 
 ```c
-torch::Tensor scores = module.forward(some_signal_data);
+torch::Tensor scores = module.forward(some_signal_data); // NTC: [N × T × C]
 const openfish_opt_t opt = openfish_decoder_default_opts();
 
-const int n_timesteps = scores.size(0);
-const int batch_size  = scores.size(1);
+const int batch_size  = scores.size(0);
+const int n_timesteps = scores.size(1);
 const int n_channels  = scores.size(2);
 
 const int state_len = 3; // depends on model
@@ -88,7 +92,7 @@ free(qstring);
 
 ## GPU decoding
 
-Requires a `cuda=1`, `rocm=1` or `metal=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32). For the Metal backend a device buffer is an `MTLBuffer` (the `scores_TNC` handle returned by the harness upload helper); on Apple Silicon's unified memory the `gpubuf` result pointers alias the shared buffers directly.
+Requires a `cuda=1`, `rocm=1` or `metal=1` build. Scores must be in device memory and are **float16** for the GPU path (CPU path is float32). For the Metal backend a device buffer is an `MTLBuffer` (the `scores_NTC` handle returned by the harness upload helper); on Apple Silicon's unified memory the `gpubuf` result pointers alias the shared buffers directly.
 
 ```c
 // Allocate persistent GPU working buffers (once per n_timesteps/batch_size/state_len combination)
@@ -98,7 +102,7 @@ void openfish_decode_gpu(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_TNC,          // device pointer; float16 (read-only)
+    const void *scores_NTC,          // device pointer; [N × T × C], float16 (read-only)
     int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
