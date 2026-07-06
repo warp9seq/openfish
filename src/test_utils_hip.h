@@ -22,13 +22,15 @@ static inline void *upload_scores_to_hip(
     const int n_timesteps,
     const int batch_size,
     const int n_channels,
-    const void *scores_NTC
+    const void *scores_NTC,
+    const int elem_size   // bytes per score element (2 = float16, 1 = int8)
 ) {
+    const size_t bytes = (size_t)elem_size * n_timesteps * batch_size * n_channels;
     hipError_t ret;
     void *scores_NTC_gpu;
-    ret = hipMalloc((void **)&scores_NTC_gpu, sizeof(half) * n_timesteps * batch_size * n_channels);
+    ret = hipMalloc((void **)&scores_NTC_gpu, bytes);
     checkHipError(); HIP_CHECK(ret);
-    ret = hipMemcpy(scores_NTC_gpu, scores_NTC, sizeof(half) * n_timesteps * batch_size * n_channels, hipMemcpyHostToDevice);
+    ret = hipMemcpy(scores_NTC_gpu, scores_NTC, bytes, hipMemcpyHostToDevice);
     checkHipError(); HIP_CHECK(ret);
     return scores_NTC_gpu;
 }

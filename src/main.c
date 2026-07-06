@@ -51,6 +51,13 @@ int main(int argc, char* argv[]) {
     ASSERT(state_len > 0);
     const int n_channels = pow(4, state_len) * 4;
 
+    // optional score dtype selector: 0 = native float (f16 GPU / f32 CPU), 1 = int8 (GPU only).
+    // int8 mode reuses the native score blob and quantizes it on the host, then decodes with the
+    // dorado dequant multiplier (5/127) so the output can be compared against the native decode.
+    const int req_dtype = (argc > 4) ? (int)strtol(argv[4], NULL, 10) : 0;
+    // optional score_scale override (arg 6): defaults to 1.0 (f16) or 5/127 (i8) when < 0. test-only.
+    const float req_scale = (argc > 5) ? (float)strtod(argv[5], NULL) : -1.0f;
+
     // read scores from file
     size_t scores_len = n_timesteps * batch_size * n_channels;
 #if defined HAVE_CUDA || defined HAVE_ROCM || defined HAVE_METAL
@@ -86,13 +93,48 @@ int main(int argc, char* argv[]) {
     free(scores);
     scores = scores_ntc;
 
+    // choose the score dtype passed to the decoder. default: native float, unscaled.
+    openfish_score_dtype_t of_dtype = OPENFISH_SCORE_F16;
+    float of_scale = (req_scale >= 0.0f) ? req_scale : 1.0f;
+    int up_elem_size = elem_size;
+
+    if (req_dtype == 1) {
+#if defined HAVE_CUDA || defined HAVE_ROCM
+        // quantize the native fp16 scores to int8: q = round(clamp(tanh(x)*5, -5, 5) * 127/5).
+        // the stored fp16 value is already tanh(x)*5, so we just rescale and round.
+        const half *src = (const half *)scores;
+        int8_t *q = (int8_t *)malloc(scores_len);
+        MALLOC_CHK(q);
+        for (size_t i = 0; i < scores_len; ++i) {
+            float f = __half2float(src[i]) * (127.0f / 5.0f);
+            f = roundf(f);
+            if (f > 127.0f) f = 127.0f;
+            if (f < -127.0f) f = -127.0f;
+            q[i] = (int8_t)f;
+        }
+        free(scores);
+        scores = q;
+        of_dtype = OPENFISH_SCORE_I8;
+        of_scale = (req_scale >= 0.0f) ? req_scale : 5.0f / 127.0f;
+        up_elem_size = sizeof(int8_t);
+        OPENFISH_LOG_DEBUG("quantized scores to int8 (score_scale = %g)", of_scale);
+#else
+        OPENFISH_ERROR("%s", "int8 score dtype is only supported on the CUDA/ROCm GPU path");
+        exit(EXIT_FAILURE);
+#endif
+    }
+
+#if !defined HAVE_GPU
+    (void)up_elem_size; // only consumed by the GPU upload helpers
+#endif
+
     // upload scores to gpu
 #if defined HAVE_CUDA
-    void *scores_gpu = upload_scores_to_cuda(n_timesteps, batch_size, n_channels, scores);
+    void *scores_gpu = upload_scores_to_cuda(n_timesteps, batch_size, n_channels, scores, up_elem_size);
 #elif defined HAVE_ROCM
-    void *scores_gpu = upload_scores_to_hip(n_timesteps, batch_size, n_channels, scores);
+    void *scores_gpu = upload_scores_to_hip(n_timesteps, batch_size, n_channels, scores, up_elem_size);
 #elif defined HAVE_METAL
-    void *scores_gpu = upload_scores_to_metal(n_timesteps, batch_size, n_channels, scores);
+    void *scores_gpu = upload_scores_to_metal(n_timesteps, batch_size, n_channels, scores, up_elem_size);
 #endif
 
 #if defined HAVE_GPU
@@ -130,10 +172,10 @@ int main(int argc, char* argv[]) {
 
     // decode scores
 #if defined HAVE_GPU
-        openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
+        openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu, of_dtype, of_scale, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
         int n_threads = 8;
-        openfish_decode_cpu(n_timesteps, batch_size, n_channels, n_threads, scores, state_len, &options, &moves, &sequence, &qstring);
+        openfish_decode_cpu(n_timesteps, batch_size, n_channels, n_threads, scores, of_dtype, of_scale, state_len, &options, &moves, &sequence, &qstring);
 #endif
 
 #ifdef BENCH

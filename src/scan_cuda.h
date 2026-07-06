@@ -7,7 +7,14 @@
 
 #include "openfish_defs.h"
 
-static __global__ void bwd_scan(
+// Dequantize a raw emission score to float. f16 uses the fp16->float intrinsic; i8 is a plain cast.
+// The caller multiplies by score_scale (1.0 for the native float path, e.g. 5/127 for dorado int8).
+template<typename ScoreT> __device__ __forceinline__ float load_score(ScoreT s);
+template<> __device__ __forceinline__ float load_score<half>(half s) { return __half2float(s); }
+template<> __device__ __forceinline__ float load_score<int8_t>(int8_t s) { return (float)s; }
+
+template<typename ScoreT>
+__global__ void bwd_scan(
 	const scan_params_t args,
 	const void *_scores_in,
 	float *out
@@ -16,7 +23,7 @@ static __global__ void bwd_scan(
 	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t state = tid;
 
-    const half *scores_in = (const half *)_scores_in;
+    const ScoreT *scores_in = (const ScoreT *)_scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t n_timesteps = args.n_timesteps;
 
@@ -25,18 +32,19 @@ static __global__ void bwd_scan(
 	}
 
     const float fixed_stay_score = args.fixed_stay_score;
+    const float score_scale = args.score_scale;
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
     // scores are NTC: each batch element's [T,C] block is contiguous
-    const half *const chunk_in = scores_in + chunk * n_timesteps * ts_states;
+    const ScoreT *const chunk_in = scores_in + chunk * n_timesteps * ts_states;
     float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
     float* const alpha_init = chunk_out + num_states * n_timesteps;
     alpha_init[state] = 0.0f;
 
     for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
         __syncthreads();
-        const half *const ts_in = chunk_in + ts_states * (n_timesteps - ts - 1);
+        const ScoreT *const ts_in = chunk_in + ts_states * (n_timesteps - ts - 1);
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -48,7 +56,7 @@ static __global__ void bwd_scan(
         vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
         float max_val = vals[0];
         for (uint64_t base = 0; base < NUM_BASES; ++base) {
-            vals[base + 1] = ts_alpha_in[step_state_idx_a + base] + __half2float(ts_in[step_trans_idx_a + base * NUM_BASES]);
+            vals[base + 1] = ts_alpha_in[step_state_idx_a + base] + load_score(ts_in[step_trans_idx_a + base * NUM_BASES]) * score_scale;
             max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
         }
         float sum = 0.0f;
@@ -59,7 +67,8 @@ static __global__ void bwd_scan(
     }
 }
 
-static __global__ void fwd_post_scan(
+template<typename ScoreT>
+__global__ void fwd_post_scan(
     const scan_params_t args,
     const void *_scores_in,
     const float *bwd,
@@ -74,7 +83,7 @@ static __global__ void fwd_post_scan(
     (void)mask;
     const uint64_t state = tid;
 
-    const half *scores_in = (const half *)_scores_in;
+    const ScoreT *scores_in = (const ScoreT *)_scores_in;
     const uint64_t num_states = args.num_states;
     const uint64_t n_timesteps = args.n_timesteps;
     const uint64_t n_ts = args.n_timesteps + 1;
@@ -85,6 +94,7 @@ static __global__ void fwd_post_scan(
 	}
 
     const float fixed_stay_score = args.fixed_stay_score;
+    const float score_scale = args.score_scale;
 
     const uint64_t msb = num_states / NUM_BASES;
     const uint64_t ts_states = num_states * NUM_BASES;
@@ -96,7 +106,7 @@ static __global__ void fwd_post_scan(
     float warp_max;
 
     // scores for this batch (NTC: [T,C] block contiguous per batch element)
-    const half *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
+    const ScoreT *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
 
     // alternating forward guide buffers used for successive time steps
     __shared__ float ts_fwd[2][MAX_STATES];
@@ -123,7 +133,7 @@ static __global__ void fwd_post_scan(
         // past the scores buffer to produce a result that is never read)
         if (ts < n_timesteps) {
             // this time step's scores
-            const half *const ts_scores = chunk_scores + ts_states * ts;
+            const ScoreT *const ts_scores = chunk_scores + ts_states * ts;
 
             const uint64_t stay_state_idx = state;
             const uint64_t step_state_idx_a = state / NUM_BASES;
@@ -132,7 +142,7 @@ static __global__ void fwd_post_scan(
             float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] +
-                    __half2float(ts_scores[step_trans_idx_a + base]);
+                    load_score(ts_scores[step_trans_idx_a + base]) * score_scale;
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
             }
             float fwd_sum = 0.0f;

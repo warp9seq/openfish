@@ -83,6 +83,8 @@ void openfish_decode_gpu(
     int batch_size,
     int n_channels,
     const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
     int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
@@ -114,6 +116,7 @@ void openfish_decode_gpu(
     scan_args.n_channels = n_channels;
     scan_args.num_states = num_states;
     scan_args.fixed_stay_score = options->blank_score;
+    scan_args.score_scale = score_scale;
 
     // init results
     *moves = (uint8_t *)malloc(batch_size * n_timesteps * sizeof(uint8_t));
@@ -146,37 +149,52 @@ void openfish_decode_gpu(
     // fwd + post scan
     // beam search
 
-    OPENFISH_LOG_TRACE("%s", "bwd scan...");
-    bwd_scan<<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
-
-    OPENFISH_LOG_TRACE("%s", "beam search...");
     // the compact_offsets prefix-sum view overlays cand_scratch in the beam_search kernel,
     // so the int offsets must fit within the bool bloom-filter storage.
     ASSERT(MAX_BEAM_CANDIDATES * sizeof(int) <= HASH_PRESENT_BITS * sizeof(bool));
-    // dynamic shared memory holds the back-guide sort scratch (num_states floats)
-    beam_search<<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
-        beam_args,
-        scores_NTC,
-        gpubuf->bwd_NTC,
-        (state_t *)gpubuf->states,
-        gpubuf->moves,
-        (beam_element_t *)gpubuf->beam_vector,
-        beam_cut,
-        fixed_stay_score,
-        1.0f
-    );
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
 
-    OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
-    checkCudaError();
-    cudaDeviceSynchronize();
-    checkCudaError();
+    // scores are read (and dequantized via score_scale) in three kernels; instantiate each on the
+    // score element type. the f16 path passes score_scale = 1.0 and is numerically unchanged.
+    OPENFISH_LOG_TRACE("bwd scan / beam search / fwd + post scan (score_dtype=%d)...", (int)score_dtype);
+    if (score_dtype == OPENFISH_SCORE_I8) {
+        bwd_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+
+        beam_search<int8_t><<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
+            beam_args, scores_NTC, gpubuf->bwd_NTC,
+            (state_t *)gpubuf->states, gpubuf->moves, (beam_element_t *)gpubuf->beam_vector,
+            beam_cut, fixed_stay_score, score_scale
+        );
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+
+        fwd_post_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+    } else {
+        bwd_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+
+        beam_search<half><<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
+            beam_args, scores_NTC, gpubuf->bwd_NTC,
+            (state_t *)gpubuf->states, gpubuf->moves, (beam_element_t *)gpubuf->beam_vector,
+            beam_cut, fixed_stay_score, score_scale
+        );
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+
+        fwd_post_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkCudaError();
+        cudaDeviceSynchronize();
+        checkCudaError();
+    }
 
     OPENFISH_LOG_TRACE("%s", "compute qual data...");
     compute_qual_data<<<grid_size,block_size_gen>>>(

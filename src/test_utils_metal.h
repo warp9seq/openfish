@@ -19,7 +19,8 @@ void *upload_scores_to_metal(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_NTC
+    const void *scores_NTC,
+    int elem_size   // bytes per score element (2 = float16, 1 = int8)
 );
 
 void free_scores_metal(void *scores_gpu);

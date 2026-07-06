@@ -53,6 +53,7 @@ typedef struct scan_params {
     uint64_t batch_size;
     uint64_t n_channels;
     float    fixed_stay_score;
+    float    score_scale;      // emission-score dequant multiplier (1.0 for the native float path)
 } scan_params_t;
 
 typedef struct beam_params {

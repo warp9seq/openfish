@@ -173,6 +173,8 @@ extern "C" void openfish_decode_gpu(
     int batch_size,
     int n_channels,
     const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
     int state_len,
     const openfish_opt_t *options,
     const openfish_gpubuf_t *gpubuf,
@@ -181,6 +183,13 @@ extern "C" void openfish_decode_gpu(
     char **qstring
 ) {
     ensure_metal_init();
+
+    // The Metal path currently supports float16 scores only; int8 (dorado-style) decode is
+    // wired for the CUDA/HIP backends. score_scale is honored in the beam search.
+    if (score_dtype != OPENFISH_SCORE_F16) {
+        OPENFISH_ERROR("%s", "Metal decode only supports OPENFISH_SCORE_F16 (float16) scores");
+        exit(EXIT_FAILURE);
+    }
 
     metal_gpubuf *mg = (metal_gpubuf *)gpubuf;
     id<MTLBuffer> scores = (__bridge id<MTLBuffer>)scores_NTC;
@@ -192,7 +201,6 @@ extern "C" void openfish_decode_gpu(
     const float q_scale = options->q_scale;
     const float q_shift = options->q_shift;
     const float beam_cut = options->beam_cut;
-    const float score_scale = 1.0f;
     const float posts_scale = 1.0f;
 
     OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
@@ -216,6 +224,7 @@ extern "C" void openfish_decode_gpu(
     scan_args.batch_size = batch_size;
     scan_args.n_channels = n_channels;
     scan_args.fixed_stay_score = fixed_stay_score;
+    scan_args.score_scale = score_scale;
 
     beam_params_t beam_args = {0};
     beam_args.n_timesteps = n_timesteps;
@@ -317,10 +326,11 @@ extern "C" void *upload_scores_to_metal(
     int n_timesteps,
     int batch_size,
     int n_channels,
-    const void *scores_NTC
+    const void *scores_NTC,
+    int elem_size   // bytes per score element (2 = float16, 1 = int8)
 ) {
     ensure_metal_init();
-    const size_t bytes = (size_t)n_timesteps * batch_size * n_channels * sizeof(uint16_t);
+    const size_t bytes = (size_t)n_timesteps * batch_size * n_channels * elem_size;
     id<MTLBuffer> buf = new_shared_buffer(bytes);
     memcpy([buf contents], scores_NTC, bytes);
     return (void *)CFBridgingRetain(buf);

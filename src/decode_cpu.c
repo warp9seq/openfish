@@ -10,7 +10,7 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
-static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states) {
+static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states, const float score_scale) {
     const float fixed_stay_score = 2.0f;
 
     const uint64_t ts_states = num_states * NUM_BASES;
@@ -41,7 +41,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
             float max_val = vals[0];
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-                    ts_in[step_trans_idx_a + base * NUM_BASES];
+                    ts_in[step_trans_idx_a + base * NUM_BASES] * score_scale;
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
@@ -53,7 +53,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
     }
 }
 
-static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states) {
+static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t n_timesteps, const uint64_t num_states, const float score_scale) {
     const uint64_t n_ts = n_timesteps+1; // number of guide/posterior time steps
     const float kFixedStayScore = 2.0f;
 
@@ -108,7 +108,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
                 float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
                 for (uint64_t base = 0; base < NUM_BASES; ++base) {
                     vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] +
-                        ts_scores[step_trans_idx_a + base];
+                        ts_scores[step_trans_idx_a + base] * score_scale;
                     fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
                 }
                 float fwd_sum = 0.0f;
@@ -152,6 +152,7 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
 typedef struct {
     const openfish_opt_t *options;
     const float *scores_NTC;
+    float score_scale;
     float *bwd_NTC;
     float *post_NTC;
     int32_t start;
@@ -177,12 +178,14 @@ static void* pthread_single_scan_score(void* voidargs) {
 
     const int n_timesteps = args->n_timesteps;
 
+    const float score_scale = args->score_scale;
+
     for (int c = args->start; c < args->end; c++) {
-        backward_scan(args->scores_NTC, args->bwd_NTC, c, n_timesteps, num_states);
+        backward_scan(args->scores_NTC, args->bwd_NTC, c, n_timesteps, num_states, score_scale);
         // forward_scan writes the fwd/bwd guide product into post_NTC, then softmax
         // normalises it in place. post_NTC doubles as the forward buffer, so no
         // separate fwd_NTC allocation is needed (mirrors the fused GPU fwd_post_scan).
-        forward_scan(args->scores_NTC, args->bwd_NTC, args->post_NTC, c, n_timesteps, num_states);
+        forward_scan(args->scores_NTC, args->bwd_NTC, args->post_NTC, c, n_timesteps, num_states, score_scale);
         softmax(args->post_NTC, args->post_NTC, c, n_timesteps, num_states);
     }
 
@@ -216,7 +219,7 @@ static void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * n_timesteps;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (n_timesteps+1);
 
-        openfish_beam_search_cpu(scores, n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        openfish_beam_search_cpu(scores, n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, args->score_scale, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < n_timesteps; ++i) {
@@ -237,6 +240,8 @@ void openfish_decode_cpu(
     int n_channels,
     int n_threads,
     const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
     int state_len,
     const openfish_opt_t *options,
     uint8_t **moves,
@@ -244,6 +249,13 @@ void openfish_decode_cpu(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+
+    // The CPU path operates on float32 scores only. int8 (dorado-style) decode is GPU-only;
+    // slorado keeps CPU decode on the float path. score_scale is still honored (1.0 = unscaled).
+    if (score_dtype != OPENFISH_SCORE_F16) {
+        OPENFISH_ERROR("%s", "CPU decode only supports OPENFISH_SCORE_F16 (float32) scores; use the GPU path for int8");
+        exit(EXIT_FAILURE);
+    }
 
     OPENFISH_LOG_TRACE("scores tensor dim (NTC): %d, %d, %d", batch_size, n_timesteps, n_channels);
 
@@ -293,6 +305,7 @@ void openfish_decode_cpu(
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
         pt_args[t].scores_NTC = (const float *)scores_NTC;
+        pt_args[t].score_scale = score_scale;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].post_NTC = post_NTC;
         pt_args[t].options = options;
