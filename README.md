@@ -68,7 +68,7 @@ make rocm=1 ROCM_ARCH="--offload-arch=gfx90a"
 
 Requires macOS on Apple Silicon (M-series). Only the **Xcode Command Line Tools** are needed
 (`xcode-select --install`) — the full Xcode / offline Metal toolchain is *not* required, because
-the shaders in `src/openfish_metal.metal` are compiled at runtime via `newLibraryWithSource:`.
+the shaders in `src/kernels_metal.metal` are compiled at runtime via `newLibraryWithSource:`.
 
 ```sh
 make metal=1

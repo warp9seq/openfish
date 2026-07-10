@@ -1,6 +1,6 @@
 // Metal Shading Language port of the CRF-CTC decoding kernels.
 //
-// This mirrors the CUDA kernels in scan_cuda.h and beam_search_cuda.h. Each threadgroup
+// This mirrors the CUDA kernels in kernels_cuda.h. Each threadgroup
 // decodes one chunk (batch element), exactly like one CUDA block per chunk. CUDA warps map
 // to Metal SIMD-groups (32-wide on Apple GPUs), __syncthreads() maps to a threadgroup barrier,
 // __shared__ maps to threadgroup memory, and __shfl_down_sync maps to simd_shuffle_down.

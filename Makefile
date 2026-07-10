@@ -2,7 +2,7 @@ CC = gcc
 AR = ar
 CPPFLAGS +=	-I include/
 CFLAGS += -g -Wall -O2
-# auto-generate header dependencies so editing a .h (e.g. beam_search_hip.h) rebuilds dependent objects
+# auto-generate header dependencies so editing a .h (e.g. kernels_hip.h) rebuilds dependent objects
 DEPFLAGS = -MMD -MP
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
@@ -16,7 +16,6 @@ OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
 	  $(BUILD_DIR)/decode_cpu.o \
 	  $(BUILD_DIR)/openfish.o \
-	  $(BUILD_DIR)/beam_search.o \
 
 GPU_LIB =
 
@@ -101,9 +100,6 @@ $(BUILD_DIR)/error.o: src/error.c include/openfish/openfish_error.h
 $(BUILD_DIR)/decode_cpu.o: src/decode_cpu.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/beam_search.o: src/beam_search.c
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
-
 $(BUILD_DIR)/openfish.o: src/openfish.c include/openfish/openfish.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
@@ -136,13 +132,13 @@ $(BUILD_DIR)/metal_code.a: $(METAL_OBJ)
 # openfish_defs.h is prepended so the shader and the host code share one copy of the constants,
 # structs and arg blocks (newLibraryWithSource: can't resolve local #includes, so we concatenate
 # at build time). each line is wrapped as a C string literal with a trailing \n; adjacent literals concatenate.
-$(BUILD_DIR)/openfish_metal_src.h: src/openfish_defs.h src/openfish_metal.metal
-	printf 'static const char OPENFISH_METAL_SRC[] =\n' > $@
+$(BUILD_DIR)/kernels_metal_src.h: src/openfish_defs.h src/kernels_metal.metal
+	printf 'static const char KERNELS_METAL_SRC[] =\n' > $@
 	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
-	    src/openfish_defs.h src/openfish_metal.metal >> $@
+	    src/openfish_defs.h src/kernels_metal.metal >> $@
 	printf ';\n' >> $@
 
-$(BUILD_DIR)/decode_metal.o: src/decode_metal.mm src/openfish_defs.h $(BUILD_DIR)/openfish_metal_src.h
+$(BUILD_DIR)/decode_metal.o: src/decode_metal.mm src/openfish_defs.h $(BUILD_DIR)/kernels_metal_src.h
 	$(METAL_CXX) -x objective-c++ -fobjc-arc -std=c++17 $(CFLAGS) $(CPPFLAGS) -I$(BUILD_DIR) $(DEPFLAGS) -c $< -o $@
 
 # pull in auto-generated header dependencies (.d files emitted by -MMD)

@@ -1,5 +1,221 @@
-#ifndef BEAMSEARCH_CUDA_H
-#define BEAMSEARCH_CUDA_H
+#ifndef KERNELS_CUDA_H
+#define KERNELS_CUDA_H
+
+// ============================ scan kernels ============================
+
+#include <math.h>
+#include <float.h>
+#include <cuda_fp16.h>
+
+#include "openfish_defs.h"
+
+// Dequantize a raw emission score to float. f16 uses the fp16->float intrinsic; i8 is a plain cast.
+// The caller multiplies by score_scale (1.0 for the native float path, e.g. 5/127 for int8).
+template<typename ScoreT> __device__ __forceinline__ float load_score(ScoreT s);
+template<> __device__ __forceinline__ float load_score<half>(half s) { return __half2float(s); }
+template<> __device__ __forceinline__ float load_score<int8_t>(int8_t s) { return (float)s; }
+
+template<typename ScoreT>
+__global__ void bwd_scan(
+	const scan_params_t args,
+	const void *_scores_in,
+	float *out
+) {
+	const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+    const uint64_t state = tid;
+
+    const ScoreT *scores_in = (const ScoreT *)_scores_in;
+    const uint64_t num_states = args.num_states;
+    const uint64_t n_timesteps = args.n_timesteps;
+
+	if (chunk >= args.batch_size || tid >= num_states) {
+		return;
+	}
+
+    const float fixed_stay_score = args.fixed_stay_score;
+    const float score_scale = args.score_scale;
+
+    const uint64_t ts_states = num_states * NUM_BASES;
+
+    // scores are NTC: each batch element's [T,C] block is contiguous
+    const ScoreT *const chunk_in = scores_in + chunk * n_timesteps * ts_states;
+    float* const chunk_out = out + chunk * (n_timesteps+1) * num_states;
+    float* const alpha_init = chunk_out + num_states * n_timesteps;
+    alpha_init[state] = 0.0f;
+
+    for (uint64_t ts = 0; ts < n_timesteps; ++ts) {
+        __syncthreads();
+        const ScoreT *const ts_in = chunk_in + ts_states * (n_timesteps - ts - 1);
+        float* const ts_alpha_in = alpha_init - num_states * ts;
+        float* const ts_alpha_out = ts_alpha_in - num_states;
+
+        const uint64_t stay_state_idx = state;
+        const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
+        const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES + ((state * NUM_BASES) / num_states);
+
+        float vals[NUM_TRANSITIONS];
+        vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
+        float max_val = vals[0];
+        for (uint64_t base = 0; base < NUM_BASES; ++base) {
+            vals[base + 1] = ts_alpha_in[step_state_idx_a + base] + load_score(ts_in[step_trans_idx_a + base * NUM_BASES]) * score_scale;
+            max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
+        }
+        float sum = 0.0f;
+        for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+            sum += __expf(vals[i] - max_val);
+        }
+        ts_alpha_out[state] = max_val + __logf(sum);
+    }
+}
+
+template<typename ScoreT>
+__global__ void fwd_post_scan(
+    const scan_params_t args,
+    const void *_scores_in,
+    const float *bwd,
+    float *out
+) {
+    const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
+	const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
+    const uint64_t n_threads = blockDim.x * blockDim.y;
+    const int lane_id = tid % warpSize;
+    const int warp_id = tid / warpSize;
+    const unsigned mask = 0xFFFFFFFFU;
+    (void)mask;
+    const uint64_t state = tid;
+
+    const ScoreT *scores_in = (const ScoreT *)_scores_in;
+    const uint64_t num_states = args.num_states;
+    const uint64_t n_timesteps = args.n_timesteps;
+    const uint64_t n_ts = args.n_timesteps + 1;
+    const uint64_t batch_size = args.batch_size;
+
+	if (chunk >= batch_size || tid >= num_states) {
+		return;
+	}
+
+    const float fixed_stay_score = args.fixed_stay_score;
+    const float score_scale = args.score_scale;
+
+    const uint64_t msb = num_states / NUM_BASES;
+    const uint64_t ts_states = num_states * NUM_BASES;
+
+    __shared__ float fwd_vals[MAX_STATES];
+    __shared__ float fwd_maxs[32]; // threadblock max stored in [0]
+    __shared__ float exp_vals[MAX_STATES];
+    __shared__ float exp_sums[32]; // threadblock sum stored in [0]
+    float warp_max;
+
+    // scores for this batch (NTC: [T,C] block contiguous per batch element)
+    const ScoreT *const chunk_scores = scores_in + chunk * n_timesteps * ts_states;
+
+    // alternating forward guide buffers used for successive time steps
+    __shared__ float ts_fwd[2][MAX_STATES];
+
+    // the forward guide input for the first step is 0
+    for (uint64_t state = tid; state < num_states; state += n_threads) {
+        ts_fwd[0][state] = 0.0f;
+    }
+    __syncthreads();
+
+    for (uint64_t ts = 0; ts < n_ts; ++ts) {
+        warp_max = -FLT_MAX;
+        // we read forward guide values written to TG memory in the previous step as inputs to this step
+        // however, there has already been a TG barrier since they were written
+        const uint64_t ts_idx = (chunk * n_ts + ts) * num_states;
+
+        // alternating TG buffer twiddling
+        const float* const ts_alpha_in = ts_fwd[ts & 1];
+        float* const ts_alpha_out = ts_fwd[(ts & 1) ^ 1];
+
+        // calculate the next time step's forward guide from this time step's scores and forward guide
+        // it's written to threadgroup memory for use in the next iteration. the guide is only defined
+        // over the n_timesteps score time steps, so we skip the final iteration (which would otherwise read
+        // past the scores buffer to produce a result that is never read)
+        if (ts < n_timesteps) {
+            // this time step's scores
+            const ScoreT *const ts_scores = chunk_scores + ts_states * ts;
+
+            const uint64_t stay_state_idx = state;
+            const uint64_t step_state_idx_a = state / NUM_BASES;
+            const uint64_t step_trans_idx_a = state * NUM_BASES;
+            float vals[NUM_TRANSITIONS];
+            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
+            for (uint64_t base = 0; base < NUM_BASES; ++base) {
+                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] +
+                    load_score(ts_scores[step_trans_idx_a + base]) * score_scale;
+                fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
+            }
+            float fwd_sum = 0.0f;
+            for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
+                fwd_sum += __expf(vals[i] - fwd_max_val);
+            }
+            ts_alpha_out[state] = fwd_max_val + __logf(fwd_sum);
+        }
+
+        // load the forward guide value calculated in the last time step for use n this time step's posterior probability calculation
+        const float fwd_val = ts_alpha_in[state];
+
+        // calculate fwd/bwd guide product in log space
+        const float val = fwd_val + bwd[ts_idx + state];
+
+        fwd_vals[state] = val;
+        warp_max = max(warp_max, val);
+        __syncthreads();
+
+        // find max fwd val in warp
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
+        }
+        if (lane_id == 0) fwd_maxs[warp_id] = warp_max;
+        __syncthreads();
+
+        // set max fwd vals in all warps
+        if (warp_id == 0) {
+            warp_max = (tid < num_states/warpSize) ? fwd_maxs[lane_id] : 0;
+
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
+            }
+
+            if (tid == 0) fwd_maxs[0] = warp_max;
+        }
+        __syncthreads();
+
+        // enter exp vals
+        float warp_sum = 0.0f;
+        exp_vals[state] = __expf(fwd_vals[state] - fwd_maxs[0]);
+        warp_sum += exp_vals[state];
+        __syncthreads();
+
+        // sum exp vals in warp
+        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+            warp_sum += __shfl_down_sync(mask, warp_sum, offset);
+        }
+        if (lane_id == 0) exp_sums[warp_id] = warp_sum;
+        __syncthreads();
+
+        // sum exp vals in all warps
+        if (warp_id == 0) {
+            warp_sum = (tid < num_states/warpSize) ? exp_sums[lane_id] : 0;
+
+            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
+                warp_sum += __shfl_down_sync(mask, warp_sum, offset);
+            }
+
+            if (tid == 0) exp_sums[0] = warp_sum;
+        }
+        __syncthreads();
+
+        // calculate posterior probability
+        out[ts_idx + state] = exp_vals[state] / exp_sums[0];
+        __syncthreads();
+    }
+}
+
+
+// ========================= beam search kernels ========================
 
 #include <math.h>
 #include <float.h>
@@ -720,4 +936,5 @@ static __global__ void compute_qual_data(
     }
 }
 
-#endif // BEAMSEARCH_CUDA_H
+
+#endif // KERNELS_CUDA_H

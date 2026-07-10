@@ -1,7 +1,6 @@
 #include <openfish/openfish.h>
 #include "openfish_defs.h"
-#include "scan_hip.h"
-#include "beam_search_hip.h"
+#include "kernels_hip.h"
 #include "error.h"
 #include "hip_utils.h"
 

@@ -2,7 +2,7 @@
 //
 // Mirrors decode_cuda.c / decode_hip.c: one threadgroup per chunk, five compute kernels
 // dispatched in sequence (bwd_scan -> beam_search -> fwd_post_scan -> compute_qual_data ->
-// generate_sequence). The MSL kernels live in openfish_metal.metal and are compiled at
+// generate_sequence). The MSL kernels live in kernels_metal.metal and are compiled at
 // runtime with newLibraryWithSource: (no offline metal toolchain required).
 //
 // On Apple Silicon all buffers use MTLResourceStorageModeShared (unified memory), so there
@@ -26,8 +26,8 @@ extern "C" {
 // shared verbatim with the shader (see openfish_defs.h).
 #include "openfish_defs.h"
 
-// MSL source string generated from openfish_metal.metal at build time (see Makefile).
-#include "openfish_metal_src.h"
+// MSL source string generated from kernels_metal.metal at build time (see Makefile).
+#include "kernels_metal_src.h"
 
 // internal handle: the public struct MUST be the first member so a openfish_gpubuf_t*
 // can be cast back to metal_gpubuf*.
@@ -91,7 +91,7 @@ static void ensure_metal_init(void) {
     g_queue = [g_device newCommandQueue];
 
     NSError *err = nil;
-    NSString *src = [NSString stringWithUTF8String:OPENFISH_METAL_SRC];
+    NSString *src = [NSString stringWithUTF8String:KERNELS_METAL_SRC];
     MTLCompileOptions *opts = [[MTLCompileOptions alloc] init];
     id<MTLLibrary> lib = [g_device newLibraryWithSource:src options:opts error:&err];
     if (!lib) {

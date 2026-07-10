@@ -1,8 +1,7 @@
 #include <openfish/openfish.h>
 #include <stdint.h>
 #include "openfish_defs.h"
-#include "scan_cuda.h"
-#include "beam_search_cuda.h"
+#include "kernels_cuda.h"
 #include "error.h"
 #include "cuda_utils.h"
 

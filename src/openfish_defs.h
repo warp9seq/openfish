@@ -5,7 +5,7 @@
 // kernel-argument blocks. Shared by every backend:
 //   - CPU / CUDA / HIP  #include this header directly
 //   - Metal host glue    (decode_metal.mm) includes this header directly
-//   - Metal shader       (openfish_metal.metal) receives it by build-time concatenation into the
+//   - Metal shader       (kernels_metal.metal) receives it by build-time concatenation into the
 //                         runtime shader source (newLibraryWithSource: cannot resolve local #includes)
 //
 // It must therefore stay valid as C, C++, CUDA, HIP and MSL. The fixed-width integer names below are
