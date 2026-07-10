@@ -313,22 +313,20 @@ extern "C" void openfish_decode_gpu(
     memcpy(*qstring,  [mg->qstring contents],  (size_t)batch_size * n_timesteps * sizeof(char));
 }
 
-// -------------------------------------------------------------- test-harness helpers (test_utils_metal.h)
+// -------------------------------------------------------------- test-harness shim
+// The harness (test/test_openfish.c) calls these backend-neutral gpu_* entry points; the
+// CUDA/HIP builds define the same names inline. Metal's versions must live here because they
+// touch Objective-C++/MTLBuffer, so the harness only declares them (C linkage) and calls across.
 
-extern "C" void set_device_metal(int device) {
+extern "C" void gpu_set_device(int device) {
     (void)device; // Metal uses the system default device; no per-index selection
     ensure_metal_init();
 }
 
-// scores_NTC is host float16 [N,T,C] (matching the CUDA/ROCm GPU path); upload into a shared
-// buffer. returns a +1 retained MTLBuffer bridged to void* (release with free_scores_metal).
-extern "C" void *upload_scores_to_metal(
-    int n_timesteps,
-    int batch_size,
-    int n_channels,
-    const void *scores_NTC,
-    int elem_size   // bytes per score element (2 = float16, 1 = int8)
-) {
+// Upload a shared buffer of host float16 [N,T,C] scores; returns a +1 retained MTLBuffer
+// bridged to void* (release with gpu_free_scores).
+static void *upload_scores_to_metal(int n_timesteps, int batch_size, int n_channels,
+                                    const void *scores_NTC, int elem_size) {
     ensure_metal_init();
     const size_t bytes = (size_t)n_timesteps * batch_size * n_channels * elem_size;
     id<MTLBuffer> buf = new_shared_buffer(bytes);
@@ -336,38 +334,55 @@ extern "C" void *upload_scores_to_metal(
     return (void *)CFBridgingRetain(buf);
 }
 
-extern "C" void free_scores_metal(void *scores_gpu) {
+extern "C" void *gpu_upload_scores_f16(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    const float *scores_f32_NTC
+) {
+    const size_t n = (size_t)n_timesteps * batch_size * n_channels;
+    __fp16 *f16 = (__fp16 *)malloc(n * sizeof(__fp16));
+    MALLOC_CHK(f16);
+    for (size_t i = 0; i < n; ++i) {
+        f16[i] = (__fp16)scores_f32_NTC[i];
+    }
+    void *buf = upload_scores_to_metal(n_timesteps, batch_size, n_channels, f16, sizeof(__fp16));
+    free(f16);
+    return buf;
+}
+
+extern "C" void gpu_free_scores(void *scores_gpu) {
     if (scores_gpu) {
         CFBridgingRelease(scores_gpu);
     }
 }
 
-#ifdef DEBUG
-extern "C" void write_gpubuf_metal(
-    uint64_t n_timesteps,
-    uint64_t batch_size,
+extern "C" void gpu_copy_result_tensors(
+    int n_timesteps,
+    int batch_size,
     int state_len,
-    const openfish_gpubuf_t *gpubuf
+    const openfish_gpubuf_t *gpubuf,
+    float **bwd_NTC_out,
+    float **post_NTC_out,
+    float **qual_data_out,
+    float **total_probs_out
 ) {
     const int num_states = (int)pow(NUM_BASES, state_len);
-    const size_t tens = (size_t)batch_size * (n_timesteps + 1) * num_states;
-    const size_t intens = (size_t)batch_size * n_timesteps;
+    const size_t guide_len = (size_t)batch_size * (n_timesteps + 1) * num_states;
+    const size_t qual_len  = (size_t)batch_size * n_timesteps * NUM_BASES;
+    const size_t tp_len    = (size_t)batch_size * n_timesteps;
 
-    struct { const char *name; const void *data; size_t count; size_t elem; } blobs[] = {
-        {"bwd_NTC.blob",    gpubuf->bwd_NTC,    tens,               sizeof(float)},
-        {"post_NTC.blob",   gpubuf->post_NTC,   tens,               sizeof(float)},
-        {"qual_data.blob",  gpubuf->qual_data,  intens * NUM_BASES, sizeof(float)},
-        {"base_probs.blob", gpubuf->base_probs, intens,             sizeof(float)},
-        {"total_probs.blob",gpubuf->total_probs,intens,             sizeof(float)},
+    struct { float **out; const void *src; size_t count; } t[] = {
+        {bwd_NTC_out,     gpubuf->bwd_NTC,     guide_len},
+        {post_NTC_out,    gpubuf->post_NTC,    guide_len},
+        {qual_data_out,   gpubuf->qual_data,   qual_len},
+        {total_probs_out, gpubuf->total_probs, tp_len},
     };
-    for (size_t b = 0; b < sizeof(blobs) / sizeof(blobs[0]); ++b) {
-        FILE *fp = fopen(blobs[b].name, "w");
-        F_CHK(fp, blobs[b].name);
-        if (fwrite(blobs[b].data, blobs[b].elem, blobs[b].count, fp) != blobs[b].count) {
-            fprintf(stderr, "error writing %s: %s\n", blobs[b].name, strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-        fclose(fp);
+    for (size_t i = 0; i < sizeof(t) / sizeof(t[0]); ++i) {
+        if (!t[i].out) continue;
+        float *h = (float *)malloc(t[i].count * sizeof(float));
+        MALLOC_CHK(h);
+        memcpy(h, t[i].src, t[i].count * sizeof(float));
+        *t[i].out = h;
     }
 }
-#endif

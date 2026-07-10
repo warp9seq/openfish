@@ -125,50 +125,23 @@ clang [OPTIONS] -I path/to/openfish/include your_program.c \
 
 Please see [here](docs/api.md)
 
-### Quick run / validation
+### Testing
 
-The scripts below download a set of pre-computed blobs and compare *openfish* output against them. They require the binary to be built with `debug=1`.
-
-**CPU:**
-
-```sh
-make debug=1
-scripts/cpu_quick_run.sh fast   # fast 4.2.0 model  (state_len=3, C=64)
-scripts/cpu_quick_run.sh hac    # hac 4.2.0 model   (state_len=4, C=256)
-scripts/cpu_quick_run.sh sup    # sup 4.2.0 model   (state_len=5, C=1024)
-```
-
-**GPU (CUDA):**
+The test treats the **CPU decode as ground truth** and is fully hermetic: it synthesises its
+own scores in memory, so there is nothing to download and nothing is read from or written to
+disk. On a GPU build it decodes the same scores on the CPU and the GPU (narrowed to float16)
+and compares the outputs and intermediate tensors in memory; on a CPU-only build it checks the
+CPU decode is deterministic and non-degenerate.
 
 ```sh
-make cuda=1 debug=1
-scripts/gpu_quick_run.sh fast
-scripts/gpu_quick_run.sh hac
-scripts/gpu_quick_run.sh sup
+make test          # CPU-only: determinism + sanity check
+make cuda=1 test    # compare the CUDA decode against the CPU
+make rocm=1 test    # compare the ROCm/HIP decode against the CPU
+make metal=1 test   # compare the Metal decode against the CPU
 ```
 
-**GPU (ROCm):**
-
-```sh
-make rocm=1 debug=1
-scripts/gpu_quick_run.sh fast
-scripts/gpu_quick_run.sh hac
-scripts/gpu_quick_run.sh sup
-```
-
-**GPU (Metal, Apple Silicon):**
-
-Like the CUDA/ROCm paths, the Metal backend consumes float16 scores, so `scripts/gpu_quick_run.sh`
-works unchanged:
-
-```sh
-make metal=1 debug=1
-scripts/gpu_quick_run.sh fast
-scripts/gpu_quick_run.sh hac
-scripts/gpu_quick_run.sh sup
-```
-
-We have provided some expected values on several GPUs [here](test/ref_test_vals/)
+`./test/test.sh mem` runs it under valgrind. Tolerances (which bound the expected fp16-vs-fp32
+divergence) live at the top of `test/test_openfish.c`.
 
 ## Acknowledgements
 

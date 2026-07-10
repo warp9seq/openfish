@@ -18,7 +18,7 @@ template<> __device__ __forceinline__ float load_score<half>(half s) { return __
 template<> __device__ __forceinline__ float load_score<int8_t>(int8_t s) { return (float)s; }
 
 template<typename ScoreT>
-__global__ void bwd_scan(
+static __global__ void bwd_scan(
 	const scan_params_t args,
 	const void *_scores_in,
 	float *out
@@ -72,7 +72,7 @@ __global__ void bwd_scan(
 }
 
 template<typename ScoreT>
-__global__ void fwd_post_scan(
+static __global__ void fwd_post_scan(
     const scan_params_t args,
     const void *_scores_in,
     const float *bwd,
@@ -361,7 +361,7 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
 }
 
 template<typename ScoreT>
-__global__ void beam_search(
+static __global__ void beam_search(
     const beam_params_t beam_args,
     const void *_scores_NTC,
     const float *_bwd_NTC,

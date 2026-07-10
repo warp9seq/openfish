@@ -15,37 +15,26 @@ openfish_gpubuf_t *openfish_gpubuf_init(
     int batch_size,
     int state_len
 ) {
-    hipError_t ret;
     openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(malloc(sizeof(openfish_gpubuf_t)));
     MALLOC_CHK(gpubuf);
 
     const int num_states = pow(NUM_BASES, state_len);
 
     // scan tensors
-    ret = hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states);
-	checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states);
-	checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->post_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states));
 
     // return buffers
-    ret = hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->sequence, sizeof(char) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->qstring, sizeof(char) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * batch_size * n_timesteps));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->sequence, sizeof(char) * batch_size * n_timesteps));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->qstring, sizeof(char) * batch_size * n_timesteps));
 
     // beamsearch buffers
-    ret = hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1));
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->states, sizeof(state_t) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * batch_size * n_timesteps * NUM_BASES);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * batch_size * n_timesteps);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipMalloc((void **)&gpubuf->beam_vector, sizeof(beam_element_t) * batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1)));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->states, sizeof(state_t) * batch_size * n_timesteps));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->qual_data, sizeof(float) * batch_size * n_timesteps * NUM_BASES));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->base_probs, sizeof(float) * batch_size * n_timesteps));
+    HIP_CHECK(hipMalloc((void **)&gpubuf->total_probs, sizeof(float) * batch_size * n_timesteps));
 
     return gpubuf;
 }
@@ -53,29 +42,18 @@ openfish_gpubuf_t *openfish_gpubuf_init(
 void openfish_gpubuf_free(
     openfish_gpubuf_t *gpubuf
 ) {
-    hipError_t ret;
-    ret = hipFree(gpubuf->bwd_NTC);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->post_NTC);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipFree(gpubuf->bwd_NTC));
+    HIP_CHECK(hipFree(gpubuf->post_NTC));
 
-    ret = hipFree(gpubuf->moves);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->sequence);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->qstring);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipFree(gpubuf->moves));
+    HIP_CHECK(hipFree(gpubuf->sequence));
+    HIP_CHECK(hipFree(gpubuf->qstring));
 
-    ret = hipFree(gpubuf->beam_vector);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->states);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->qual_data);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->base_probs);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipFree(gpubuf->total_probs);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipFree(gpubuf->beam_vector));
+    HIP_CHECK(hipFree(gpubuf->states));
+    HIP_CHECK(hipFree(gpubuf->qual_data));
+    HIP_CHECK(hipFree(gpubuf->base_probs));
+    HIP_CHECK(hipFree(gpubuf->total_probs));
 
     free(gpubuf);
 }
@@ -94,7 +72,6 @@ void openfish_decode_gpu(
     char **sequence,
     char **qstring
 ) {
-    hipError_t ret;
     const int num_states = pow(NUM_BASES, state_len);
 
     // calculate grid / block dims
@@ -129,12 +106,9 @@ void openfish_decode_gpu(
     *qstring = (char *)malloc(batch_size * n_timesteps * sizeof(char));
     MALLOC_CHK(*qstring);
 
-    ret = hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * batch_size * n_timesteps);
-	checkHipError(); HIP_CHECK(ret);
-    ret = hipMemset(gpubuf->sequence, 0, sizeof(char) * batch_size * n_timesteps);
-	checkHipError(); HIP_CHECK(ret);
-    ret = hipMemset(gpubuf->qstring, 0, sizeof(char) * batch_size * n_timesteps);
-	checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipMemset(gpubuf->moves, 0, sizeof(uint8_t) * batch_size * n_timesteps));
+    HIP_CHECK(hipMemset(gpubuf->sequence, 0, sizeof(char) * batch_size * n_timesteps));
+    HIP_CHECK(hipMemset(gpubuf->qstring, 0, sizeof(char) * batch_size * n_timesteps));
 
     const int num_state_bits = (int)log2((double)num_states);
     const float fixed_stay_score = options->blank_score;
@@ -161,42 +135,30 @@ void openfish_decode_gpu(
     OPENFISH_LOG_TRACE("bwd scan / beam search / fwd + post scan (score_dtype=%d)...", (int)score_dtype);
     if (score_dtype == OPENFISH_SCORE_I8) {
         bwd_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
 
         beam_search<int8_t><<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
             beam_args, scores_NTC, gpubuf->bwd_NTC,
             (state_t *)gpubuf->states, gpubuf->moves, (beam_element_t *)gpubuf->beam_vector,
             beam_cut, fixed_stay_score, score_scale
         );
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
 
         fwd_post_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
     } else {
         bwd_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
 
         beam_search<half><<<grid_size,block_size_beam,num_states*sizeof(float)>>>(
             beam_args, scores_NTC, gpubuf->bwd_NTC,
             (state_t *)gpubuf->states, gpubuf->moves, (beam_element_t *)gpubuf->beam_vector,
             beam_cut, fixed_stay_score, score_scale
         );
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
 
         fwd_post_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkHipError();
-        ret = hipDeviceSynchronize();
-        checkHipError(); HIP_CHECK(ret);
+        checkKernel();
     }
 
     OPENFISH_LOG_TRACE("%s", "compute qual data...");
@@ -207,9 +169,7 @@ void openfish_decode_gpu(
         gpubuf->qual_data,
         1.0f
     );
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    checkKernel();
 
     OPENFISH_LOG_TRACE("%s", "gen sequence...");
     generate_sequence<<<grid_size,block_size_gen>>>(
@@ -224,16 +184,11 @@ void openfish_decode_gpu(
         q_shift,
         q_scale
     );
-    checkHipError();
-    ret = hipDeviceSynchronize();
-    checkHipError(); HIP_CHECK(ret);
+    checkKernel();
 
     // copy beam_search results
-    ret = hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * batch_size * n_timesteps, hipMemcpyDeviceToHost);
-    checkHipError(); HIP_CHECK(ret);
-	ret = hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * batch_size * n_timesteps, hipMemcpyDeviceToHost);
-    checkHipError(); HIP_CHECK(ret);
-    ret = hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * batch_size * n_timesteps, hipMemcpyDeviceToHost);
-    checkHipError(); HIP_CHECK(ret);
+    HIP_CHECK(hipMemcpy(*moves, gpubuf->moves, sizeof(uint8_t) * batch_size * n_timesteps, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(*sequence, gpubuf->sequence, sizeof(char) * batch_size * n_timesteps, hipMemcpyDeviceToHost));
+    HIP_CHECK(hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * batch_size * n_timesteps, hipMemcpyDeviceToHost));
 }
 

@@ -7,10 +7,8 @@ DEPFLAGS = -MMD -MP
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
 
-# change the tool name to what you want
-BINARY = openfish
-
 STATICLIB = $(BUILD_DIR)/libopenfish.a
+TEST_BINARY = test_openfish
 
 OBJ = $(BUILD_DIR)/misc.o \
 	  $(BUILD_DIR)/error.o \
@@ -79,17 +77,16 @@ ifdef debug
 	CPPFLAGS += -DDEBUG=1
 endif
 
-.PHONY: clean distclean test
+.PHONY: all clean distclean test
 
-$(BINARY): $(BUILD_DIR)/main.o $(STATICLIB)
-	$(CC) $(CFLAGS) $(BUILD_DIR)/main.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(ROCM_LDFLAGS) $(METAL_LDFLAGS) -o $@
+# default target: build the library (the product) and the test harness. Building the harness
+# here also compiles it with the GPU compiler on cuda=1/rocm=1/metal=1 builds, so CI's plain
+# `make <backend>` step still exercises the harness's GPU glue.
+all: $(STATICLIB) $(TEST_BINARY)
 
 $(STATICLIB): $(OBJ) $(GPU_LIB)
 	cp $(GPU_LIB) $@
 	$(AR) rcs $@ $(OBJ)
-
-$(BUILD_DIR)/main.o: src/main.c include/openfish/openfish.h
-	$(MAIN_CC) $(MAIN_CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/misc.o: src/misc.c src/misc.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(DEPFLAGS) -c $< -o $@
@@ -145,13 +142,22 @@ $(BUILD_DIR)/decode_metal.o: src/decode_metal.mm src/openfish_defs.h $(BUILD_DIR
 -include $(BUILD_DIR)/*.d
 
 clean:
-	rm -rf $(BINARY) $(BUILD_DIR)/*
+	rm -rf $(TEST_BINARY) $(BUILD_DIR)/*
 
 # Delete all gitignored files (but not directories)
 distclean: clean
 	git clean -f -X
-	rm -rf $(BINARY) $(BUILD_DIR)/* autom4te.cache
+	rm -rf $(TEST_BINARY) $(BUILD_DIR)/* autom4te.cache
 
-# make test with run a simple test
-test: $(BINARY)
+# in-memory CPU-vs-GPU decode test (CPU is ground truth). test_openfish is compiled with the GPU
+# compiler (nvcc/hipcc) on GPU builds so it can narrow scores to fp16 and read the gpubuf; -Isrc
+# -Isrc lets it pull in the private decode_cpu.h (and the CUDA/HIP glue is inlined in the .c).
+$(BUILD_DIR)/test_openfish.o: test/test_openfish.c include/openfish/openfish.h src/decode_cpu.h
+	$(MAIN_CC) $(MAIN_CFLAGS) $(CPPFLAGS) -Isrc $(DEPFLAGS) -c $< -o $@
+
+$(TEST_BINARY): $(BUILD_DIR)/test_openfish.o $(STATICLIB)
+	$(CC) $(CFLAGS) $(BUILD_DIR)/test_openfish.o $(STATICLIB) $(LDFLAGS) $(CUDA_LDFLAGS) $(ROCM_LDFLAGS) $(METAL_LDFLAGS) -o $@
+
+# make test builds the harness for the current backend and runs it
+test: $(TEST_BINARY)
 	./test/test.sh

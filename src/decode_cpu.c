@@ -729,7 +729,13 @@ static void *pthread_single_beam_search(void *voidargs) {
     pthread_exit(0);
 }
 
-void openfish_decode_cpu(
+// Extended CPU decode used by the in-memory test harness. Identical to openfish_decode_cpu
+// but, when the corresponding *_out pointer is non-NULL, hands back the intermediate
+// backward-guide / posterior / qual / total-probability tensors instead of freeing them
+// (the caller then owns and frees them). Passing NULL for an out pointer keeps the old
+// behaviour of freeing it internally. Declared in src/decode_cpu.h (private, not part of
+// the public API).
+void openfish_decode_cpu_ex(
     int n_timesteps,
     int batch_size,
     int n_channels,
@@ -741,7 +747,11 @@ void openfish_decode_cpu(
     const openfish_opt_t *options,
     uint8_t **moves,
     char **sequence,
-    char **qstring
+    char **qstring,
+    float **bwd_NTC_out,
+    float **post_NTC_out,
+    float **qual_data_out,
+    float **total_probs_out
 ) {
     const int num_states = pow(NUM_BASES, state_len);
 
@@ -855,60 +865,37 @@ void openfish_decode_cpu(
         NEG_CHK(ret);
     }
 
-#ifdef DEBUG
-    // write tensors
-    FILE *fp;
-    
-    fp = fopen("bwd_NTC.blob", "w");
-    F_CHK(fp, "bwd_NTC.blob");
-    if (fwrite(bwd_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("post_NTC.blob", "w");
-    F_CHK(fp, "post_NTC.blob");
-    if (fwrite(post_NTC, sizeof(float), batch_size * (n_timesteps + 1) * num_states, fp) != batch_size * (n_timesteps + 1) * num_states) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    // write beam results
-    fp = fopen("qual_data.blob", "w");
-    F_CHK(fp, "qual_data.blob");
-    if (fwrite(qual_data, sizeof(float), batch_size * n_timesteps * NUM_BASES, fp) != batch_size * n_timesteps * NUM_BASES) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("base_probs.blob", "w");
-    F_CHK(fp, "base_probs.blob");
-    if (fwrite(base_probs, sizeof(float), batch_size * n_timesteps, fp) != batch_size * n_timesteps) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-
-    fp = fopen("total_probs.blob", "w");
-    F_CHK(fp, "total_probs.blob");
-    if (fwrite(total_probs, sizeof(float), batch_size * n_timesteps, fp) != batch_size * n_timesteps) {
-        fprintf(stderr, "error writing sequence file: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
-#endif
-
     // cleanup
     free(dequant_scores); // NULL for the float path
-    free(bwd_NTC);
-    free(post_NTC);
-
     free(beam_vector);
-    free(qual_data);
     free(states);
     free(base_probs);
-    free(total_probs);
+
+    // Hand back the requested intermediate tensors (test harness compares them against the
+    // GPU path); otherwise free them. Ownership of any returned buffer passes to the caller.
+    if (bwd_NTC_out)     *bwd_NTC_out = bwd_NTC;       else free(bwd_NTC);
+    if (post_NTC_out)    *post_NTC_out = post_NTC;     else free(post_NTC);
+    if (qual_data_out)   *qual_data_out = qual_data;   else free(qual_data);
+    if (total_probs_out) *total_probs_out = total_probs; else free(total_probs);
+}
+
+void openfish_decode_cpu(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    int n_threads,
+    const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
+    int state_len,
+    const openfish_opt_t *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
+) {
+    openfish_decode_cpu_ex(
+        n_timesteps, batch_size, n_channels, n_threads, scores_NTC, score_dtype,
+        score_scale, state_len, options, moves, sequence, qstring,
+        NULL, NULL, NULL, NULL
+    );
 }
