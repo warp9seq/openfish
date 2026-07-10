@@ -1,9 +1,9 @@
-compare_blob
 thirdparty/torch
 *.pt
 *.blob
 *.gpu_ref
 openfish
+test_openfish
 models
 build/*
 .vscode/
