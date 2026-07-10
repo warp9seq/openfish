@@ -109,8 +109,9 @@ static void gpu_copy_result_tensors(int T, int N, int state_len, const openfish_
 // [0,1]) and the fp16 input is its only source of divergence, so it stays tiny (avg ~3e-5)
 // unless the scan itself breaks. bwd_NTC / qual_data / total_probs are log-domain or
 // beam-derived, so their absolute diffs scale with magnitude and get looser bounds. moves is
-// the primary discrete signal. sequence / qstring are report-only: a single differing move
-// shifts every downstream base, so their byte diff measures realignment, not real divergence.
+// the primary discrete signal. sequence / qstring can't be compared positionally -- a single
+// differing move shifts every downstream base -- so cmp_seq_qual() aligns each read first (see
+// there) and bounds the alignment identity / matched-column quality instead.
 #define TOL_POST_MAX    0.05f    // post_NTC max abs elem diff  (observed ~0.003)
 #define TOL_POST_AVG    0.001f   // post_NTC mean abs elem diff (observed ~3e-5)
 #define TOL_BWD_MAX     2.0f     // bwd_NTC max abs elem diff   (observed ~0.03)
@@ -118,6 +119,12 @@ static void gpu_copy_result_tensors(int T, int N, int state_len, const openfish_
 #define TOL_QUAL_AVG    0.10f    // qual_data mean abs elem diff (observed ~0.016)
 #define TOL_TOTAL_AVG   2.0f     // total_probs mean abs elem diff (observed ~0.09)
 #define TOL_MOVES_PCT   5.0f     // moves byte mismatch %        (observed ~1.9%)
+// sequence: floor on the *mean* per-read alignment identity. Observed ~0.93-0.95 avg across the
+// three models; a broken decode sends identity toward chance (~0.3-0.4 for unrelated ACGT), so
+// 0.85 separates working from broken with margin without being hostage to the single worst read
+// (whose min dips to ~0.79 under fp16 near-ties -- reported but not asserted on).
+#define TOL_SEQ_IDENTITY 0.85f   // mean per-read alignment identity floor (observed ~0.93-0.95)
+#define TOL_QSTR_AVG     0.5f     // mean |PHRED diff| at aligned matched columns (observed ~0.05)
 #define REPORT_ONLY     (-1.0f)  // print the diff but never fail on it
 
 static int g_failed = 0;
@@ -179,6 +186,89 @@ static void cmp_float(const char *name, const float *cpu, const float *gpu, size
     if (!ok) g_failed = 1;
     fprintf(stderr, "  [%s] %-11s max %.6g (tol %.6g)  avg %.6g (tol %.6g)  diffs %zu/%zu\n",
             ok ? "PASS" : "FAIL", name, max_diff, max_tol, avg_diff, avg_tol, n_diff, len);
+}
+
+// Realignment-robust comparison of the per-read basecalls. A single flipped move inserts or
+// deletes one base and shifts every downstream position, so a positional byte compare (cmp_bytes)
+// reports near-arbitrary divergence -- that is why sequence/qstring used to be report-only. Here
+// we edit-distance-align each read's CPU and GPU sequence instead:
+//   sequence: identity = 1 - levenshtein(cpu, gpu) / max(len_cpu, len_gpu)   (an indel costs 1, not N)
+//   qstring:  mean |PHRED_cpu - PHRED_gpu| over the columns the alignment matched (a quality value
+//             is only meaningful relative to its base, so it is compared only where the bases align)
+// Reads are one per row of `stride` bytes; base chars are non-zero ('A'/'C'/'G'/'T') and the row is
+// zero-padded (calloc), so a read's real length is the strnlen over its row. A single (stride+1)^2
+// DP scratch is reused across reads.
+static void cmp_seq_qual(const char *seq_cpu, const char *seq_gpu,
+                         const char *qstr_cpu, const char *qstr_gpu,
+                         int batch_size, int stride,
+                         float identity_tol, float qual_avg_tol) {
+    const size_t dim = (size_t)stride + 1;
+    int *dp = (int *)malloc(dim * dim * sizeof(int));
+    MALLOC_CHK(dp);
+
+    double sum_identity = 0.0;
+    float  min_identity = 1.0f;
+    double sum_qual_diff = 0.0;
+    size_t qual_cols = 0, qual_gt1 = 0;
+    long   total_edits = 0;
+
+    for (int c = 0; c < batch_size; ++c) {
+        const char *sc = seq_cpu + (size_t)c * stride, *sg = seq_gpu + (size_t)c * stride;
+        const char *qc = qstr_cpu + (size_t)c * stride, *qg = qstr_gpu + (size_t)c * stride;
+        int m = (int)strnlen(sc, stride), n = (int)strnlen(sg, stride);
+
+        // Levenshtein DP (unit substitution / insertion / deletion costs)
+        for (int j = 0; j <= n; ++j) dp[j] = j;                 // row 0: gpu-prefix -> empty cpu
+        for (int i = 1; i <= m; ++i) {
+            int *cur = dp + (size_t)i * dim, *prv = dp + (size_t)(i - 1) * dim;
+            cur[0] = i;
+            for (int j = 1; j <= n; ++j) {
+                int sub = prv[j - 1] + (sc[i - 1] == sg[j - 1] ? 0 : 1);
+                int del = prv[j] + 1, ins = cur[j - 1] + 1;
+                int v = sub < del ? sub : del;
+                cur[j] = v < ins ? v : ins;
+            }
+        }
+        int edits = dp[(size_t)m * dim + n];
+        total_edits += edits;
+        int denom = m > n ? m : n;
+        float identity = denom ? 1.0f - (float)edits / (float)denom : 1.0f;
+        sum_identity += identity;
+        if (identity < min_identity) min_identity = identity;
+
+        // traceback: at every matched (diagonal, equal-char) column, compare the two PHRED chars
+        int i = m, j = n;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && sc[i - 1] == sg[j - 1] &&
+                dp[(size_t)i * dim + j] == dp[(size_t)(i - 1) * dim + (j - 1)]) {
+                int d = abs((int)(unsigned char)qc[i - 1] - (int)(unsigned char)qg[j - 1]);
+                sum_qual_diff += d; ++qual_cols;
+                if (d > 1) ++qual_gt1;
+                --i; --j;
+            } else if (i > 0 && dp[(size_t)i * dim + j] == dp[(size_t)(i - 1) * dim + j] + 1) {
+                --i;                                            // base present in cpu, absent in gpu
+            } else if (j > 0 && dp[(size_t)i * dim + j] == dp[(size_t)i * dim + (j - 1)] + 1) {
+                --j;                                            // base present in gpu, absent in cpu
+            } else {
+                --i; --j;                                       // substitution (mismatched base)
+            }
+        }
+    }
+    free(dp);
+
+    float avg_identity = batch_size ? (float)(sum_identity / batch_size) : 1.0f;
+    float avg_qual = qual_cols ? (float)(sum_qual_diff / (double)qual_cols) : 0.0f;
+    float qual_gt1_pct = qual_cols ? 100.0f * (float)qual_gt1 / (float)qual_cols : 0.0f;
+
+    bool seq_ok = avg_identity >= identity_tol;           // assert on the mean (stable); min is noisy
+    if (!seq_ok) g_failed = 1;
+    fprintf(stderr, "  [%s] %-11s identity avg %.5f min %.5f (tol %.5f)  edits %ld\n",
+            seq_ok ? "PASS" : "FAIL", "sequence", avg_identity, min_identity, identity_tol, total_edits);
+
+    bool qual_ok = avg_qual <= qual_avg_tol;
+    if (!qual_ok) g_failed = 1;
+    fprintf(stderr, "  [%s] %-11s PHRED |d| avg %.4f (tol %.4f)  |d|>1 %.4f%% over %zu aligned cols\n",
+            qual_ok ? "PASS" : "FAIL", "qstring", avg_qual, qual_avg_tol, qual_gt1_pct, qual_cols);
 }
 #endif // HAVE_GPU
 
@@ -275,10 +365,12 @@ int main(int argc, char *argv[]) {
     cmp_float("bwd_NTC",  bwd_cpu,  bwd_gpu,  guide_len, TOL_BWD_MAX,  TOL_BWD_AVG);
     cmp_float("qual_data", qual_cpu, qual_gpu, qual_len, 1.0f,         TOL_QUAL_AVG);
     cmp_float("total_probs", total_cpu, total_gpu, disc_len, 1e30f,    TOL_TOTAL_AVG);
-    // public outputs: moves is the primary discrete signal; sequence/qstring report-only
+    // public outputs: moves is the primary discrete signal. sequence/qstring are compared with a
+    // realignment-robust alignment metric (a single flipped move shifts every downstream base, so a
+    // positional byte diff would measure offset, not divergence).
     cmp_bytes("moves",    moves_cpu, moves_gpu, disc_len, TOL_MOVES_PCT);
-    cmp_bytes("sequence", seq_cpu,   seq_gpu,   disc_len, REPORT_ONLY);
-    cmp_bytes("qstring",  qstr_cpu,  qstr_gpu,  disc_len, REPORT_ONLY);
+    cmp_seq_qual(seq_cpu, seq_gpu, qstr_cpu, qstr_gpu, batch_size, n_timesteps,
+                 TOL_SEQ_IDENTITY, TOL_QSTR_AVG);
 
     free(bwd_gpu); free(post_gpu); free(qual_gpu); free(total_gpu);
     free(moves_gpu); free(seq_gpu); free(qstr_gpu);
