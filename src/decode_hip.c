@@ -192,3 +192,58 @@ void openfish_decode_gpu(
     HIP_CHECK(hipMemcpy(*qstring, gpubuf->qstring, sizeof(char) * batch_size * n_timesteps, hipMemcpyDeviceToHost));
 }
 
+// GPU scan only (bwd_scan + fwd_post_scan): fills gpubuf->bwd_NTC and gpubuf->post_NTC, no beam
+// and no host result buffers. Same kernels as openfish_decode_gpu (beam_search is skipped -- it
+// only reads bwd_NTC, so dropping it leaves both scan outputs correct). Pair with
+// openfish_decode_cpu_beam on a unified-memory GPU (the CPU reads the posteriors with no copy).
+void openfish_decode_gpu_scan(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
+    int state_len,
+    const openfish_opt_t *options,
+    const openfish_gpubuf_t *gpubuf
+) {
+    const int num_states = pow(NUM_BASES, state_len);
+
+    // calculate grid / block dims (mirrors openfish_decode_gpu)
+    const int target_block_width = (int)ceil(sqrt((float)num_states));
+    int block_width = 2;
+    while (block_width < target_block_width) {
+        block_width *= 2;
+    }
+
+    dim3 block_size(block_width, block_width, 1);
+    dim3 grid_size(batch_size, 1, 1);
+
+    scan_params_t scan_args = {0};
+    scan_args.n_timesteps = n_timesteps;
+    scan_args.batch_size = batch_size;
+    scan_args.n_channels = n_channels;
+    scan_args.num_states = num_states;
+    scan_args.fixed_stay_score = options->blank_score;
+    scan_args.score_scale = score_scale;
+
+    OPENFISH_LOG_TRACE("gpu scan-only: bwd scan / fwd + post scan (score_dtype=%d)...", (int)score_dtype);
+    if (score_dtype == OPENFISH_SCORE_I8) {
+        bwd_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        checkKernel();
+
+        fwd_post_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkKernel();
+    } else {
+        bwd_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        checkKernel();
+
+        fwd_post_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
+        checkKernel();
+    }
+
+    // No trailing device->host copy here (unlike openfish_decode_gpu), so synchronize explicitly:
+    // the caller reads gpubuf->post_NTC / bwd_NTC (unified memory) right after this returns.
+    HIP_CHECK(hipDeviceSynchronize());
+}
+

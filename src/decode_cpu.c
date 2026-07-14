@@ -263,7 +263,8 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
 }
 
 static void openfish_beam_search_cpu(
-    const float *scores_NTC,
+    const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
     size_t scores_block_stride,
     const float *bwd_NTC,
     const float *post_NTC,
@@ -278,6 +279,9 @@ static void openfish_beam_search_cpu(
     float posts_scale,
     beam_element_t *beam_vector
 ) {
+    const int score_is_i8 = (score_dtype == OPENFISH_SCORE_I8);
+    const int8_t *const scores_i8 = (const int8_t *)scores_NTC;
+    const float  *const scores_f  = (const float  *)scores_NTC;
     const size_t num_states = 1ull << num_state_bits;
     const state_t states_mask = (state_t)(num_states - 1);
     const float log_beam_cut = (beam_cut > 0.0f) ? logf(beam_cut) : FLT_MAX;
@@ -337,7 +341,7 @@ static void openfish_beam_search_cpu(
 
     // iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < n_timesteps; ++block_idx) {
-        const float *const block_scores = scores_NTC + (block_idx * scores_block_stride);
+        const size_t block_off = block_idx * scores_block_stride;
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float max_score = -FLT_MAX;
@@ -378,7 +382,9 @@ static void openfish_beam_search_cpu(
                 // get the score of this transition (see explanation above)
                 const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                float block_score = (float)block_scores[move_idx] * score_scale;
+                float raw_score = score_is_i8 ? (float)scores_i8[block_off + move_idx]
+                                              : scores_f[block_off + move_idx];
+                float block_score = raw_score * score_scale;
                 float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
 
                 // generate hash from previous element and new state
@@ -714,7 +720,7 @@ static void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * n_timesteps;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (n_timesteps+1);
 
-        openfish_beam_search_cpu(scores, n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, args->score_scale, 1.0f, beam_vector);
+        openfish_beam_search_cpu(scores, OPENFISH_SCORE_F16, n_channels, bwd, post, num_state_bits, n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data, args->score_scale, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < n_timesteps; ++i) {
@@ -727,6 +733,123 @@ static void *pthread_single_beam_search(void *voidargs) {
     }
 
     pthread_exit(0);
+}
+
+// --- beam-only path (scan already done on the GPU; bwd/post supplied) --------------------------
+
+typedef struct {
+    const openfish_opt_t *options;
+    const void *scores_NTC;            // int8 or fp32, NTC (read sparsely by the beam)
+    openfish_score_dtype_t score_dtype;
+    float score_scale;
+    const float *bwd_NTC;              // precomputed (GPU scan output, unified memory)
+    const float *post_NTC;             // precomputed
+    int32_t start, end, state_len, n_timesteps, batch_size, n_channels;
+    state_t *states; uint8_t *moves; float *qual_data;
+    float *base_probs, *total_probs; char *sequence, *qstring;
+    beam_element_t *beam_vector;
+} beam_only_arg_t;
+
+static void *pthread_single_beam_only(void *voidargs) {
+    beam_only_arg_t *args = (beam_only_arg_t *)voidargs;
+    const openfish_opt_t *options = args->options;
+    const int num_states = pow(NUM_BASES, args->state_len);
+    const int num_state_bits = (int)log2(num_states);
+    const int n_timesteps = args->n_timesteps;
+    const int n_channels = args->n_channels;
+    const float fixed_stay_score = options->blank_score;
+    const float q_scale = options->q_scale;
+    const float q_shift = options->q_shift;
+    const float beam_cut = options->beam_cut;
+    const size_t elem = (args->score_dtype == OPENFISH_SCORE_I8) ? sizeof(int8_t) : sizeof(float);
+
+    for (int c = args->start; c < args->end; c++) {
+        // scores base for chunk c (byte offset honours the score dtype).
+        const void *scores = (const char *)args->scores_NTC + (size_t)c * n_timesteps * n_channels * elem;
+        const float *bwd = args->bwd_NTC + (size_t)c * num_states * (n_timesteps + 1);
+        const float *post = args->post_NTC + (size_t)c * num_states * (n_timesteps + 1);
+        state_t *states = args->states + (size_t)c * n_timesteps;
+        uint8_t *moves = args->moves + (size_t)c * n_timesteps;
+        float *qual_data = args->qual_data + (size_t)c * (n_timesteps * NUM_BASES);
+        float *base_probs = args->base_probs + (size_t)c * n_timesteps;
+        float *total_probs = args->total_probs + (size_t)c * n_timesteps;
+        char *sequence = args->sequence + (size_t)c * n_timesteps;
+        char *qstring = args->qstring + (size_t)c * n_timesteps;
+        beam_element_t *beam_vector = args->beam_vector + (size_t)c * MAX_BEAM_WIDTH * (n_timesteps + 1);
+
+        openfish_beam_search_cpu(scores, args->score_dtype, n_channels, bwd, post, num_state_bits,
+                                 n_timesteps, beam_cut, fixed_stay_score, states, moves, qual_data,
+                                 args->score_scale, 1.0f, beam_vector);
+
+        size_t seq_len = 0;
+        for (int i = 0; i < n_timesteps; ++i) { seq_len += moves[i]; total_probs[i] = 0; base_probs[i] = 0; }
+
+        openfish_generate_sequence_cpu(moves, states, qual_data, q_shift, q_scale, n_timesteps,
+                                       seq_len, base_probs, total_probs, sequence, qstring);
+    }
+    pthread_exit(0);
+}
+
+void openfish_decode_cpu_beam(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    int n_threads,
+    const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
+    int state_len,
+    const openfish_opt_t *options,
+    const openfish_gpubuf_t *gpubuf,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
+) {
+    // outputs
+    *moves    = (uint8_t *)calloc((size_t)batch_size * n_timesteps, sizeof(uint8_t));  MALLOC_CHK(*moves);
+    *sequence = (char *)calloc((size_t)batch_size * n_timesteps, sizeof(char));        MALLOC_CHK(*sequence);
+    *qstring  = (char *)calloc((size_t)batch_size * n_timesteps, sizeof(char));        MALLOC_CHK(*qstring);
+
+    // per-chunk scratch
+    beam_element_t *beam_vector = (beam_element_t *)malloc((size_t)batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1) * sizeof(beam_element_t)); MALLOC_CHK(beam_vector);
+    state_t *states     = (state_t *)malloc((size_t)batch_size * n_timesteps * sizeof(state_t));       MALLOC_CHK(states);
+    float *qual_data    = (float *)malloc((size_t)batch_size * n_timesteps * NUM_BASES * sizeof(float)); MALLOC_CHK(qual_data);
+    float *base_probs   = (float *)malloc((size_t)batch_size * n_timesteps * sizeof(float));           MALLOC_CHK(base_probs);
+    float *total_probs  = (float *)malloc((size_t)batch_size * n_timesteps * sizeof(float));           MALLOC_CHK(total_probs);
+
+    n_threads = batch_size < n_threads ? batch_size : n_threads;
+    const int chunks_per_thread = batch_size / n_threads;
+    const int extra_chunks = batch_size % n_threads;
+
+    pthread_t tids[n_threads];
+    beam_only_arg_t pt_args[n_threads];
+    for (int t = 0; t < n_threads; t++) {
+        int extra = t < extra_chunks ? t : extra_chunks;
+        pt_args[t].start = t * chunks_per_thread + extra;
+        pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < extra_chunks);
+        pt_args[t].options = options;
+        pt_args[t].scores_NTC = scores_NTC;
+        pt_args[t].score_dtype = score_dtype;
+        pt_args[t].score_scale = score_scale;
+        pt_args[t].bwd_NTC = gpubuf->bwd_NTC;
+        pt_args[t].post_NTC = gpubuf->post_NTC;
+        pt_args[t].state_len = state_len;
+        pt_args[t].n_timesteps = n_timesteps;
+        pt_args[t].batch_size = batch_size;
+        pt_args[t].n_channels = n_channels;
+        pt_args[t].states = states;
+        pt_args[t].moves = *moves;
+        pt_args[t].qual_data = qual_data;
+        pt_args[t].base_probs = base_probs;
+        pt_args[t].total_probs = total_probs;
+        pt_args[t].sequence = *sequence;
+        pt_args[t].qstring = *qstring;
+        pt_args[t].beam_vector = beam_vector;
+    }
+    for (int t = 0; t < n_threads; t++) NEG_CHK(pthread_create(&tids[t], NULL, pthread_single_beam_only, (void *)(&pt_args[t])));
+    for (int t = 0; t < n_threads; t++) NEG_CHK(pthread_join(tids[t], NULL));
+
+    free(beam_vector); free(states); free(qual_data); free(base_probs); free(total_probs);
 }
 
 // Extended CPU decode used by the in-memory test harness. Identical to openfish_decode_cpu
@@ -843,6 +966,8 @@ void openfish_decode_cpu_ex(
         pt_args[t].beam_vector = beam_vector;
     }
 
+    const int of_prof = getenv("OPENFISH_DECODE_PROF") != NULL;
+    double t_scan = of_prof ? openfish_realtime() : 0;
     // score tensors
     for (t = 0; t < n_threads; t++) {
         ret = pthread_create(&tids[t], NULL, pthread_single_scan_score, (void *)(&pt_args[t]));
@@ -853,6 +978,7 @@ void openfish_decode_cpu_ex(
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
     }
+    double t_beam = of_prof ? openfish_realtime() : 0;
 
     // beam search
     for (t = 0; t < n_threads; t++) {
@@ -863,6 +989,11 @@ void openfish_decode_cpu_ex(
     for (t = 0; t < n_threads; t++) {
         ret = pthread_join(tids[t], NULL);
         NEG_CHK(ret);
+    }
+    if (of_prof) {
+        double t_end = openfish_realtime();
+        fprintf(stderr, "[openfish_prof] scan=%.4f beam=%.4f (batch=%d, threads=%d)\n",
+                t_beam - t_scan, t_end - t_beam, batch_size, n_threads);
     }
 
     // cleanup

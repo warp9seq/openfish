@@ -52,10 +52,12 @@ struct metal_gpubuf {
 
 static id<MTLDevice>              g_device = nil;
 static id<MTLCommandQueue>        g_queue  = nil;
-static id<MTLComputePipelineState> g_pso_bwd  = nil;
-static id<MTLComputePipelineState> g_pso_fwd  = nil;
-static id<MTLComputePipelineState> g_pso_beam = nil;
-static id<MTLComputePipelineState> g_pso_qual = nil;
+// Score-reading kernels have two variants: fp16 (native) and int8 (quantized). The
+// kernel source is compiled twice with OF_SCORE_T = half / char (see kernels_metal.metal).
+static id<MTLComputePipelineState> g_pso_bwd[2]  = {nil, nil};   // [0]=fp16 [1]=int8
+static id<MTLComputePipelineState> g_pso_fwd[2]  = {nil, nil};
+static id<MTLComputePipelineState> g_pso_beam[2] = {nil, nil};
+static id<MTLComputePipelineState> g_pso_qual = nil;             // reads posteriors only (dtype-agnostic)
 static id<MTLComputePipelineState> g_pso_gen  = nil;
 static bool g_init = false;
 
@@ -90,20 +92,30 @@ static void ensure_metal_init(void) {
     }
     g_queue = [g_device newCommandQueue];
 
-    NSError *err = nil;
-    NSString *src = [NSString stringWithUTF8String:KERNELS_METAL_SRC];
     MTLCompileOptions *opts = [[MTLCompileOptions alloc] init];
-    id<MTLLibrary> lib = [g_device newLibraryWithSource:src options:opts error:&err];
-    if (!lib) {
-        OPENFISH_ERROR("metal: shader compile failed: %s", [[err localizedDescription] UTF8String]);
-        exit(EXIT_FAILURE);
+    // Compile the kernel source twice: default (OF_SCORE_T = half) and int8 (OF_SCORE_T = char).
+    // Prepending the #define is enough since kernels_metal.metal guards it with #ifndef.
+    NSString *base_src = [NSString stringWithUTF8String:KERNELS_METAL_SRC];
+    NSString *src_variant[2] = {
+        base_src,
+        [@"#define OF_SCORE_T char\n" stringByAppendingString:base_src],
+    };
+    for (int v = 0; v < 2; ++v) {
+        NSError *err = nil;
+        id<MTLLibrary> lib = [g_device newLibraryWithSource:src_variant[v] options:opts error:&err];
+        if (!lib) {
+            OPENFISH_ERROR("metal: shader compile failed (%s): %s",
+                           v ? "int8" : "fp16", [[err localizedDescription] UTF8String]);
+            exit(EXIT_FAILURE);
+        }
+        g_pso_bwd[v]  = make_pso(lib, "bwd_scan");
+        g_pso_fwd[v]  = make_pso(lib, "fwd_post_scan");
+        g_pso_beam[v] = make_pso(lib, "beam_search");
+        if (v == 0) {
+            g_pso_qual = make_pso(lib, "compute_qual_data");
+            g_pso_gen  = make_pso(lib, "generate_sequence");
+        }
     }
-
-    g_pso_bwd  = make_pso(lib, "bwd_scan");
-    g_pso_fwd  = make_pso(lib, "fwd_post_scan");
-    g_pso_beam = make_pso(lib, "beam_search");
-    g_pso_qual = make_pso(lib, "compute_qual_data");
-    g_pso_gen  = make_pso(lib, "generate_sequence");
 
     OPENFISH_LOG_TRACE("metal: initialised on device %s", [[g_device name] UTF8String]);
     g_init = true;
@@ -184,12 +196,13 @@ extern "C" void openfish_decode_gpu(
 ) {
     ensure_metal_init();
 
-    // The Metal path currently supports float16 scores only; int8 decode is
-    // wired for the CUDA/HIP backends. score_scale is honored in the beam search.
-    if (score_dtype != OPENFISH_SCORE_F16) {
-        OPENFISH_ERROR("%s", "Metal decode only supports OPENFISH_SCORE_F16 (float16) scores");
+    // fp16 (native) and int8 quantized, (dequantized on read by score_scale) scores are
+    // both supported; select the matching kernel variant.
+    if (score_dtype != OPENFISH_SCORE_F16 && score_dtype != OPENFISH_SCORE_I8) {
+        OPENFISH_ERROR("%s", "Metal decode supports OPENFISH_SCORE_F16 or OPENFISH_SCORE_I8 scores");
         exit(EXIT_FAILURE);
     }
+    const int sv = (score_dtype == OPENFISH_SCORE_I8) ? 1 : 0;
 
     metal_gpubuf *mg = (metal_gpubuf *)gpubuf;
     id<MTLBuffer> scores = (__bridge id<MTLBuffer>)scores_NTC;
@@ -243,7 +256,7 @@ extern "C" void openfish_decode_gpu(
         const MTLSize grid = MTLSizeMake(batch_size, 1, 1);
 
         // ---- bwd scan (1 thread per state) ----
-        [enc setComputePipelineState:g_pso_bwd];
+        [enc setComputePipelineState:g_pso_bwd[sv]];
         [enc setBytes:&scan_args length:sizeof(scan_args) atIndex:0];
         [enc setBuffer:scores offset:0 atIndex:1];
         [enc setBuffer:mg->bwd_NTC offset:0 atIndex:2];
@@ -251,7 +264,7 @@ extern "C" void openfish_decode_gpu(
         [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
 
         // ---- beam search (MAX_BEAM_WIDTH * NUM_BASES threads) ----
-        [enc setComputePipelineState:g_pso_beam];
+        [enc setComputePipelineState:g_pso_beam[sv]];
         [enc setBytes:&beam_args length:sizeof(beam_args) atIndex:0];
         [enc setBuffer:scores offset:0 atIndex:1];
         [enc setBuffer:mg->bwd_NTC offset:0 atIndex:2];
@@ -265,7 +278,7 @@ extern "C" void openfish_decode_gpu(
         [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
 
         // ---- fwd + post scan (1 thread per state) ----
-        [enc setComputePipelineState:g_pso_fwd];
+        [enc setComputePipelineState:g_pso_fwd[sv]];
         [enc setBytes:&scan_args length:sizeof(scan_args) atIndex:0];
         [enc setBuffer:scores offset:0 atIndex:1];
         [enc setBuffer:mg->bwd_NTC offset:0 atIndex:2];
@@ -313,6 +326,71 @@ extern "C" void openfish_decode_gpu(
     memcpy(*qstring,  [mg->qstring contents],  (size_t)batch_size * n_timesteps * sizeof(char));
 }
 
+// GPU scan only (bwd_scan + fwd_post_scan): fills gpubuf->bwd_NTC and gpubuf->post_NTC, no beam.
+// The heavy forward/backward scan runs on the GPU; the caller then beams on the CPU over the shared
+// (unified-memory) posteriors -- no device->host copy.
+extern "C" void openfish_decode_gpu_scan(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    const void *scores_NTC,
+    openfish_score_dtype_t score_dtype,
+    float score_scale,
+    int state_len,
+    const openfish_opt_t *options,
+    const openfish_gpubuf_t *gpubuf
+) {
+    ensure_metal_init();
+    if (score_dtype != OPENFISH_SCORE_F16 && score_dtype != OPENFISH_SCORE_I8) {
+        OPENFISH_ERROR("%s", "Metal scan supports OPENFISH_SCORE_F16 or OPENFISH_SCORE_I8 scores");
+        exit(EXIT_FAILURE);
+    }
+    const int sv = (score_dtype == OPENFISH_SCORE_I8) ? 1 : 0;
+
+    metal_gpubuf *mg = (metal_gpubuf *)gpubuf;
+    id<MTLBuffer> scores = (__bridge id<MTLBuffer>)scores_NTC;
+
+    const int num_states = (int)pow(NUM_BASES, state_len);
+
+    scan_params_t scan_args = {0};
+    scan_args.num_states = num_states;
+    scan_args.n_timesteps = n_timesteps;
+    scan_args.batch_size = batch_size;
+    scan_args.n_channels = n_channels;
+    scan_args.fixed_stay_score = options->blank_score;
+    scan_args.score_scale = score_scale;
+
+    @autoreleasepool {
+        id<MTLCommandBuffer> cb = [g_queue commandBuffer];
+        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
+        const MTLSize grid = MTLSizeMake(batch_size, 1, 1);
+
+        // ---- bwd scan (1 thread per state) ----
+        [enc setComputePipelineState:g_pso_bwd[sv]];
+        [enc setBytes:&scan_args length:sizeof(scan_args) atIndex:0];
+        [enc setBuffer:scores offset:0 atIndex:1];
+        [enc setBuffer:mg->bwd_NTC offset:0 atIndex:2];
+        [enc dispatchThreadgroups:grid threadsPerThreadgroup:MTLSizeMake(num_states, 1, 1)];
+        [enc memoryBarrierWithScope:MTLBarrierScopeBuffers];
+
+        // ---- fwd + post scan (1 thread per state) ----
+        [enc setComputePipelineState:g_pso_fwd[sv]];
+        [enc setBytes:&scan_args length:sizeof(scan_args) atIndex:0];
+        [enc setBuffer:scores offset:0 atIndex:1];
+        [enc setBuffer:mg->bwd_NTC offset:0 atIndex:2];
+        [enc setBuffer:mg->post_NTC offset:0 atIndex:3];
+        [enc dispatchThreadgroups:grid threadsPerThreadgroup:MTLSizeMake(num_states, 1, 1)];
+
+        [enc endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        if (cb.status == MTLCommandBufferStatusError) {
+            OPENFISH_ERROR("metal: scan command buffer error: %s", [[cb.error localizedDescription] UTF8String]);
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
 // -------------------------------------------------------------- test-harness shim
 // The harness (test/test_openfish.c) calls these backend-neutral gpu_* entry points; the
 // CUDA/HIP builds define the same names inline. Metal's versions must live here because they
@@ -348,6 +426,29 @@ extern "C" void *gpu_upload_scores_f16(
     }
     void *buf = upload_scores_to_metal(n_timesteps, batch_size, n_channels, f16, sizeof(__fp16));
     free(f16);
+    return buf;
+}
+
+// Quantize host fp32 [N,T,C] scores to int8 (round(clamp(s, -clamp_lim, clamp_lim) / score_scale))
+// and upload to a shared buffer; mirrors slorado's streaming int8 quant so the GPU int8 kernels can
+// be tested against the CPU/fp16 ground truth. score_scale is applied on read (e.g. 5/127).
+extern "C" void *gpu_upload_scores_i8(
+    int n_timesteps,
+    int batch_size,
+    int n_channels,
+    const float *scores_f32_NTC,
+    float score_scale
+) {
+    const size_t n = (size_t)n_timesteps * batch_size * n_channels;
+    int8_t *q = (int8_t *)malloc(n * sizeof(int8_t));
+    MALLOC_CHK(q);
+    for (size_t i = 0; i < n; ++i) {
+        float v = scores_f32_NTC[i] / score_scale;
+        v = v > 127.0f ? 127.0f : (v < -127.0f ? -127.0f : v);
+        q[i] = (int8_t)lrintf(v);
+    }
+    void *buf = upload_scores_to_metal(n_timesteps, batch_size, n_channels, q, sizeof(int8_t));
+    free(q);
     return buf;
 }
 

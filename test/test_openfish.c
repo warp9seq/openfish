@@ -72,6 +72,7 @@ static void *gpu_upload_scores_f16(int T, int N, int C, const float *f32) {
 // harness like the CUDA/HIP glue above, so we just declare the C-linkage entry points we call.
 void gpu_set_device(int device);
 void *gpu_upload_scores_f16(int n_timesteps, int batch_size, int n_channels, const float *scores_f32_NTC);
+void *gpu_upload_scores_i8(int n_timesteps, int batch_size, int n_channels, const float *scores_f32_NTC, float score_scale);
 void gpu_free_scores(void *scores_gpu);
 void gpu_copy_result_tensors(int n_timesteps, int batch_size, int state_len,
                              const openfish_gpubuf_t *gpubuf,
@@ -374,8 +375,85 @@ int main(int argc, char *argv[]) {
 
     free(bwd_gpu); free(post_gpu); free(qual_gpu); free(total_gpu);
     free(moves_gpu); free(seq_gpu); free(qstr_gpu);
-    openfish_gpubuf_free(gpubuf);
+
+#if defined(HAVE_CUDA) || defined(HAVE_ROCM)
+    // ---- GPU scan-only (fp16): fills bwd_NTC/post_NTC, no beam. Compare to CPU ground truth. ----
+    // On a discrete GPU the posteriors live in device memory, so the scan+CPU-beam split (which
+    // needs unified memory) isn't exercised here; instead we validate the scan output directly by
+    // copying bwd/post back and comparing to the CPU. Same fp16 tolerances as the full decode above.
+    fprintf(stderr, "comparing GPU scan-only (fp16) against CPU (fp32, ground truth):\n");
+    openfish_decode_gpu_scan(n_timesteps, batch_size, n_channels, scores_gpu,
+                             OPENFISH_SCORE_F16, 1.0f, state_len, &options, gpubuf);
+    float *bwd_scan = NULL, *post_scan = NULL;
+    gpu_copy_result_tensors(n_timesteps, batch_size, state_len, gpubuf, &bwd_scan, &post_scan, NULL, NULL);
+    cmp_float("post_NTC", post_cpu, post_scan, guide_len, TOL_POST_MAX, TOL_POST_AVG);
+    cmp_float("bwd_NTC",  bwd_cpu,  bwd_scan,  guide_len, TOL_BWD_MAX,  TOL_BWD_AVG);
+    free(bwd_scan); free(post_scan);
+#endif
+
     gpu_free_scores(scores_gpu);
+
+#if defined(HAVE_METAL)
+    // ---- GPU int8 decode: quantize the same scores to int8 quant and compare to CPU ----
+    fprintf(stderr, "comparing GPU (int8, scale=5/127) against CPU (fp32, ground truth):\n");
+    const float i8_scale = 5.0f / 127.0f;
+    void *scores_gpu_i8 = gpu_upload_scores_i8(n_timesteps, batch_size, n_channels, scores, i8_scale);
+    uint8_t *moves_i8 = NULL; char *seq_i8 = NULL; char *qstr_i8 = NULL;
+    openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu_i8,
+                        OPENFISH_SCORE_I8, i8_scale, state_len, &options,
+                        gpubuf, &moves_i8, &seq_i8, &qstr_i8);
+    float *bwd_i8 = NULL, *post_i8 = NULL;
+    gpu_copy_result_tensors(n_timesteps, batch_size, state_len, gpubuf, &bwd_i8, &post_i8, NULL, NULL);
+    // int8 quantization loosens precision vs fp16; post_NTC/bwd tolerances relaxed, discrete outputs kept.
+    cmp_float("post_NTC", post_cpu, post_i8, guide_len, 0.05f, 0.002f);
+    cmp_float("bwd_NTC",  bwd_cpu,  bwd_i8,  guide_len, 4.0f,  0.1f);
+    cmp_bytes("moves",    moves_cpu, moves_i8, disc_len, TOL_MOVES_PCT);
+    cmp_seq_qual(seq_cpu, seq_i8, qstr_cpu, qstr_i8, batch_size, n_timesteps,
+                 TOL_SEQ_IDENTITY, TOL_QSTR_AVG);
+    free(bwd_i8); free(post_i8); free(moves_i8); free(seq_i8); free(qstr_i8);
+
+    // ---- split: GPU scan (int8) -> CPU beam, compared to CPU ground truth ----
+    fprintf(stderr, "comparing GPU-scan(int8) + CPU-beam against CPU (fp32, ground truth):\n");
+    openfish_decode_gpu_scan(n_timesteps, batch_size, n_channels, scores_gpu_i8,
+                             OPENFISH_SCORE_I8, i8_scale, state_len, &options, gpubuf);
+    if (getenv("OPENFISH_TIME_SCAN")) {
+        const int reps = 20;
+        double t0 = openfish_realtime();
+        for (int r = 0; r < reps; ++r)
+            openfish_decode_gpu_scan(n_timesteps, batch_size, n_channels, scores_gpu_i8,
+                                     OPENFISH_SCORE_I8, i8_scale, state_len, &options, gpubuf);
+        double dt = (openfish_realtime() - t0) / reps;
+        double t1 = openfish_realtime();
+        for (int r = 0; r < reps; ++r) {
+            uint8_t *m=NULL; char *s=NULL,*q=NULL; float sc=i8_scale;
+            openfish_decode_gpu(n_timesteps, batch_size, n_channels, scores_gpu_i8,
+                                OPENFISH_SCORE_I8, sc, state_len, &options, gpubuf, &m,&s,&q);
+            free(m); free(s); free(q);
+        }
+        double dtfull = (openfish_realtime() - t1) / reps;
+        fprintf(stderr, "[time] GPU scan-only=%.4f s/batch  full GPU decode=%.4f s/batch (batch=%d)\n",
+                dt, dtfull, batch_size);
+    }
+    // quantize scores to int8 on the host so the CPU beam reads the same values the GPU scan did.
+    int8_t *scores_host_i8 = (int8_t *)malloc((size_t)scores_len);
+    MALLOC_CHK(scores_host_i8);
+    for (size_t i = 0; i < scores_len; ++i) {
+        float v = scores[i] / i8_scale;
+        v = v > 127.0f ? 127.0f : (v < -127.0f ? -127.0f : v);
+        scores_host_i8[i] = (int8_t)lrintf(v);
+    }
+    uint8_t *moves_sb = NULL; char *seq_sb = NULL; char *qstr_sb = NULL;
+    openfish_decode_cpu_beam(n_timesteps, batch_size, n_channels, n_threads, scores_host_i8,
+                             OPENFISH_SCORE_I8, i8_scale, state_len, &options, gpubuf,
+                             &moves_sb, &seq_sb, &qstr_sb);
+    cmp_bytes("moves",    moves_cpu, moves_sb, disc_len, TOL_MOVES_PCT);
+    cmp_seq_qual(seq_cpu, seq_sb, qstr_cpu, qstr_sb, batch_size, n_timesteps,
+                 TOL_SEQ_IDENTITY, TOL_QSTR_AVG);
+    free(scores_host_i8); free(moves_sb); free(seq_sb); free(qstr_sb);
+    gpu_free_scores(scores_gpu_i8);
+#endif
+
+    openfish_gpubuf_free(gpubuf);
 
 #else // CPU-only build: no GPU to compare against -> determinism + sanity check
     fprintf(stderr, "CPU-only build: checking determinism and sanity (no GPU to compare against):\n");
@@ -394,6 +472,54 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "  [%s] %-11s %zu bases called\n", ok ? "PASS" : "FAIL", "non-empty", total_moves);
 
     free(moves2); free(seq2); free(qstr2);
+
+    // ---- beam-only path (openfish_decode_cpu_beam): reuse the ground-truth scan tensors ----
+    // openfish_decode_cpu_beam runs the beam_search + sequence-generation half over pre-computed
+    // bwd/post (normally the GPU scan output on unified memory). Feeding it the CPU ground truth's
+    // own bwd_NTC/post_NTC and the same scores must reproduce the full decode byte-for-byte -- it
+    // is the identical beam + generation the full path runs, just fed the posteriors directly.
+    fprintf(stderr, "checking beam-only path (openfish_decode_cpu_beam) reproduces full CPU decode:\n");
+    openfish_gpubuf_t cpubuf = {0};
+    cpubuf.bwd_NTC  = bwd_cpu;
+    cpubuf.post_NTC = post_cpu;
+    uint8_t *moves_bo = NULL; char *seq_bo = NULL; char *qstr_bo = NULL;
+    openfish_decode_cpu_beam(n_timesteps, batch_size, n_channels, n_threads, scores,
+                             OPENFISH_SCORE_F16, 1.0f, state_len, &options, &cpubuf,
+                             &moves_bo, &seq_bo, &qstr_bo);
+    cmp_bytes("moves(beam)",    moves_cpu, moves_bo, disc_len, 0.0f);
+    cmp_bytes("sequence(beam)", seq_cpu,   seq_bo,   disc_len, 0.0f);
+    cmp_bytes("qstring(beam)",  qstr_cpu,  qstr_bo,  disc_len, 0.0f);
+    free(moves_bo); free(seq_bo); free(qstr_bo);
+
+    // Same check for the int8 branch of openfish_decode_cpu_beam: quantize the scores, take the
+    // full int8 CPU decode (which dequantizes up front) as the reference, and confirm the beam-only
+    // path -- reading the int8 scores directly and dequantizing on read -- reproduces it exactly.
+    fprintf(stderr, "checking beam-only path (int8) reproduces full int8 CPU decode:\n");
+    const float i8_scale = 5.0f / 127.0f;
+    int8_t *scores_i8 = (int8_t *)malloc(scores_len);
+    MALLOC_CHK(scores_i8);
+    for (size_t i = 0; i < scores_len; ++i) {
+        float v = scores[i] / i8_scale;
+        v = v > 127.0f ? 127.0f : (v < -127.0f ? -127.0f : v);
+        scores_i8[i] = (int8_t)lrintf(v);
+    }
+    uint8_t *moves_i8c = NULL; char *seq_i8c = NULL; char *qstr_i8c = NULL;
+    float *bwd_i8c = NULL, *post_i8c = NULL;
+    openfish_decode_cpu_ex(n_timesteps, batch_size, n_channels, n_threads, scores_i8,
+                           OPENFISH_SCORE_I8, i8_scale, state_len, &options,
+                           &moves_i8c, &seq_i8c, &qstr_i8c, &bwd_i8c, &post_i8c, NULL, NULL);
+    openfish_gpubuf_t cpubuf_i8 = {0};
+    cpubuf_i8.bwd_NTC  = bwd_i8c;
+    cpubuf_i8.post_NTC = post_i8c;
+    uint8_t *moves_bi = NULL; char *seq_bi = NULL; char *qstr_bi = NULL;
+    openfish_decode_cpu_beam(n_timesteps, batch_size, n_channels, n_threads, scores_i8,
+                             OPENFISH_SCORE_I8, i8_scale, state_len, &options, &cpubuf_i8,
+                             &moves_bi, &seq_bi, &qstr_bi);
+    cmp_bytes("moves(beam)",    moves_i8c, moves_bi, disc_len, 0.0f);
+    cmp_bytes("sequence(beam)", seq_i8c,   seq_bi,   disc_len, 0.0f);
+    cmp_bytes("qstring(beam)",  qstr_i8c,  qstr_bi,  disc_len, 0.0f);
+    free(scores_i8); free(moves_i8c); free(seq_i8c); free(qstr_i8c); free(bwd_i8c); free(post_i8c);
+    free(moves_bi); free(seq_bi); free(qstr_bi);
 #endif
 
     free(bwd_cpu); free(post_cpu); free(qual_cpu); free(total_cpu);
