@@ -172,6 +172,30 @@ extern "C" openfish_gpubuf_t *openfish_gpubuf_init(
     return &mg->pub;
 }
 
+// Scan-only variant for the GPU-scan + CPU-beam split. Metal buffers are already shared (unified),
+// so only the scan output tensors are allocated; the CPU beam owns its own beam/qual/output scratch,
+// so the GPU-beam buffers are left nil (metal_gpubuf value-inits pub to NULLs). Saves the beam_vector
+// et al. that the fused path needs.
+extern "C" openfish_gpubuf_t *openfish_gpubuf_init_hostvis(
+    int n_timesteps,
+    int batch_size,
+    int state_len
+) {
+    ensure_metal_init();
+
+    metal_gpubuf *mg = new metal_gpubuf();
+    mg->n_timesteps = n_timesteps;
+    mg->batch_size = batch_size;
+    mg->state_len = state_len;
+
+    const int num_states = (int)pow(NUM_BASES, state_len);
+    mg->bwd_NTC  = new_shared_buffer(sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states);
+    mg->post_NTC = new_shared_buffer(sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states);
+    mg->pub.bwd_NTC  = (float *)[mg->bwd_NTC contents];
+    mg->pub.post_NTC = (float *)[mg->post_NTC contents];
+    return &mg->pub;
+}
+
 extern "C" void openfish_gpubuf_free(openfish_gpubuf_t *gpubuf) {
     if (!gpubuf) return;
     metal_gpubuf *mg = (metal_gpubuf *)gpubuf;

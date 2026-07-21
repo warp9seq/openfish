@@ -9,21 +9,41 @@
 
 #include <cuda_fp16.h>
 
-openfish_gpubuf_t *openfish_gpubuf_init(
+// host_visible=1 is the scan-only variant for the GPU-scan + CPU-beam split
+// (openfish_decode_gpu_scan -> openfish_decode_cpu_beam): it allocates ONLY the scan output tensors
+// (bwd_NTC/post_NTC) in managed/unified memory so the CPU beam reads them with no copy, and leaves
+// every GPU-beam buffer NULL -- the CPU beam allocates its own beam/qual/output scratch, so those
+// would just be wasted device memory (beam_vector alone is batch*32*(T+1)*sizeof(beam_element_t)).
+// host_visible=0 is the full fused-decode buffer: device-only, all buffers allocated.
+static openfish_gpubuf_t *gpubuf_init_ex(
     int n_timesteps,
     int batch_size,
-    int state_len
+    int state_len,
+    int host_visible
 ) {
-    openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(malloc(sizeof(openfish_gpubuf_t)));
+    openfish_gpubuf_t *gpubuf = (openfish_gpubuf_t *)(calloc(1, sizeof(openfish_gpubuf_t))); // unused ptrs -> NULL
     MALLOC_CHK(gpubuf);
 
     const int num_states = pow(NUM_BASES, state_len);
+    const size_t scan_bytes = sizeof(float) * batch_size * (n_timesteps + 1) * num_states;
 
-    // scan tensors
-    cudaMalloc((void **)&gpubuf->bwd_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states);
-	checkCudaError();
-    cudaMalloc((void **)&gpubuf->post_NTC, sizeof(float) * batch_size * (n_timesteps + 1) * num_states);
-	checkCudaError();
+    // scan tensors (always needed)
+    if (host_visible) {
+        cudaMallocManaged((void **)&gpubuf->bwd_NTC, scan_bytes);
+        checkCudaError();
+        cudaMallocManaged((void **)&gpubuf->post_NTC, scan_bytes);
+        checkCudaError();
+        // Dedicated stream so openfish_decode_gpu_scan syncs only its own work, not the whole device.
+        cudaStream_t s;
+        cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking);
+        checkCudaError();
+        gpubuf->stream = (void *)s;
+        return gpubuf;  // scan-only: CPU beam owns its own beam/qual/output buffers
+    }
+    cudaMalloc((void **)&gpubuf->bwd_NTC, scan_bytes);
+    checkCudaError();
+    cudaMalloc((void **)&gpubuf->post_NTC, scan_bytes);
+    checkCudaError();
 
     // return buffers
     cudaMalloc((void **)&gpubuf->moves, sizeof(uint8_t) * batch_size * n_timesteps);
@@ -46,6 +66,22 @@ openfish_gpubuf_t *openfish_gpubuf_init(
     checkCudaError();
 
     return gpubuf;
+}
+
+openfish_gpubuf_t *openfish_gpubuf_init(
+    int n_timesteps,
+    int batch_size,
+    int state_len
+) {
+    return gpubuf_init_ex(n_timesteps, batch_size, state_len, 0);
+}
+
+openfish_gpubuf_t *openfish_gpubuf_init_hostvis(
+    int n_timesteps,
+    int batch_size,
+    int state_len
+) {
+    return gpubuf_init_ex(n_timesteps, batch_size, state_len, 1);
 }
 
 void openfish_gpubuf_free(
@@ -73,6 +109,8 @@ void openfish_gpubuf_free(
     checkCudaError();
     cudaFree(gpubuf->total_probs);
     checkCudaError();
+
+    if (gpubuf->stream) { cudaStreamDestroy((cudaStream_t)gpubuf->stream); checkCudaError(); }
 
     free(gpubuf);
 }
@@ -268,27 +306,24 @@ void openfish_decode_gpu_scan(
     scan_args.fixed_stay_score = options->blank_score;
     scan_args.score_scale = score_scale;
 
+    cudaStream_t stream = gpubuf->stream ? (cudaStream_t)gpubuf->stream : (cudaStream_t)0;
+
     OPENFISH_LOG_TRACE("gpu scan-only: bwd scan / fwd + post scan (score_dtype=%d)...", (int)score_dtype);
     if (score_dtype == OPENFISH_SCORE_I8) {
-        bwd_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        bwd_scan<int8_t><<<grid_size,block_size,0,stream>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
         checkCudaError();
-        cudaDeviceSynchronize();
-        checkCudaError();
-
-        fwd_post_scan<int8_t><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
-        cudaDeviceSynchronize();
+        fwd_post_scan<int8_t><<<grid_size,block_size,0,stream>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
         checkCudaError();
     } else {
-        bwd_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
+        bwd_scan<half><<<grid_size,block_size,0,stream>>>(scan_args, scores_NTC, gpubuf->bwd_NTC);
         checkCudaError();
-        cudaDeviceSynchronize();
-        checkCudaError();
-
-        fwd_post_scan<half><<<grid_size,block_size>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
-        checkCudaError();
-        cudaDeviceSynchronize();
+        fwd_post_scan<half><<<grid_size,block_size,0,stream>>>(scan_args, scores_NTC, gpubuf->bwd_NTC, gpubuf->post_NTC);
         checkCudaError();
     }
+
+    // Sync only this scan's stream so the caller's inference stream keeps running; the caller then
+    // reads gpubuf->post_NTC / bwd_NTC (unified memory).
+    cudaStreamSynchronize(stream);
+    checkCudaError();
 }
 

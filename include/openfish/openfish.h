@@ -22,6 +22,7 @@ typedef struct openfish_gpubuf {
     float *qual_data;
     float *base_probs;
     float *total_probs;
+    void *stream;   // dedicated CUDA/HIP stream for openfish_decode_gpu_scan (NULL => default stream)
 } openfish_gpubuf_t;
 
 typedef struct openfish_opt {
@@ -117,6 +118,16 @@ void openfish_decode_gpu_scan(
 );
 
 openfish_gpubuf_t *openfish_gpubuf_init(
+    int n_timesteps,
+    int batch_size,
+    int state_len
+);
+
+// Like openfish_gpubuf_init, but allocates the scan tensors (bwd_NTC/post_NTC) in managed/unified
+// memory so openfish_decode_cpu_beam can read the GPU-written posteriors from the host with no copy.
+// Use this when pairing openfish_decode_gpu_scan (GPU) with openfish_decode_cpu_beam (CPU) on a
+// unified-memory GPU (AMD APU / NVIDIA Jetson / Apple Metal).
+openfish_gpubuf_t *openfish_gpubuf_init_hostvis(
     int n_timesteps,
     int batch_size,
     int state_len
