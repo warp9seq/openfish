@@ -353,6 +353,49 @@ __device__ static __forceinline__ uint32_t crc32c(uint32_t crc, uint32_t new_bit
     return crc;
 }
 
+// Block-wide reductions for the beam kernel. These are written against shared memory rather than
+// warp shuffles because the beam block size (MAX_BEAM_WIDTH * NUM_BASES) is only a multiple of
+// warpSize for MAX_BEAM_WIDTH divisible by 8, and is smaller than a whole warp for MAX_BEAM_WIDTH
+// below 8. A shuffle-based reduction silently drops the trailing partial warp in the first case and
+// reads non-existent lanes in the second; a padded power-of-two tree is correct for every size.
+//
+// `scratch` must hold BEAM_REDUCE_SCRATCH entries; `pad_n` is n_threads rounded up to a power of
+// two. Every live thread in the block must call these (they contain barriers).
+#define BEAM_REDUCE_SCRATCH (2 * MAX_BEAM_WIDTH * NUM_BASES)  // >= next_pow2(MAX_BEAM_WIDTH*NUM_BASES)
+
+__device__ static __forceinline__ uint64_t beam_pad_n(uint64_t n) {
+    uint64_t p = 1;
+    while (p < n) p <<= 1;
+    return p;
+}
+
+__device__ static __forceinline__ float block_reduce_max(float val, float *scratch, uint64_t tid, uint64_t n_threads, uint64_t pad_n) {
+    scratch[tid] = val;
+    for (uint64_t i = n_threads + tid; i < pad_n; i += n_threads) scratch[i] = -FLT_MAX;
+    __syncthreads();
+    // pad_n < 2*n_threads, so pad_n/2 < n_threads: every thread the tree needs actually exists.
+    for (uint64_t s = pad_n >> 1; s > 0; s >>= 1) {
+        if (tid < s) scratch[tid] = fmaxf(scratch[tid], scratch[tid + s]);
+        __syncthreads();
+    }
+    const float r = scratch[0];
+    __syncthreads();
+    return r;
+}
+
+__device__ static __forceinline__ int block_reduce_sum(int val, int *scratch, uint64_t tid, uint64_t n_threads, uint64_t pad_n) {
+    scratch[tid] = val;
+    for (uint64_t i = n_threads + tid; i < pad_n; i += n_threads) scratch[i] = 0;
+    __syncthreads();
+    for (uint64_t s = pad_n >> 1; s > 0; s >>= 1) {
+        if (tid < s) scratch[tid] += scratch[tid + s];
+        __syncthreads();
+    }
+    const int r = scratch[0];
+    __syncthreads();
+    return r;
+}
+
 template<typename ScoreT>
 static __global__ void beam_search(
     const beam_params_t beam_args,
@@ -368,8 +411,6 @@ static __global__ void beam_search(
     const uint64_t chunk = blockIdx.x + (blockIdx.y * gridDim.x);
     const uint64_t tid = threadIdx.x + (threadIdx.y * blockDim.x);
     const uint64_t n_threads = MAX_BEAM_WIDTH * NUM_BASES;
-    const int lane_id = tid % warpSize;
-    const int warp_id = tid / warpSize;
     const unsigned mask = 0xFFFFFFFFU;
     (void)mask;
 
@@ -478,11 +519,12 @@ static __global__ void beam_search(
 
     // iterate through blocks, extending each beam
     __shared__ int elem_count;
-    // per-warp scratch for the two block-wide reductions each timestep. the max-score reduction (max_buf)
+    // scratch for the two block-wide reductions each timestep. the max-score reduction (max_buf)
     // runs first and is fully consumed before the cutoff-count reduction (count_buf) reuses the storage.
-    __shared__ float warp_buf[64];
-    float *const max_buf   = warp_buf;            // max-score reduction view
-    int   *const count_buf = (int *)warp_buf;     // cutoff-count reduction view
+    __shared__ float reduce_buf[BEAM_REDUCE_SCRATCH];
+    float *const max_buf   = reduce_buf;            // max-score reduction view
+    int   *const count_buf = (int *)reduce_buf;     // cutoff-count reduction view
+    const uint64_t pad_n = beam_pad_n(n_threads);
     __shared__ float max_score;
     __shared__ uint32_t new_elem_count;
     __shared__ float beam_cutoff_score;
@@ -639,22 +681,10 @@ static __global__ void beam_search(
         if (tid == 0) { new_elem_count += current_beam_width; }
         __syncthreads();
 
-        // find max val in warp
-        for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-            warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
-        }
-        if (lane_id == 0) max_buf[warp_id] = warp_max;
-        __syncthreads();
-
-        // set max val in all warps
-        if (warp_id == 0) {
-            warp_max = (tid < n_threads/warpSize) ? max_buf[lane_id] : 0;
-
-            for (int offset = warpSize/2; offset > 0; offset >>= 1) {
-                warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
-            }
-
-            if (tid == 0) max_score = warp_max;
+        // block-wide max of the candidate scores
+        {
+            const float block_max = block_reduce_max(warp_max, max_buf, tid, n_threads, pad_n);
+            if (tid == 0) max_score = block_max;
         }
         __syncthreads();
 
@@ -667,20 +697,14 @@ static __global__ void beam_search(
 
         // count the elements which meet the min score (parallel block-wide reduction)
         // this primitive is reused for every recount below; `beam_cutoff_score` is the threshold
-        // and the result lands in count_buf[0]. warp-size agnostic (mirrors the max reduction above).
+        // and the result lands in count_buf[0].
         {
             int local = 0;
             for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                 if (current_scores[i] >= beam_cutoff_score) ++local;
             }
-            for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down_sync(mask, local, offset);
-            if (lane_id == 0) count_buf[warp_id] = local;
-            __syncthreads();
-            if (warp_id == 0) {
-                int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
-                for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down_sync(mask, v, offset);
-                if (tid == 0) count_buf[0] = v;
-            }
+            const int total = block_reduce_sum(local, count_buf, tid, n_threads, pad_n);
+            if (tid == 0) count_buf[0] = total;
             __syncthreads();
         }
         if (tid == 0) {
@@ -726,14 +750,8 @@ static __global__ void beam_search(
                     for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                         if (current_scores[i] >= beam_cutoff_score) ++local;
                     }
-                    for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down_sync(mask, local, offset);
-                    if (lane_id == 0) count_buf[warp_id] = local;
-                    __syncthreads();
-                    if (warp_id == 0) {
-                        int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
-                        for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down_sync(mask, v, offset);
-                        if (tid == 0) count_buf[0] = v;
-                    }
+                    const int total = block_reduce_sum(local, count_buf, tid, n_threads, pad_n);
+                    if (tid == 0) count_buf[0] = total;
                     __syncthreads();
                 }
                 if (tid == 0) elem_count = count_buf[0];
@@ -757,14 +775,8 @@ static __global__ void beam_search(
                 for (int i = tid; i < (int)new_elem_count; i += n_threads) {
                     if (current_scores[i] >= beam_cutoff_score) ++local;
                 }
-                for (int offset = warpSize/2; offset > 0; offset >>= 1) local += __shfl_down_sync(mask, local, offset);
-                if (lane_id == 0) count_buf[warp_id] = local;
-                __syncthreads();
-                if (warp_id == 0) {
-                    int v = (tid < (int)(n_threads/warpSize)) ? count_buf[lane_id] : 0;
-                    for (int offset = warpSize/2; offset > 0; offset >>= 1) v += __shfl_down_sync(mask, v, offset);
-                    if (tid == 0) count_buf[0] = v;
-                }
+                const int total = block_reduce_sum(local, count_buf, tid, n_threads, pad_n);
+                if (tid == 0) count_buf[0] = total;
                 __syncthreads();
                 if (tid == 0) elem_count = count_buf[0];
                 __syncthreads();
