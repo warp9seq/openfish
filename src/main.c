@@ -7,7 +7,6 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <omp.h>
 
 #if defined HAVE_CUDA
@@ -215,9 +214,9 @@ int main(int argc, char* argv[]) {
 
     const int T = 1666;
     const int N = strtol(argv[2], NULL, 10);
-    assert(N > 0);
+    ASSERT(N > 0);
     const int state_len = strtol(argv[3], NULL, 10);
-    assert(state_len > 0);
+    ASSERT(state_len > 0);
     const int C = pow(4, state_len) * 4;
 
     // read scores from file
