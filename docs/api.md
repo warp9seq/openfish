@@ -88,16 +88,3 @@ void openfish_decode_gpu(
 openfish_gpubuf_free(gpubuf);
 ```
 
-**Rotary embeddings** (used by transformer-based models):
-
-```c
-// CPU
-void openfish_rotary_emb_cpu(void *x, void *sin_buf, void *cos_buf,
-    int batch_size, int seqlen, int nheads, int head_dim, int rotary_half,
-    int stride_batch, int stride_seq, int stride_head, int nthreads);
-
-// GPU (x_gpu / sin_gpu / cos_gpu must be device pointers)
-void openfish_rotary_emb_gpu(void *x_gpu, void *sin_gpu, void *cos_gpu,
-    int batch_size, int seqlen, int nheads, int head_dim, int rotary_half,
-    int stride_batch, int stride_seq, int stride_head);
-```
