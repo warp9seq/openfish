@@ -18,15 +18,14 @@ jobs:
       volumes:
         - /node20217:/node20217:rw,rshared
         - /node20217:/__e/node20:ro,rshared
+        - /node20217:/__e/node24:ro,rshared
     steps:
-    #   run: apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update -y && apt-get install git -y
-    # - name: install git
-    #   run: apt-get update && apt-get install -y software-properties-common && add-apt-repository ppa:git-core/ppa && apt-get update -y && apt-get install git -y
     - name: nodejs
       run: |
-        apt-get update && apt-get install -y wget xz-utils
-        wget https://unofficial-builds.nodejs.org/download/release/v20.9.0/node-v20.9.0-linux-x64-glibc-217.tar.xz
-        tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
+        apt-get install -y wget xz-utils
+        wget https://unofficial-builds.nodejs.org/download/release/v22.20.0/node-v22.20.0-linux-x64-glibc-217.tar.xz
+        tar -xf node-v22.20.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
+        /__e/node24/bin/node --version
     - uses: actions/checkout@v2
     - name: install packages
       run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
