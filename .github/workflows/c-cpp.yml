@@ -51,7 +51,7 @@ jobs:
         /__e/node24/bin/node --version
     - uses: actions/checkout@v2
     - name: install packages
-      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc
+      run: apt-get update && apt-get install -y make g++ zlib1g-dev bc software-properties-common
     - name: cuda
       run: |
         export DEBIAN_FRONTEND=noninteractive
