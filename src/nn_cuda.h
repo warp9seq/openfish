@@ -51,6 +51,14 @@ void rmsnorm_quant_cuda(
     float eps
 );
 
+void flstm_step_cuda(
+    const void* scratch,
+    const void* ih_t,
+    void* cell,
+    void* hh_next,
+    int batch_size, int hidden_dim
+);
+
 #ifdef __cplusplus
 }
 #endif

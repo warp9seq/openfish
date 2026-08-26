@@ -51,6 +51,14 @@ void rmsnorm_quant_hip(
     float eps
 );
 
+void flstm_step_hip(
+    const void* scratch,
+    const void* ih_t,
+    void* cell,
+    void* hh_next,
+    int gate_dim, int hidden_dim
+);
+
 #ifdef __cplusplus
 }
 #endif

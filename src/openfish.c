@@ -2,6 +2,8 @@
 
 #include <openfish/openfish_error.h>
 
+#include "decode.h"
+
 #ifdef HAVE_CUDA
 #include "decode_cuda.h"
 #include "nn_cuda.h"
@@ -11,6 +13,11 @@
 #include "decode_hip.h"
 #include "nn_hip.h"
 #endif
+
+openfish_opt_t openfish_decoder_default_opts(void) {
+    openfish_opt_t opt = {100.0f, 2.0f, 0.0f, 1.0f};
+    return opt;
+}
 
 openfish_gpubuf_t *openfish_gpubuf_init(
     const int T,
@@ -209,4 +216,55 @@ void openfish_rmsnorm_quant_gpu(
     OPENFISH_ERROR("%s", "not compiled for gpu");
     exit(EXIT_FAILURE);
 #endif
+}
+
+void openfish_flstm_step_gpu(
+    const void* scratch,
+    const void* ih_t,
+    void* cell,
+    void* hh_next,
+    int batch_size,
+    int hidden_dim
+) {
+#ifdef HAVE_CUDA
+    flstm_step_cuda(
+        scratch,
+        ih_t,
+        cell,
+        hh_next,
+        batch_size,
+        hidden_dim
+    );
+#elif HAVE_ROCM
+    flstm_step_hip(
+        scratch,
+        ih_t,
+        cell,
+        hh_next,
+        batch_size,
+        hidden_dim
+    );
+#else
+    OPENFISH_ERROR("%s", "not compiled for gpu");
+    exit(EXIT_FAILURE);
+#endif
+}
+
+size_t openfish_gpubuf_size(
+    int n_timesteps,
+    int batch_size,
+    int state_len
+) {
+    const size_t num_states = (size_t)1 << (2 * state_len);
+    return
+        sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states +          // bwd_NTC
+        sizeof(float) * (size_t)batch_size * (n_timesteps + 1) * num_states +          // post_NTC
+        sizeof(uint8_t) * (size_t)batch_size * n_timesteps +                            // moves
+        sizeof(char) * (size_t)batch_size * n_timesteps +                               // sequence
+        sizeof(char) * (size_t)batch_size * n_timesteps +                               // qstring
+        sizeof(beam_element_t) * (size_t)batch_size * MAX_BEAM_WIDTH * (n_timesteps + 1) + // beam_vector
+        sizeof(state_t) * (size_t)batch_size * n_timesteps +                            // states
+        sizeof(float) * (size_t)batch_size * n_timesteps * NUM_BASES +                  // qual_data
+        sizeof(float) * (size_t)batch_size * n_timesteps +                              // base_probs
+        sizeof(float) * (size_t)batch_size * n_timesteps;                               // total_probs
 }
