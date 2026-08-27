@@ -8,8 +8,8 @@ All public symbols are declared in `include/openfish/openfish.h`.
 
 ```c
 openfish_opt_t opt = OPENFISH_DECODER_INIT;
-// OPENFISH_DECODER_INIT expands to: {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
-// fields: beam_width, beam_cut, blank_score, q_shift, q_scale, temperature, move_pad
+// OPENFISH_DECODER_INIT expands to: {32, 100.0, 2.0, 0.0}
+// fields: beam_width, beam_cut, blank_score, q_shift, q_scale
 ```
 
 **CPU decoding:**
