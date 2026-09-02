@@ -1,3 +1,6 @@
+🟥Do NOT delete this *metal* branch:
+- used for benchmarks in slorado preprint
+
 # openfish
 
 *openfish* is a library for CRF-CTC beam-search decoding used in nanopore basecalling. It supports CPU, NVIDIA GPU (CUDA), AMD GPU (ROCm/HIP) and Apple Silicon GPU (Metal).
