@@ -18,7 +18,7 @@ jobs:
       uses: huggingface/hf-jobs-action@main
       with:
         token: ${{ secrets.HF_TOKEN }}
-        namespace: ${{ vars.HF_NAMESPACE }}
+        namespace: hasindu2008
         flavor: t4-small
         image: nvidia/cuda:12.4.1-devel-ubuntu22.04
         timeout: "2700"
