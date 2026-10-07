@@ -32,4 +32,4 @@ jobs:
           git checkout "${{ github.sha }}"
           make -j2 cuda=1 debug=1
           export DEVICE=cuda
-          make test
+          make cuda=1 debug=1 test
