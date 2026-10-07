@@ -1,0 +1,35 @@
+name: GPU CI (Hugging Face Jobs)
+
+on:
+  push:
+    branches: [ 'main', 'dev' ]
+  workflow_dispatch:
+
+# Requires:
+#   secret   HF_TOKEN      - HF access token with job.write permission
+#   variable HF_NAMESPACE  - HF username or org that owns (and pays for) the job
+
+jobs:
+  hf_jobs_t4:
+    name: hf-jobs-t4-small
+    runs-on: ubuntu-latest
+    steps:
+    - name: build and test on HF Jobs GPU
+      uses: huggingface/hf-jobs-action@main
+      with:
+        token: ${{ secrets.HF_TOKEN }}
+        namespace: ${{ vars.HF_NAMESPACE }}
+        flavor: t4-small
+        image: nvidia/cuda:12.4.1-devel-ubuntu22.04
+        timeout: "2700"
+        script: |
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update && apt-get install -y git make g++ zlib1g-dev bc
+          nvidia-smi
+          git clone "${{ github.server_url }}/${{ github.repository }}" openfish
+          cd openfish
+          git checkout "${{ github.sha }}"
+          make -j2 cuda=1 debug=1
+          export DEVICE=cuda
+          make test
