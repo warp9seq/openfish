@@ -111,3 +111,19 @@ void rotary_emb_hip(
     ret = hipDeviceSynchronize();
     checkHipError(); HIP_CHECK(ret);
 }
+
+void flstm_step_hip(
+    const void* scratch,
+    const void* ih_t,
+    void* cell,
+    void* hh_next,
+    int batch_size, int hidden_dim
+) {
+    int threads = (hidden_dim < 1024) ? hidden_dim : 1024;
+    flstm_step<<<batch_size, threads>>>(
+        (const half*)scratch, (const half*)ih_t,
+        (half*)cell, (half*)hh_next,
+        4 * hidden_dim, hidden_dim
+    );
+    checkHipError();
+}

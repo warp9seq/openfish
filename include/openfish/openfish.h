@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 #define OPENFISH_DECODER_INIT DECODER_INIT
-#define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0, 1.0, false}
+#define DECODER_INIT {32, 100.0, 2.0, 0.0, 1.0}
 
 typedef struct openfish_gpubuf {
     float *bwd_NTC;
@@ -33,9 +33,9 @@ typedef struct openfish_opt {
     float blank_score;
     float q_shift;
     float q_scale;
-    float temperature;
-    bool move_pad;
 } openfish_opt_t;
+
+openfish_opt_t openfish_decoder_default_opts(void);
 
 void openfish_decode_cpu(
     const int T,
@@ -129,6 +129,21 @@ void openfish_rmsnorm_quant_gpu(
     int K,
     float alpha,
     float eps
+);
+
+void openfish_flstm_step_gpu(
+    const void* scratch,
+    const void* ih_t,
+    void* cell,
+    void* hh_next,
+    int batch_size,
+    int hidden_dim
+);
+
+size_t openfish_gpubuf_size(
+    int n_timesteps,
+    int batch_size,
+    int state_len
 );
 
 #ifdef __cplusplus

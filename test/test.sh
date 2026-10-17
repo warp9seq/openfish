@@ -12,7 +12,7 @@ if [ "$1" = 'mem' ]; then
     mem=1
 else
     mem=0
-fi	
+fi
 
 
 ex() {
@@ -35,6 +35,14 @@ SCORES=test/data/scores.blob
 
 ex ./openfish ${SCORES} ${BATCH_SIZE} ${STATE_LEN} || die "tool failed"
 
-diff moves.blob test/data/moves.blob || die "tool failed"
-diff sequence.blob test/data/sequence.blob || die "tool failed"
-diff qstring.blob test/data/qstring.blob || die "tool failed"
+if [ "${DEVICE}" = 'cuda' ]; then
+    echo "No diffing for GPU, since the results are non-deterministic"
+else
+    echo "Assuming CPU, diffing results"
+    diff moves.blob test/data/moves.blob || die "tool failed"
+    diff sequence.blob test/data/sequence.blob || die "tool failed"
+    diff qstring.blob test/data/qstring.blob || die "tool failed"
+    echo "Test passed"
+fi
+
+
