@@ -1,6 +1,7 @@
 #include "beam_search.h"
 #include "error.h"
 #include "misc.h"
+#include "simd.h"
 
 #include <openfish/openfish.h>
 #include <openfish/openfish_error.h>
@@ -10,6 +11,10 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
+// the scans are vectorised over states, SIMD_WIDTH states at a time
+// num_states must be a multiple of SIMD_WIDTH
+
+SIMD_TARGET
 static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
     const float fixed_stay_score = 2.0f;
 
@@ -28,29 +33,36 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
-        for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
-            const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
-            const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES +
-                ((state * NUM_BASES) / num_states);
+        for (uint64_t state0 = 0; state0 < num_states; state0 += SIMD_WIDTH) { // we should have 1 thread for each state (for GPU impl)
+            vfloat_t vals[NUM_TRANSITIONS];
+            vals[0] = vf_load(ts_alpha_in + state0) + fixed_stay_score;
 
-            float vals[NUM_TRANSITIONS];
-            vals[0] = ts_alpha_in[stay_state_idx] + fixed_stay_score;
-            float max_val = vals[0];
-            for (uint64_t base = 0; base < NUM_BASES; ++base) {
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-                    ts_in[step_trans_idx_a + base * NUM_BASES];
-                max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
+            // step transitions are strided across states, so gather them a lane at a time
+            for (int lane = 0; lane < SIMD_WIDTH; ++lane) {
+                const uint64_t state = state0 + lane;
+                const uint64_t step_state_idx_a = (state * NUM_BASES) % num_states;
+                const uint64_t step_trans_idx_a = step_state_idx_a * NUM_BASES +
+                    ((state * NUM_BASES) / num_states);
+                for (uint64_t base = 0; base < NUM_BASES; ++base) {
+                    vals[base + 1][lane] = ts_alpha_in[step_state_idx_a + base] +
+                        ts_in[step_trans_idx_a + base * NUM_BASES];
+                }
             }
-            float sum = 0.0f;
+
+            vfloat_t max_val = vals[0];
+            for (uint64_t i = 1; i < NUM_TRANSITIONS; ++i) {
+                max_val = vf_max(max_val, vals[i]);
+            }
+            vfloat_t sum = (vfloat_t){0};
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                sum += expf(vals[i] - max_val);
+                sum += vf_exp(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + logf(sum);
+            vf_store(ts_alpha_out + state0, max_val + vf_log(sum));
         }
     }
 }
 
+SIMD_TARGET
 static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     const float kFixedStayScore = 2.0f;
@@ -86,62 +98,69 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         // Calculate the next time step's forward guide from this time step's scores
         // and forward guide.  It's written to threadgroup memory for use in the
         // next iteration.
-        for (uint64_t state = 0; state < num_states; ++state) { // we should have 1 thread for each state (for GPU impl)
-            const uint64_t stay_state_idx = state;
-            const uint64_t step_state_idx_a = state / NUM_BASES;
-            const uint64_t step_trans_idx_a = state * NUM_BASES;
-            float vals[NUM_TRANSITIONS];
-            float fwd_max_val = vals[0] = ts_alpha_in[stay_state_idx] + kFixedStayScore;
-            for (uint64_t base = 0; base < NUM_BASES; ++base) {
-                // todo: this is a bandaid for indexing past the actual T dimension of scores
-                // need to verify with actual MetalTxCaller impl output,
-                // otherwise output remains exactly the same for this impl whether it indexes past or not
-                float ts_score = ts < _T ? ts_scores[step_trans_idx_a + base] : 0.0f;
+        for (uint64_t state0 = 0; state0 < num_states; state0 += SIMD_WIDTH) { // we should have 1 thread for each state (for GPU impl)
+            const vfloat_t fwd_val = vf_load(ts_alpha_in + state0);
 
-                vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
-                fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
+            vfloat_t vals[NUM_TRANSITIONS];
+            vals[0] = fwd_val + kFixedStayScore;
+
+            // step transitions are strided across states, so gather them a lane at a time
+            for (int lane = 0; lane < SIMD_WIDTH; ++lane) {
+                const uint64_t state = state0 + lane;
+                const uint64_t step_state_idx_a = state / NUM_BASES;
+                const uint64_t step_trans_idx_a = state * NUM_BASES;
+                for (uint64_t base = 0; base < NUM_BASES; ++base) {
+                    // todo: this is a bandaid for indexing past the actual T dimension of scores
+                    // need to verify with actual MetalTxCaller impl output,
+                    // otherwise output remains exactly the same for this impl whether it indexes past or not
+                    float ts_score = ts < _T ? ts_scores[step_trans_idx_a + base] : 0.0f;
+
+                    vals[base + 1][lane] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
+                }
             }
-            float fwd_sum = 0.0f;
+
+            vfloat_t fwd_max_val = vals[0];
+            for (uint64_t i = 1; i < NUM_TRANSITIONS; ++i) {
+                fwd_max_val = vf_max(fwd_max_val, vals[i]);
+            }
+            vfloat_t fwd_sum = (vfloat_t){0};
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                fwd_sum += expf(vals[i] - fwd_max_val);
+                fwd_sum += vf_exp(vals[i] - fwd_max_val);
             }
-            ts_alpha_out[state] = fwd_max_val + logf(fwd_sum);
+            vf_store(ts_alpha_out + state0, fwd_max_val + vf_log(fwd_sum));
 
-            // Load the forward guide value calculated in the last time step for use
-            // in this time step's posterior probability calculation.
-            const float fwd_val = ts_alpha_in[state];
-
-            // Calculate fwd/bwd guide product in log space.
-            const float val = fwd_val + bwd[ts_idx + state];
-            out[ts_idx + state] = val;
+            // Calculate fwd/bwd guide product in log space, using the forward guide value
+            // calculated in the last time step.
+            vf_store(out + ts_idx + state0, fwd_val + vf_load(bwd + ts_idx + state0));
         }
     }
 }
 
+SIMD_TARGET
 static void softmax(const float *fwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     for (uint64_t ts = 0; ts < T; ++ts) {
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
+        const float *const ts_fwd = fwd + ts_idx;
+        float *const ts_out = out + ts_idx;
 
-        float max_val = fwd[ts_idx];
-        for (uint64_t state = 0; state < num_states; ++state) {
-            max_val = max_val > fwd[ts_idx + state] ? max_val : fwd[ts_idx + state];
+        vfloat_t max_vec = vf_load(ts_fwd);
+        for (uint64_t state0 = SIMD_WIDTH; state0 < num_states; state0 += SIMD_WIDTH) {
+            max_vec = vf_max(max_vec, vf_load(ts_fwd + state0));
         }
+        const float max_val = vf_hmax(max_vec);
 
-        float exp_sum = 0;
-        float exp_vals[num_states];
-        for (uint64_t state = 0; state < num_states; ++state) {
-            const float val = fwd[ts_idx + state];
-            const float exp_val = expf(val - max_val);
-            exp_vals[state] = exp_val;
+        vfloat_t exp_sum = (vfloat_t){0};
+        for (uint64_t state0 = 0; state0 < num_states; state0 += SIMD_WIDTH) {
+            const vfloat_t exp_val = vf_exp(vf_load(ts_fwd + state0) - max_val);
+            vf_store(ts_out + state0, exp_val);
             exp_sum += exp_val;
         }
 
-        for (uint64_t state = 0; state < num_states; ++state) {
-            const float exp_val = exp_vals[state];
-
-            // Write out the posterior probability 
-            out[ts_idx + state] = (float)(exp_val / exp_sum);
+        // Write out the posterior probability
+        const float sum = vf_hsum(exp_sum);
+        for (uint64_t state0 = 0; state0 < num_states; state0 += SIMD_WIDTH) {
+            vf_store(ts_out + state0, vf_load(ts_out + state0) / sum);
         }
     }
 }
@@ -241,6 +260,7 @@ void openfish_decode_cpu(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+    ASSERT(num_states % SIMD_WIDTH == 0);
 
     OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
