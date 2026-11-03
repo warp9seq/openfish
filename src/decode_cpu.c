@@ -44,9 +44,9 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
             }
             float sum = 0.0f;
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                sum += exp(vals[i] - max_val);
+                sum += expf(vals[i] - max_val);
             }
-            ts_alpha_out[state] = max_val + log(sum);
+            ts_alpha_out[state] = max_val + logf(sum);
         }
     }
 }
@@ -103,9 +103,9 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
             }
             float fwd_sum = 0.0f;
             for (uint64_t i = 0; i < NUM_TRANSITIONS; ++i) {
-                fwd_sum += exp(vals[i] - fwd_max_val);
+                fwd_sum += expf(vals[i] - fwd_max_val);
             }
-            ts_alpha_out[state] = fwd_max_val + log(fwd_sum);
+            ts_alpha_out[state] = fwd_max_val + logf(fwd_sum);
 
             // Load the forward guide value calculated in the last time step for use
             // in this time step's posterior probability calculation.
@@ -132,7 +132,7 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
         float exp_vals[num_states];
         for (uint64_t state = 0; state < num_states; ++state) {
             const float val = fwd[ts_idx + state];
-            const float exp_val = exp(val - max_val);
+            const float exp_val = expf(val - max_val);
             exp_vals[state] = exp_val;
             exp_sum += exp_val;
         }

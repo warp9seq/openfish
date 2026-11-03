@@ -1,7 +1,7 @@
 CC = gcc
 AR = ar
 CPPFLAGS +=	-I include/
-CFLAGS += -g -Wall -O2
+CFLAGS += -g -Wall -O3 -fno-math-errno
 LDFLAGS += $(LIBS) -lz -lm -lpthread
 BUILD_DIR = lib
 
