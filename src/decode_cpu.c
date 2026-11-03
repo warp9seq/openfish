@@ -1,6 +1,7 @@
 #include "beam_search.h"
 #include "error.h"
 #include "misc.h"
+#include "scores.h"
 
 #include <openfish/openfish.h>
 #include <openfish/openfish_error.h>
@@ -10,12 +11,12 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
-static void backward_scan(const float *scores_in, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
+static void backward_scan(const void *scores_in, const score_type_t score_type, float *out, const uint64_t chunk, const uint64_t T, const uint64_t N, const uint64_t num_states) {
     const float fixed_stay_score = 2.0f;
 
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    const float* const chunk_in = scores_in + chunk * ts_states; // should be half float (for GPU impl)
+    const void* const chunk_in = score_ptr(scores_in, score_type, chunk * ts_states);
     float* const chunk_out = out + chunk * (T+1) * num_states;
     float* const alpha_init = chunk_out + num_states * T;
     for (uint64_t state = 0; state < num_states; ++state) { // (for GPU impl) its 1 thread per state, but below we iterate through all the states on 1 thread
@@ -24,7 +25,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
 
     for (uint64_t ts = 0; ts < T; ++ts) {
         // threadgroup_barrier(mem_flags::medevice); // synchronize all threads before next time step (for GPU impl)
-        const float* const ts_in = chunk_in + N * ts_states * (T - ts - 1);
+        const void* const ts_in = score_ptr(chunk_in, score_type, N * ts_states * (T - ts - 1));
         float* const ts_alpha_in = alpha_init - num_states * ts;
         float* const ts_alpha_out = ts_alpha_in - num_states;
 
@@ -39,7 +40,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
             float max_val = vals[0];
             for (uint64_t base = 0; base < NUM_BASES; ++base) {
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base] +
-                    ts_in[step_trans_idx_a + base * NUM_BASES];
+                    load_score(ts_in, score_type, step_trans_idx_a + base * NUM_BASES);
                 max_val = max_val > vals[base + 1] ? max_val : vals[base + 1];
             }
             float sum = 0.0f;
@@ -51,7 +52,7 @@ static void backward_scan(const float *scores_in, float *out, const uint64_t chu
     }
 }
 
-static void forward_scan(const float *scores_in, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
+static void forward_scan(const void *scores_in, const score_type_t score_type, const float *bwd, float *out, const uint64_t chunk, const uint64_t _T, const uint64_t N, const uint64_t num_states) {
     const uint64_t T = _T+1; 
     const float kFixedStayScore = 2.0f;
     
@@ -59,7 +60,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
     const uint64_t ts_states = num_states * NUM_BASES;
 
     // This batch element's scores.
-    const float *const chunk_scores = scores_in + chunk * ts_states;
+    const void *const chunk_scores = score_ptr(scores_in, score_type, chunk * ts_states);
 
     // Alternating forward guide buffers used for successive time steps.
     float ts_fwd[2][MAX_STATES]; // threadgroup
@@ -77,7 +78,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
         const uint64_t ts_idx = (chunk * T + ts) * num_states;
 
         // This time step's scores.
-        const float *const ts_scores = chunk_scores + N * ts_states * ts;
+        const void *const ts_scores = score_ptr(chunk_scores, score_type, N * ts_states * ts);
 
         // Alternating TG buffer twiddling.
         const float *const ts_alpha_in = ts_fwd[ts & 1];
@@ -96,7 +97,7 @@ static void forward_scan(const float *scores_in, const float *bwd, float *out, c
                 // todo: this is a bandaid for indexing past the actual T dimension of scores
                 // need to verify with actual MetalTxCaller impl output,
                 // otherwise output remains exactly the same for this impl whether it indexes past or not
-                float ts_score = ts < _T ? ts_scores[step_trans_idx_a + base] : 0.0f;
+                float ts_score = ts < _T ? load_score(ts_scores, score_type, step_trans_idx_a + base) : 0.0f;
 
                 vals[base + 1] = ts_alpha_in[step_state_idx_a + base * msb] + ts_score;
                 fwd_max_val = fwd_max_val > vals[base + 1] ? fwd_max_val : vals[base + 1];
@@ -148,7 +149,8 @@ static void softmax(const float *fwd, float *out, const uint64_t chunk, const ui
 
 typedef struct {
     const openfish_opt_t *options;
-    const float *scores_TNC;
+    const void *scores_TNC;
+    score_type_t score_type;
     float *bwd_NTC;
     float *fwd_NTC;
     float *post_NTC;
@@ -177,8 +179,8 @@ void* pthread_single_scan_score(void* voidargs) {
     const int N = args->N;
 
     for (int c = args->start; c < args->end; c++) {
-        backward_scan(args->scores_TNC, args->bwd_NTC, c, T, N, num_states);
-        forward_scan(args->scores_TNC, args->bwd_NTC, args->fwd_NTC, c, T, N, num_states);
+        backward_scan(args->scores_TNC, args->score_type, args->bwd_NTC, c, T, N, num_states);
+        forward_scan(args->scores_TNC, args->score_type, args->bwd_NTC, args->fwd_NTC, c, T, N, num_states);
         softmax(args->fwd_NTC, args->post_NTC, c, T, num_states);
     }
 
@@ -201,7 +203,7 @@ void *pthread_single_beam_search(void *voidargs) {
     const float beam_cut = options->beam_cut;
 
     for (int c = args->start; c < args->end; c++) {
-        const float *scores = args->scores_TNC + c * (num_states * NUM_BASES);
+        const void *scores = score_ptr(args->scores_TNC, args->score_type, c * (num_states * NUM_BASES));
         float *bwd = args->bwd_NTC + c * num_states * (T+1);
         float *post = args->post_NTC + c * num_states * (T+1);
         state_t *states = args->states + c * T;
@@ -213,7 +215,7 @@ void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * T;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
 
-        beam_search_cpu(scores, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        beam_search_cpu(scores, args->score_type, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < T; ++i) {
@@ -228,12 +230,13 @@ void *pthread_single_beam_search(void *voidargs) {
     pthread_exit(0);
 }
 
-void openfish_decode_cpu(
+static void decode_cpu(
     const int T,
     const int N,
     const int C,
     int nthreads,
-    void *scores_TNC,
+    const void *scores_TNC,
+    const score_type_t score_type,
     const int state_len,
     const openfish_opt_t *options,
     uint8_t **moves,
@@ -290,7 +293,8 @@ void openfish_decode_cpu(
         int extra = t < num_threads_with_one_more_chunk ? t : num_threads_with_one_more_chunk;
         pt_args[t].start = t * chunks_per_thread + extra;
         pt_args[t].end = pt_args[t].start + chunks_per_thread + (int)(t < num_threads_with_one_more_chunk);
-        pt_args[t].scores_TNC = (float *)scores_TNC;
+        pt_args[t].scores_TNC = scores_TNC;
+        pt_args[t].score_type = score_type;
         pt_args[t].bwd_NTC = bwd_NTC;
         pt_args[t].fwd_NTC = fwd_NTC;
         pt_args[t].post_NTC = post_NTC;
@@ -395,4 +399,34 @@ void openfish_decode_cpu(
     free(states);
     free(base_probs);
     free(total_probs);
+}
+
+void openfish_decode_cpu(
+    const int T,
+    const int N,
+    const int C,
+    int nthreads,
+    void *scores_TNC,
+    const int state_len,
+    const openfish_opt_t *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
+) {
+    decode_cpu(T, N, C, nthreads, scores_TNC, SCORES_F32, state_len, options, moves, sequence, qstring);
+}
+
+void openfish_decode_cpu_fp16(
+    const int T,
+    const int N,
+    const int C,
+    int nthreads,
+    void *scores_TNC,
+    const int state_len,
+    const openfish_opt_t *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
+) {
+    decode_cpu(T, N, C, nthreads, scores_TNC, SCORES_F16, state_len, options, moves, sequence, qstring);
 }

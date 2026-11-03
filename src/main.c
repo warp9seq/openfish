@@ -197,7 +197,7 @@ int main(int argc, char* argv[]) {
     // fclose(fp);
 
     if (argc < 4) {
-        fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN>\n", argv[0]);
+        fprintf(stderr,"Usage: %s <scores.blob> <BATCH_SIZE> <STATE_LEN> [fp16]\n", argv[0]);
         fprintf(stderr,"e.g. %s test/blobs/fast_1000c_scores_TNC.blob models/dna_r10.4.1_e8.2_400bps_fast@v4.2.0 1000 3\n", argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -221,11 +221,13 @@ int main(int argc, char* argv[]) {
 
     // read scores from file
     size_t scores_len = T * N * C;
+    // the cpu path takes fp32 scores unless fp16 is given, the gpu path always takes fp16
 #if defined HAVE_CUDA || defined HAVE_ROCM
-    const int elem_size = sizeof(uint16_t);
+    const bool scores_fp16 = true;
 #else
-    const int elem_size = sizeof(float);
+    const bool scores_fp16 = argc > 4 && strcmp(argv[4], "fp16") == 0;
 #endif
+    const int elem_size = scores_fp16 ? sizeof(uint16_t) : sizeof(float);
     void *scores = calloc(scores_len, elem_size);
     MALLOC_CHK(scores);
 
@@ -284,7 +286,11 @@ int main(int argc, char* argv[]) {
         openfish_decode_gpu(T, N, C, scores_gpu, state_len, &options, gpubuf, &moves, &sequence, &qstring);
 #else
         int nthreads = 8;
-        openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+        if (scores_fp16) {
+            openfish_decode_cpu_fp16(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+        } else {
+            openfish_decode_cpu(T, N, C, nthreads, scores, state_len, &options, &moves, &sequence, &qstring);
+        }
 #endif
 
 #ifdef BENCH

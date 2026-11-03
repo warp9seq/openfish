@@ -1,5 +1,6 @@
 #include "beam_search.h"
 #include "decode.h"
+#include "scores.h"
 
 #include <math.h>
 #include <float.h>
@@ -115,7 +116,8 @@ static uint32_t crc32c(uint32_t crc, uint32_t new_bits, int num_new_bits) {
 }
 
 void beam_search_cpu(
-    const float *const scores_TNC,
+    const void *const scores_TNC,
+    const score_type_t score_type,
     size_t scores_block_stride,
     const float *const bwd_NTC,
     const float *const post_NTC,
@@ -189,7 +191,7 @@ void beam_search_cpu(
 
     // iterate through blocks, extending beam
     for (size_t block_idx = 0; block_idx < T; ++block_idx) {
-        const float *const block_scores = scores_TNC + (block_idx * scores_block_stride);
+        const void *const block_scores = score_ptr(scores_TNC, score_type, block_idx * scores_block_stride);
         const float *const block_back_scores = bwd_NTC + ((block_idx + 1) << num_state_bits);
 
         float max_score = -FLT_MAX;
@@ -230,7 +232,7 @@ void beam_search_cpu(
                 // get the score of this transition (see explanation above)
                 const state_t move_idx = (state_t)((new_state << NUM_BASE_BITS) + (((previous_element->state << NUM_BASE_BITS) >> num_state_bits)));
 
-                float block_score = (float)block_scores[move_idx] * score_scale;
+                float block_score = load_score(block_scores, score_type, move_idx) * score_scale;
                 float new_score = prev_scores[prev_elem_idx] + block_score + (float)block_back_scores[new_state];
 
                 // generate hash from previous element and new state
