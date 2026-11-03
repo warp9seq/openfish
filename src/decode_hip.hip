@@ -165,6 +165,7 @@ void decode_hip(
         (state_t *)gpubuf->states,
         gpubuf->moves,
         (beam_element_t *)gpubuf->beam_vector,
+        options->beam_width,
         beam_cut,
         fixed_stay_score,
         1.0f

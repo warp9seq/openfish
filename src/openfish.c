@@ -59,6 +59,11 @@ void openfish_decode_gpu(
     char **sequence,
     char **qstring
 ) {
+    if (options->beam_width < 1 || options->beam_width > MAX_BEAM_WIDTH) {
+        OPENFISH_ERROR("beam width must be between 1 and %d, got %zu", MAX_BEAM_WIDTH, options->beam_width);
+        exit(EXIT_FAILURE);
+    }
+
 #ifdef HAVE_CUDA
     decode_cuda(T, N, C, scores_TNC, state_len, options, gpubuf, moves, sequence, qstring);
 #elif HAVE_ROCM

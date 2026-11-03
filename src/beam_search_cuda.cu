@@ -141,6 +141,7 @@ __global__ void beam_search(
     state_t *_states,
     uint8_t *_moves,
     beam_element_t *_beam_vector,
+    const size_t beam_width,
     const float beam_cut,
     const float fixed_stay_score,
     const float score_scale
@@ -204,11 +205,11 @@ __global__ void beam_search(
 
     if (tid == 0) {
         beam_init_threshold = -FLT_MAX;
-        current_beam_width = MAX_BEAM_WIDTH < num_states ? MAX_BEAM_WIDTH : num_states;
+        current_beam_width = beam_width < num_states ? beam_width : num_states;
     }
     __syncthreads();
 
-    if (MAX_BEAM_WIDTH < num_states) {
+    if (beam_width < num_states) {
         // copy the first set of back guides and sort to extract max_beam_width highest elements
         __shared__ float sorted_back_guides[MAX_STATES];
         for (size_t i = tid; i < num_states; i += nthreads) {
@@ -217,7 +218,7 @@ __global__ void beam_search(
         __syncthreads();
 
         // note that we don't need a full sort here to get the max_beam_width highest values
-        if (tid == 0) beam_init_threshold = kth_largestf(sorted_back_guides, MAX_BEAM_WIDTH-1, num_states);
+        if (tid == 0) beam_init_threshold = kth_largestf(sorted_back_guides, beam_width-1, num_states);
     }
 
 
@@ -225,7 +226,7 @@ __global__ void beam_search(
     if (tid == 0) {
         // initialise all beams
         // go through all state scores in the first block of the back_guide
-        for (size_t state = 0, beam_element = 0; state < num_states && beam_element < MAX_BEAM_WIDTH; state++) {
+        for (size_t state = 0, beam_element = 0; state < num_states && beam_element < beam_width; state++) {
             if (bwd_NTC[state] >= beam_init_threshold) {
                 // note that this first element has a prev_element_index of 0
                 beam_front_element_t new_elem = {crc32c(CRC_SEED, (uint32_t)state, 32), (state_t)state, 0, false};
@@ -448,15 +449,15 @@ __global__ void beam_search(
         // fallback to max_score
         if (tid == 0) {
             // binary search to find a score which doesn't return too many scores, but doesn't reduce beam width too much
-            if (elem_count > MAX_BEAM_WIDTH) {
-                size_t min_beam_width = (MAX_BEAM_WIDTH * 8) / 10;  // 80% of beam width is the minimum we accept
+            if (elem_count > beam_width) {
+                size_t min_beam_width = (beam_width * 8) / 10;  // 80% of beam width is the minimum we accept
                 float low_score = beam_cutoff_score;
                 float hi_score = max_score;
                 int num_guesses = 1;
                 const int MAX_GUESSES = 10;
 
-                while ((elem_count > MAX_BEAM_WIDTH || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
-                    if (elem_count > MAX_BEAM_WIDTH) {
+                while ((elem_count > beam_width || elem_count < min_beam_width) && num_guesses < MAX_GUESSES) {
+                    if (elem_count > beam_width) {
                         // make a higher guess
                         low_score = beam_cutoff_score;
                         beam_cutoff_score = (beam_cutoff_score + hi_score) / 2.0f;
@@ -479,7 +480,7 @@ __global__ void beam_search(
                 // 1: we just haven't completed the binary search yet (there is a good score in there somewhere but we didn't find it)
                 //  - in this case we should just pick the higher of the two current search limits to get the top N elements)
                 // 2: there is no good score, as max_score returns more than beam_width elements (i.e. more than the whole beam width has max_score)
-                //  - in this case we should just take MAX_BEAM_WIDTH of the top-scoring elements
+                //  - in this case we should just take beam_width of the top-scoring elements
                 // 3: there is no good score as all the elements from <80% of the beam to >100% have the same score
                 //  - in this case we should just take the hi_score and accept it will return us less than 80% of the beam
                 if (num_guesses == MAX_GUESSES) {
@@ -493,14 +494,14 @@ __global__ void beam_search(
                 }
 
                 // clamp the element count to the max beam width in case of failure 2 from above
-                elem_count = elem_count < MAX_BEAM_WIDTH ? elem_count : MAX_BEAM_WIDTH;
+                elem_count = elem_count < beam_width ? elem_count : beam_width;
             }
 
             // write current scores and beam fronts to prev
             size_t write_idx = 0;
             for (size_t read_idx = 0; read_idx < new_elem_count; ++read_idx) {
                 if (current_scores[read_idx] >= beam_cutoff_score) {
-                    if (write_idx < MAX_BEAM_WIDTH) {
+                    if (write_idx < beam_width) {
                         prev_beam_front[write_idx] = current_beam_front[read_idx];
                         prev_scores[write_idx] = current_scores[read_idx];
                         ++write_idx;

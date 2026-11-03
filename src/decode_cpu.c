@@ -200,6 +200,7 @@ void *pthread_single_beam_search(void *voidargs) {
     const float fixed_stay_score = options->blank_score;
     const float q_scale = options->q_scale;
     const float q_shift = options->q_shift;
+    const size_t beam_width = options->beam_width;
     const float beam_cut = options->beam_cut;
 
     for (int c = args->start; c < args->end; c++) {
@@ -215,7 +216,7 @@ void *pthread_single_beam_search(void *voidargs) {
         char *qstring = args->qstring + c * T;
         beam_element_t *beam_vector = args->beam_vector + c * MAX_BEAM_WIDTH * (T+1);
 
-        beam_search_cpu(scores, args->score_type, N * C, bwd, post, num_state_bits, T, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
+        beam_search_cpu(scores, args->score_type, N * C, bwd, post, num_state_bits, T, beam_width, beam_cut, fixed_stay_score, states, moves, qual_data, 1.0f, 1.0f, beam_vector);
 
         size_t seq_len = 0;
         for (int i = 0; i < T; ++i) {
@@ -244,6 +245,11 @@ static void decode_cpu(
     char **qstring
 ) {
     const int num_states = pow(NUM_BASES, state_len);
+
+    if (options->beam_width < 1 || options->beam_width > MAX_BEAM_WIDTH) {
+        OPENFISH_ERROR("beam width must be between 1 and %d, got %zu", MAX_BEAM_WIDTH, options->beam_width);
+        exit(EXIT_FAILURE);
+    }
 
     OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 

@@ -28,6 +28,7 @@ __global__ void beam_search(
     state_t *_states,
     uint8_t *_moves,
     beam_element_t *_beam_vector,
+    const size_t beam_width,
     const float beam_cut,
     const float fixed_stay_score,
     const float score_scale
