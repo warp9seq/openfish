@@ -232,6 +232,7 @@ __global__ void beam_search(
                 prev_beam_front[beam_element] = new_elem;
                 prev_scores[beam_element] = 0.0f;
                 ++beam_element;
+                current_beam_width = beam_element;
             }
         }
     }
@@ -338,7 +339,7 @@ __global__ void beam_search(
         //          p0{state: ATCG, stay: false} -> p1{state: TCGG, stay: false}
         //
         //      note: both must also have stemmed from the same sequence, so we keep a hash to keep track
-        for (size_t prev_elem_idx = (tid / NUM_BASES); prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
             const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
             uint32_t new_elem_idx = new_elem_count + prev_elem_idx;
 
@@ -360,6 +361,13 @@ __global__ void beam_search(
             current_scores[new_elem_idx] = stay_score;
 
             warp_max = max(warp_max, stay_score);
+        }
+        __syncthreads();
+
+        // merge stays with steps of the same hash
+        // a single thread handles each stay so merges are applied in the same order as the cpu path
+        for (size_t prev_elem_idx = tid; prev_elem_idx < current_beam_width; prev_elem_idx += nthreads) {
+            const beam_front_element_t *previous_element = &prev_beam_front[prev_elem_idx];
 
             // determine whether the path including this stay duplicates another sequence ending in a step equal to the state of the stay
             // this "bloom filter" is supposed to help avoid comparing hash against every single step generated before
@@ -371,7 +379,7 @@ __global__ void beam_search(
                 int stay_latest_base = (int)(previous_element->state & 3);
 
                 // go through all the possible step extensions that match this destination base with the stay and compare their hashes, merging if we find any
-                for (size_t prev_elem_comp_idx = (tid % NUM_BASES); prev_elem_comp_idx < current_beam_width; prev_elem_comp_idx += NUM_BASES) {
+                for (size_t prev_elem_comp_idx = 0; prev_elem_comp_idx < current_beam_width; ++prev_elem_comp_idx) {
 
                     // it's a step if it's a previous kmer with a repeated base
                     size_t step_elem_idx = (prev_elem_comp_idx << NUM_BASE_BITS) | stay_latest_base;
@@ -411,7 +419,7 @@ __global__ void beam_search(
 
         // set max val in all warps
         if (warp_id == 0) {
-            warp_max = (tid < nthreads/warpSize) ? block_buf[lane_id] : 0;
+            warp_max = (tid < nthreads/warpSize) ? block_buf[lane_id] : -FLT_MAX;
 
             for (int offset = warpSize/2; offset > 0; offset >>= 1) {
                 warp_max = max(warp_max, __shfl_down_sync(mask, warp_max, offset));
