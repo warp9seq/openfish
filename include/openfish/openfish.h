@@ -50,6 +50,21 @@ void openfish_decode_cpu(
     char **qstring
 );
 
+// same as openfish_decode_cpu, but scores_TNC is fp16
+// scores are converted as they are read, so no fp32 copy of the tensor is made
+void openfish_decode_cpu_fp16(
+    const int T,
+    const int N,
+    const int C,
+    int nthreads,
+    void *scores_TNC,
+    const int state_len,
+    const openfish_opt_t *options,
+    uint8_t **moves,
+    char **sequence,
+    char **qstring
+);
+
 void openfish_rotary_emb_cpu(
     void *x,
     void *sin_buf,

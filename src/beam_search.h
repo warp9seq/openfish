@@ -2,6 +2,7 @@
 #define BEAMSEARCH_CPU_H
 
 #include "decode.h"
+#include "scores.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -26,12 +27,14 @@ void generate_sequence_cpu(
 );
 
 void beam_search_cpu(
-    const float *const scores,
+    const void *const scores,
+    const score_type_t score_type,
     size_t scores_block_stride,
     const float *const back_guide,
     const float *const posts,
     const int num_state_bits,
     const size_t num_ts,
+    const size_t beam_width,
     const float beam_cut,
     const float fixed_stay_score,
     state_t *states,

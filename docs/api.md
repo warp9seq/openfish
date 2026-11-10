@@ -68,6 +68,16 @@ free(sequence);
 free(qstring);
 ```
 
+**CPU decoding of fp16 scores:**
+
+`openfish_decode_cpu_fp16` takes the same arguments as `openfish_decode_cpu`, but `scores_TNC` is a float16 tensor. Scores are converted to float32 as they are read, so no float32 copy of the tensor is made. This lets a tensor produced on a GPU with unified memory be decoded on the CPU directly.
+
+```c
+openfish_decode_cpu_fp16(T, N, C, nthreads, scores.data_ptr(), state_len, &opt, &moves, &sequence, &qstring);
+```
+
+On x86, building with `-mf16c` lets the compiler use the hardware fp16 conversion, which is noticeably faster than the portable fallback. aarch64 always uses the hardware conversion.
+
 **GPU decoding** (requires a `cuda=1` or `rocm=1` build):
 
 ```c
