@@ -104,6 +104,10 @@ void decode_cuda(
     dim3 block_size_gen(1, 1, 1);
 	dim3 grid_size(N, 1, 1);
 
+    // dynamic shared memory sized by num_states rather than MAX_STATES
+    const size_t fwd_post_smem = sizeof(float) * 2 * num_states; // ts_fwd[2]
+    const size_t beam_smem = options->beam_width < (size_t)num_states ? sizeof(float) * num_states : 0; // sorted_back_guides
+
     OPENFISH_LOG_TRACE("scores tensor dim: %d, %d, %d", T, N, C);
 
     scan_args_t scan_args = {0};
@@ -155,7 +159,7 @@ void decode_cuda(
     checkCudaError();
 
     OPENFISH_LOG_TRACE("%s", "beam search...");
-    beam_search<<<grid_size,block_size_beam>>>(
+    beam_search<<<grid_size,block_size_beam,beam_smem>>>(
         beam_args,
         (state_t *)gpubuf->states,
         gpubuf->moves,
@@ -170,7 +174,7 @@ void decode_cuda(
     checkCudaError();
 
     OPENFISH_LOG_TRACE("%s", "fwd + post scan...");
-    fwd_post_scan<<<grid_size,block_size>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
+    fwd_post_scan<<<grid_size,block_size,fwd_post_smem>>>(scan_args, gpubuf->bwd_NTC, gpubuf->post_NTC);
     checkCudaError();
     cudaDeviceSynchronize();
     checkCudaError();

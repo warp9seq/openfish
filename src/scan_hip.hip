@@ -86,9 +86,10 @@ __global__ void fwd_post_scan(
     const uint64_t msb = num_states / NUM_BASES;
     const uint64_t ts_states = num_states * NUM_BASES;
 
-    __shared__ float fwd_vals[MAX_STATES];
+    // dynamic shared memory, sized at launch to 2 * num_states floats:
+    // [ ts_fwd[0] | ts_fwd[1] ], each num_states long
+    extern __shared__ float smem[];
     __shared__ float fwd_maxs[64]; // threadblock max stored in [0]
-    __shared__ float exp_vals[MAX_STATES];
     __shared__ float exp_sums[64]; // threadblock sum stored in [0]
     float warp_max;
 
@@ -96,7 +97,7 @@ __global__ void fwd_post_scan(
     const half *const chunk_scores = scores_in + chunk * ts_states;
 
     // alternating forward guide buffers used for successive time steps
-    __shared__ float ts_fwd[2][MAX_STATES];
+    float *const ts_fwd[2] = {smem, smem + num_states};
 
     // the forward guide input for the first step is 0
     for (uint64_t state = tid; state < num_states; state += nthreads) {
@@ -145,7 +146,6 @@ __global__ void fwd_post_scan(
         // calculate fwd/bwd guide product in log space
         const float val = fwd_val + bwd[ts_idx + state];
 
-        fwd_vals[state] = val;
         warp_max = max(warp_max, val);
         __syncthreads();
 
@@ -170,8 +170,8 @@ __global__ void fwd_post_scan(
         
         // enter exp vals
         float warp_sum = 0.0f;
-        exp_vals[state] = __expf(fwd_vals[state] - fwd_maxs[0]);
-        warp_sum += exp_vals[state];
+        const float exp_val = __expf(val - fwd_maxs[0]);
+        warp_sum += exp_val;
         __syncthreads();
         
         // sum exp vals in warp
@@ -194,7 +194,7 @@ __global__ void fwd_post_scan(
         __syncthreads();
         
         // calculate posterior probability
-        out[ts_idx + state] = exp_vals[state] / exp_sums[0];
+        out[ts_idx + state] = exp_val / exp_sums[0];
         __syncthreads();
     }
 }

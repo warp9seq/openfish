@@ -211,7 +211,8 @@ __global__ void beam_search(
 
     if (beam_width < num_states) {
         // copy the first set of back guides and sort to extract max_beam_width highest elements
-        __shared__ float sorted_back_guides[MAX_STATES];
+        // dynamic shared memory, sized at launch to num_states floats
+        extern __shared__ float sorted_back_guides[];
         for (size_t i = tid; i < num_states; i += nthreads) {
             sorted_back_guides[i] = bwd_NTC[i];
         }
